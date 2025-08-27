@@ -1,0 +1,48 @@
+# sitewatcher: пример стандартного конфигурационного файла
+version: 1
+
+# Глобальные дефолты (могут переопределяться на уровне домена)
+defaults:
+  # HTTP-клиент
+  http_timeout_s: 5               # общий таймаут запроса, секунд
+  latency_warn_ms: 1200           # предупреждение по задержке, мс
+  latency_crit_ms: 3000           # крит по задержке, мс
+  tls_warn_days: 14               # за сколько дней до истечения TLS слать WARN
+  proxy: null                     # глобальный прокси (http://user:pass@host:port или socks5://...)
+  keywords: []                    # глобальные ключевые слова (можно переопределить у домена)
+  checks:
+    http_basic: true              # HTTP-код + измерение задержки
+    tls_cert: true                # срок действия TLS-сертификата
+    keywords: false               # поиск ключевых слов в HTML
+    ping: false                   # ICMP (если доступно) или TCP-пинг как fallback
+
+# Периодический запуск (MVP-скелет не содержит планировщика; оставлено на будущее)
+scheduler:
+  enabled: false
+  interval: "15m"
+
+# Индивидуальные настройки по доменам
+domains:
+  - name: example.com
+    # Локальные переопределения (по необходимости)
+    checks:
+      keywords: true
+      ping: true
+    keywords: ["yandex.metrika", "gtm.js"]
+    latency_warn_ms: 1500
+    latency_crit_ms: 4000
+
+  - name: example.org
+    proxy: "http://proxy.local:3128"   # доменный прокси
+    checks:
+      http_basic: true
+      tls_cert: true
+      keywords: false
+      ping: false
+
+  - name: fast-site.dev
+    checks:
+      http_basic: true
+      tls_cert: false
+      keywords: false
+      ping: true
