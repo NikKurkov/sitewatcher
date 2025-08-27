@@ -3,6 +3,12 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+sitewatcher/pyvenv.cfg
+sitewatcher/data/z_i_index.db
+*.db
+sitewatcher.db
+*.sqlite
+
 # C extensions
 *.so
 
@@ -21,6 +27,7 @@ sdist/
 var/
 wheels/
 share/python-wheels/
+data/*.yaml
 *.egg-info/
 .installed.cfg
 *.egg

@@ -1,0 +1,31 @@
+[project]
+name = "sitewatcher"
+version = "0.1.0"
+description = "Lightweight async website monitoring bot (Telegram)"
+authors = [{ name = "Nikolay Kurkov", email = "nikkurkov@gmail.com" }]
+requires-python = ">=3.11"
+dependencies = [
+  "httpx[http2]>=0.27",
+  "pydantic>=2.6",
+  "PyYAML>=6.0",
+  "python-telegram-bot[job-queue]>=21.6",
+  "icmplib>=3.0; platform_system != 'Windows'",
+  "python-dotenv>=1.0",
+  "dnspython>=2.6",
+  
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sitewatcher*"]
+
+[tool.ruff]
+line-length = 100
+select = ["E","F","I","UP","B"]
+
+[tool.pyright]
+reportMissingTypeStubs = false
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
