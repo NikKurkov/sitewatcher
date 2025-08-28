@@ -1,5 +1,6 @@
-# SiteWatcher — бот для мониторинга сайтов
+<img src="https://raw.githubusercontent.com/NikKurkov/sitewatcher/refs/heads/main/sitewatcher_logo.png" width="300"/>
 
+# SiteWatcher — бот для мониторинга сайтов
 Лёгкий асинхронный мониторинг доступности сайтов и доменов с уведомлениями в Telegram.
 Поддерживает плановые проверки, быстрые разовые проверки, дедупликацию алертов и гибкую конфигурацию.
 
