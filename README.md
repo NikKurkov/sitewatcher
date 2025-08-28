@@ -5,6 +5,8 @@
 Лёгкий асинхронный мониторинг доступности сайтов и доменов с уведомлениями в Telegram.
 Поддерживает плановые проверки, быстрые разовые проверки, дедупликацию алертов и гибкую конфигурацию.
 
+<img src="https://raw.githubusercontent.com/NikKurkov/sitewatcher/refs/heads/main/screenshot.png"/>
+
 ---
 
 ## Возможности
@@ -19,7 +21,6 @@
 - **IP blacklist** — проверка IP сайта на наличие в чёрных списках Spamhaus и т.д.
 - **Ports** — проверка доступности заданных портов (например: веб 80 и 443, почтовый 25 и т.д.)
 
-<img src="https://raw.githubusercontent.com/NikKurkov/sitewatcher/refs/heads/main/screenshot.png"/>
 
 **Другие функции:**
 - Планировщик периодических проверок (общие и индивидуальные для каждого сайта).
