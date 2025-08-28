@@ -34,18 +34,18 @@ class Dispatcher:
       - limits per-domain concurrency with a semaphore,
       - builds and runs the active checks concurrently,
       - optionally serves cached results by per-check TTL.
+
+    Мульти-тенант: все операции требуют owner_id.
     """
 
     def __init__(self, cfg: AppConfig, max_concurrency: int = 10) -> None:
         self.cfg = cfg
         self._client: Optional[httpx.AsyncClient] = None
-        # Default per-domain concurrency if not set in cfg.scheduler
         self._default_per_domain_concurrency = max(1, int(max_concurrency))
 
     # ---------- lifecycle ----------
 
     async def __aenter__(self) -> "Dispatcher":
-        """Create a tuned AsyncClient with graceful HTTP/2 → HTTP/1.1 fallback."""
         http_cfg = getattr(self.cfg, "http", None)
 
         connect = float(getattr(http_cfg, "connect_timeout", 5.0)) if http_cfg else 5.0
@@ -61,12 +61,10 @@ class Dispatcher:
         try:
             self._client = httpx.AsyncClient(http2=True, timeout=timeout, limits=limits)
         except Exception:
-            # Some environments may lack h2; fall back to HTTP/1.1
             self._client = httpx.AsyncClient(http2=False, timeout=timeout, limits=limits)
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
-        """Close the shared AsyncClient."""
         if self._client:
             await self._client.aclose()
             self._client = None
@@ -75,25 +73,17 @@ class Dispatcher:
 
     async def run_for(
         self,
+        owner_id: int,
         domain: str,
         only_checks: Optional[Iterable[str]] = None,
         use_cache: bool = False,
     ) -> List[CheckOutcome]:
         """
-        Run checks for a single domain.
-
-        Args:
-            domain: Domain name.
-            only_checks: If provided, run only these checks by their names.
-            use_cache: If True, return cached results for checks with cache_ttl_minutes > 0.
-
-        Returns:
-            Ordered list of CheckOutcome in the same order the checks were built.
+        Run checks for a single domain (owner-aware).
         """
-        settings = self._resolve(domain)
+        settings = self._resolve(owner_id, domain)
         checks = self._filter_checks(self._build_checks(settings), only_checks)
 
-        # Per-check TTL helper (reads cfg.schedules.<check>.cache_ttl_minutes)
         def _ttl_minutes(check_name: str) -> int:
             sc = getattr(self.cfg.schedules, check_name, None)
             try:
@@ -101,7 +91,6 @@ class Dispatcher:
             except Exception:
                 return 0
 
-        # Per-domain concurrency (cfg.scheduler.per_domain_concurrency or default)
         per_domain_limit = self._get_scheduler_value("per_domain_concurrency", self._default_per_domain_concurrency)
         sem = asyncio.Semaphore(per_domain_limit)
 
@@ -110,7 +99,6 @@ class Dispatcher:
         idx_map: List[int] = []
 
         async def _run_one(idx: int, chk) -> Tuple[int, CheckOutcome]:
-            """Run a single check under semaphore and wrap exceptions."""
             async with sem:
                 try:
                     res = await chk.run()
@@ -119,11 +107,10 @@ class Dispatcher:
                     res = CheckOutcome(name, Status.UNKNOWN, f"error: {e.__class__.__name__}: {e}", {})
                 return idx, res
 
-        # Try cache first if requested; otherwise schedule live tasks.
         for i, chk in enumerate(checks):
             name = getattr(chk, "name", "")
             if use_cache:
-                cached = self._maybe_cached_result(domain, name, _ttl_minutes)
+                cached = self._maybe_cached_result(owner_id, domain, name, _ttl_minutes)
                 if cached is not None:
                     results_ordered[i] = cached
                     continue
@@ -132,7 +119,6 @@ class Dispatcher:
             idx_map.append(i)
 
         if tasks:
-            # Global timeout per domain (cfg.scheduler.domain_timeout_s), optional.
             domain_timeout = self._get_scheduler_value("domain_timeout_s", None)
 
             if isinstance(domain_timeout, (int, float)) and domain_timeout > 0:
@@ -144,12 +130,10 @@ class Dispatcher:
                     for idx, res in done_results:
                         results_ordered[idx] = res
                 except asyncio.TimeoutError:
-                    # Cancel remaining tasks and map outcomes to original ordering.
                     for t in tasks:
                         if not t.done():
                             t.cancel()
 
-                    # Collect results from all tasks, handling cancellations and exceptions
                     gathered = await asyncio.gather(*tasks, return_exceptions=True)
                     for pos, outcome in enumerate(gathered):
                         chk_idx = idx_map[pos]
@@ -172,21 +156,17 @@ class Dispatcher:
 
         return [r for r in results_ordered if r is not None]
 
-    async def run_many(self, domains: Sequence[str]) -> Dict[str, List[CheckOutcome]]:
+    async def run_many(self, owner_id: int, domains: Sequence[str]) -> Dict[str, List[CheckOutcome]]:
         """
-        Convenience helper: run checks for multiple domains.
-
-        Returns:
-            Dict mapping domain -> list of CheckOutcome.
+        Convenience helper: run checks for multiple domains (same owner).
         """
         assert self._client is not None, "Use 'async with Dispatcher(cfg) as d:'"
 
-        # Soft limit for in-flight domains: cfg.scheduler.domains_concurrency (default 5).
         domains_concurrency = self._get_scheduler_value("domains_concurrency", 5)
         sem = asyncio.Semaphore(domains_concurrency)
 
         async def _run(name: str) -> Tuple[str, List[CheckOutcome]]:
-            return name, await self.run_for(name)
+            return name, await self.run_for(owner_id, name)
 
         async def _guarded(name: str) -> Tuple[str, List[CheckOutcome]]:
             async with sem:
@@ -197,29 +177,25 @@ class Dispatcher:
 
     # ---------- internals ----------
 
-    def _resolve(self, domain: str) -> ResolvedSettings:
+    def _resolve(self, owner_id: int, domain: str) -> ResolvedSettings:
         """
-        Resolve base settings and apply per-domain overrides from storage.
-        Only a small set of fields are patched to keep behavior explicit.
+        Resolve base settings and apply per-domain overrides from storage (owner-aware).
         """
         base = resolve_settings(self.cfg, domain)
         try:
-            from . import storage as _st  # local import to avoid circular deps in tests
-            patch = _st.get_domain_override(domain)
+            patch = storage.get_domain_override(owner_id, domain)
         except Exception:
             patch = {}
 
         if not patch:
             return base
 
-        # 1) enable/disable checks
         checks_patch = patch.get("checks")
         if isinstance(checks_patch, dict) and getattr(base, "checks", None) is not None:
             for k, v in checks_patch.items():
                 if hasattr(base.checks, k):
                     setattr(base.checks, k, bool(v))
 
-        # 2) simple scalar/list fields actually used by checks
         for f in (
             "http_timeout_s",
             "latency_warn_ms",
@@ -297,10 +273,6 @@ class Dispatcher:
 
     @staticmethod
     def _normalize_results(results: Iterable[object]) -> List[CheckOutcome]:
-        """
-        Convert results from asyncio.gather(return_exceptions=True) into CheckOutcome list.
-        Not used in current flow (kept as utility).
-        """
         out: List[CheckOutcome] = []
         for r in results:
             if isinstance(r, Exception):
@@ -312,35 +284,33 @@ class Dispatcher:
     # ---------- small helpers ----------
 
     def _get_scheduler_value(self, name: str, default):
-        """Read a numeric value from cfg.scheduler with a sensible default."""
         sched = getattr(self.cfg, "scheduler", object())
         val = getattr(sched, name, None)
         return val if isinstance(val, (int, float)) and val > 0 else default
 
     @staticmethod
     def _strip_cached_suffix(msg: str) -> str:
-        """Remove trailing repeated '[cached Xm]' chunks to avoid duplicates."""
         return re.sub(r"(?:\s*\[cached\s+\d+m\])+$", "", msg or "", flags=re.I)
 
     def _maybe_cached_result(
         self,
+        owner_id: int,
         domain: str,
         check_name: str,
         ttl_fn,
     ) -> Optional[CheckOutcome]:
         """
-        Return cached CheckOutcome if fresh enough, otherwise None.
-        The message is normalized to prevent '[cached Xm]' suffix duplication.
+        Return cached CheckOutcome if fresh enough, otherwise None. (owner-aware)
         """
         ttl = ttl_fn(check_name)
         if ttl <= 0:
             return None
 
-        row = storage.last_history_for_check(domain, check_name)
+        row = storage.last_history_for_check(owner_id, domain, check_name)
         if not row:
             return None
 
-        mins = storage.minutes_since_last(domain, check_name)
+        mins = storage.minutes_since_last(owner_id, domain, check_name)
         if mins is None or mins > ttl:
             return None
 
@@ -359,7 +329,6 @@ class Dispatcher:
 
     @staticmethod
     def _filter_checks(checks: List, only_checks: Optional[Iterable[str]]) -> List:
-        """Filter check instances by .name if a whitelist is provided."""
         if not only_checks:
             return checks
         allowed = {str(x) for x in only_checks}

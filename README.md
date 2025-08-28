@@ -6,9 +6,9 @@ Async мониторинг доменов + Telegram-бот.
 
 ### Команды бота
 - `/add_domain <name.ru>` — добавить домен
-- `/remove_domain <name.ru>` — удалить домен
-- `/list_domain` — список доменов
-- `/check_domain <name.ru>` — проверить один
+- `/remove <name.ru>` — удалить домен
+- `/list` — список доменов
+- `/check <name.ru>` — проверить один
 - `/check_all` — проверить все
 
 

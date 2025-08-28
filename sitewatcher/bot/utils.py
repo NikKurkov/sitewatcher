@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import functools
-import html
 import logging
 import os
 import re
@@ -12,6 +11,9 @@ from typing import Optional
 from telegram import Update
 from telegram.error import NetworkError
 from telegram.ext import ContextTypes
+
+from .. import storage
+from ..config import AppConfig
 
 logger = logging.getLogger("sitewatcher.bot")
 
@@ -32,21 +34,30 @@ def _parse_allowed_user_ids() -> set[int] | None:
 
 
 def requires_auth(func):
-    """Gate each command by allow-list of Telegram user IDs (if configured)."""
     @functools.wraps(func)
     async def wrapper(update, context, *args, **kwargs):
         allowed: set[int] | None = context.application.bot_data.get("allowed_user_ids")
         if allowed is not None:
-            uid = update.effective_user.id if update and update.effective_user else None
+            uid = update.effective_user.id if update.effective_user else None
             if uid is None or uid not in allowed:
-                msg = getattr(update, "effective_message", None)
-                if msg is not None:
-                    await msg.reply_text("⛔️ Access denied.")
-                else:
-                    cq = getattr(update, "callback_query", None)
-                    if cq is not None:
-                        await cq.answer("Access denied", show_alert=True)
+                if getattr(update, "message", None):
+                    await update.message.reply_text("⛔️ Access denied.")
+                elif getattr(update, "callback_query", None):
+                    await update.callback_query.answer("Access denied", show_alert=True)
                 return
+        # Ensure user exists in DB + remember last chat for alerts
+        try:
+            u = update.effective_user
+            chat_id = update.effective_chat.id if update.effective_chat else None
+            storage.ensure_user(
+                telegram_id=u.id if u else None,
+                username=getattr(u, "username", None),
+                first_name=getattr(u, "first_name", None),
+                last_name=getattr(u, "last_name", None),
+                alert_chat_id=chat_id,
+            )
+        except Exception:
+            pass
         return await func(update, context, *args, **kwargs)
     return wrapper
 
@@ -111,11 +122,32 @@ def _format_preview_dict(d: dict, indent: int = 0) -> str:
     return "\n".join(lines) if lines else (pad + "-")
 
 
-def _resolve_alert_chat_id(context: ContextTypes.DEFAULT_TYPE, update: Update | None = None, cfg=None) -> Optional[int]:
-    cfg = cfg or context.application.bot_data.get("cfg")
-    chat_id = (
-        (getattr(cfg.alerts, "chat_id", None) if cfg else None)
-        or (int(os.getenv("TELEGRAM_ALERT_CHAT_ID")) if os.getenv("TELEGRAM_ALERT_CHAT_ID") else None)
-        or (update.effective_chat.id if update and update.effective_chat else None)
-    )
-    return chat_id
+def _resolve_alert_chat_id(
+    context,
+    update: Update | None,
+    cfg: AppConfig | None,
+    owner_id: int | None = None,
+) -> int | None:
+    """
+    Приоритет:
+      1) cfg.alerts.chat_id (если задан явно в конфиге)
+      2) персональная настройка пользователя (users.alert_chat_id), если передан owner_id
+      3) переменная окружения TELEGRAM_ALERT_CHAT_ID
+      4) chat из update (если есть)
+    """
+    if cfg and getattr(cfg.alerts, "chat_id", None):
+        try:
+            return int(cfg.alerts.chat_id)
+        except Exception:
+            pass
+    if owner_id is not None:
+        pref = storage.get_user_alert_chat_id(owner_id)
+        if pref:
+            return pref
+    env = os.getenv("TELEGRAM_ALERT_CHAT_ID")
+    if env:
+        try:
+            return int(env)
+        except Exception:
+            pass
+    return update.effective_chat.id if update and update.effective_chat else None

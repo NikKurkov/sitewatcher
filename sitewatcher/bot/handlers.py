@@ -1,9 +1,9 @@
 # /bot/handlers.py
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
-import os
 import re
 import sqlite3
 from pathlib import Path
@@ -20,7 +20,7 @@ from telegram.ext import (
 )
 
 from .. import storage
-from ..config import AppConfig
+from ..config import AppConfig, resolve_settings
 from ..dispatcher import Dispatcher
 from .alerts import _status_bullet, _status_emoji, _overall_from_results, maybe_send_alert
 from .utils import (
@@ -72,8 +72,9 @@ async def cmd_add_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if msg:
             await msg.reply_text("Usage: /add_domain example.com")
         return
+    owner_id = update.effective_user.id
     name = context.args[0].strip().lower()
-    storage.add_domain(name)
+    storage.add_domain(owner_id, name)
     if msg:
         await msg.reply_text(f"Added: {name}")
 
@@ -86,23 +87,26 @@ async def cmd_remove_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await msg.reply_text("Usage: /remove_domain example.com")
         return
     name = context.args[0].strip().lower()
-    ok = storage.remove_domain(name)
+    owner_id = update.effective_user.id
+    ok = storage.remove_domain(owner_id, name)
     if msg:
         await msg.reply_text("Removed" if ok else "Not found")
 
 
 @requires_auth
 async def cmd_list_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    items: List[str] = storage.list_domains()
+    owner_id = update.effective_user.id
+    items: List[str] = storage.list_domains(owner_id)
     msg = getattr(update, "effective_message", None)
     if msg:
         await msg.reply_text("No domains yet" if not items else "\n".join(items))
 
 
-async def _format_results(domain: str, results) -> str:
-    """Store clean history and format a compact result text with emojis."""
-    for r in results:
-        storage.save_history(domain, r.check, r.status, _strip_cached_suffix(r.message), r.metrics)
+async def _format_results(owner_id: int, domain: str, results, persist: bool = True) -> str:
+    """Store clean history (optionally) and format a compact result text with emojis."""
+    if persist:
+        for r in results:
+            storage.save_history(owner_id, domain, r.check, r.status, _strip_cached_suffix(r.message), r.metrics)
 
     overall = _overall_from_results(results)
     head = f"{_status_emoji(overall)} <b>{html.escape(domain)}</b> — {overall}"
@@ -152,6 +156,7 @@ def _default_checks(keywords_enabled: bool) -> dict:
         "ip_blacklist": True,
         "ip_change": True,
         "keywords": bool(keywords_enabled),
+        # отключаем ports в автосборке для новых доменов
         "ports": False,
     }
 
@@ -314,19 +319,19 @@ async def _finalize_add(update: Update, context: ContextTypes.DEFAULT_TYPE, st: 
     keywords: List[str] = st["keywords"] or []
     kw_enabled: bool = bool(st["keywords_enabled"])
     interval: int = int(st["interval_minutes"])
-
+    owner_id = update.effective_user.id
     checks_map = _default_checks(keywords_enabled=kw_enabled)
 
     added = []
     for d in domains:
-        storage.add_domain(d)
+        storage.add_domain(owner_id, d)
         patch = {
             "checks": checks_map,
             "interval_minutes": interval,
         }
         if kw_enabled:
             patch["keywords"] = keywords
-        storage.set_domain_override(d, patch)
+        storage.set_domain_override(owner_id, d, patch)
         added.append(d)
 
     # Cleanup state
@@ -368,12 +373,14 @@ async def cmd_cfg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if msg:
             await msg.reply_text("Usage: /cfg <domain>")
         return
+
     domain = context.args[0].strip().lower()
+    owner_id = update.effective_user.id
     cfg: AppConfig = context.application.bot_data["cfg"]
 
-    # Get effective settings via Dispatcher.resolve
+    # Get effective settings via Dispatcher.resolve (owner-aware)
     async with Dispatcher(cfg) as d:
-        settings = d._resolve(domain)  # private API, but internal
+        settings = d._resolve(owner_id, domain)  # ожидается owner-aware реализация
 
     effective = {
         "checks": {k: getattr(settings.checks, k) for k in dir(settings.checks) if not k.startswith("_") and isinstance(getattr(settings.checks, k), (bool,))},
@@ -386,7 +393,7 @@ async def cmd_cfg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "ports": getattr(settings, "ports", None),
     }
 
-    override = storage.get_domain_override(domain)
+    override = storage.get_domain_override(owner_id, domain)
 
     text = (
         f"<b>{html.escape(domain)}</b>\n\n"
@@ -429,6 +436,7 @@ async def cmd_cfg_set(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     domain = context.args[0].strip().lower()
     key = context.args[1].strip()
     val = " ".join(context.args[2:]).strip()
+    owner_id = update.effective_user.id
 
     patch: dict = {}
 
@@ -476,7 +484,7 @@ async def cmd_cfg_set(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await msg.reply_text("Unknown key. Use: checks.<name>, http_timeout_s, latency_warn_ms, latency_crit_ms, tls_warn_days, keywords, ports, proxy, interval_minutes")
         return
 
-    merged = storage.set_domain_override(domain, patch)
+    merged = storage.set_domain_override(owner_id, domain, patch)
     if msg:
         await msg.reply_text(
             "✅ Saved.\nCurrent override:\n<pre>{}</pre>".format(html.escape(_format_preview_dict(merged))),
@@ -494,8 +502,9 @@ async def cmd_cfg_unset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     domain = context.args[0].strip().lower()
     key = context.args[1].strip() if len(context.args) > 1 else None
+    owner_id = update.effective_user.id
 
-    storage.unset_domain_override(domain, key)
+    storage.unset_domain_override(owner_id, domain, key)
 
     if msg:
         if key:
@@ -507,31 +516,50 @@ async def cmd_cfg_unset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 @requires_auth
 async def cmd_check_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    msg = getattr(update, "effective_message", None)
     if not context.args:
-        if msg:
-            await msg.reply_text("Usage: /check_domain example.com")
+        await update.message.reply_text("Usage: /check_domain example.com")
         return
 
+    owner_id = update.effective_user.id
     raw = context.args[0].strip().lower()
     force = raw in ("--force", "-f", "force")
     name = (context.args[1] if force and len(context.args) > 1 else raw).strip().lower()
 
     cfg: AppConfig = context.application.bot_data["cfg"]
-    async with Dispatcher(cfg) as d:
-        results = await d.run_for(name, use_cache=not force)
-        text = await _format_results(name, results)
 
-    if msg:
-        await safe_reply_html(msg, text)
-    await maybe_send_alert(update, context, name, results)
+    # Если домен принадлежит пользователю — обычный режим (пишем историю, алерты и т.д.)
+    if storage.domain_exists(owner_id, name):
+        async with Dispatcher(cfg) as d:
+            results = await d.run_for(owner_id, name, use_cache=not force)
+            text = await _format_results(owner_id, name, results, persist=True)
+        await safe_reply_html(update.message, text)
+        await maybe_send_alert(update, context, owner_id, name, results)
+        return
+
+    # Эпизодический режим: домена нет у пользователя → без сохранения и без алертов.
+    async with Dispatcher(cfg) as d:
+        # Базовые настройки из конфигурации
+        settings = resolve_settings(cfg, name)
+        # Принудительно выключаем keywords для таких разовых проверок
+        try:
+            settings.checks.keywords = False
+        except Exception:
+            pass
+        # Собираем проверки и запускаем их параллельно
+        checks = d._build_checks(settings)
+        results = await asyncio.gather(*(chk.run() for chk in checks))
+
+    text = await _format_results(owner_id, name, results, persist=False)
+    await safe_reply_html(update.message, text)
+    # Никаких maybe_send_alert в эпизодическом режиме
 
 
 @requires_auth
 async def cmd_check_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     msg = getattr(update, "effective_message", None)
     cfg: AppConfig = context.application.bot_data["cfg"]
-    names = storage.list_domains()
+    owner_id = update.effective_user.id
+    names = storage.list_domains(owner_id)
     if not names:
         if msg:
             await msg.reply_text("No domains in DB")
@@ -546,9 +574,9 @@ async def cmd_check_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     parts = []
     async with Dispatcher(cfg) as d:
         for name in names:
-            results = await d.run_for(name, use_cache=not force)
-            parts.append(await _format_results(name, results))
-            await maybe_send_alert(update, context, name, results)
+            results = await d.run_for(owner_id, name, use_cache=not force)
+            parts.append(await _format_results(owner_id, name, results, persist=True))
+            await maybe_send_alert(update, context, owner_id, name, results)
 
     if msg:
         await safe_reply_html(msg, "\n\n".join(parts))
@@ -567,7 +595,8 @@ async def cmd_clear_cache(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.exception("clear_whois_cache failed: %s", e)
 
     # 2) RKN index (SQLite file) + legacy artifacts
-    base_dir = Path(__file__).resolve().parent
+    # base_dir -> корень пакета (на уровень выше /bot)
+    base_dir = Path(__file__).resolve().parents[1]
     data_dir = base_dir / "data"
     rkn_db_path = Path(cfg.rkn.index_db_path) if getattr(cfg.rkn, "index_db_path", None) else (data_dir / "z_i_index.db")
 
