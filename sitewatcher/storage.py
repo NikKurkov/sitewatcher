@@ -82,9 +82,18 @@ _INITIALIZED = False
 
 
 def _connect(db_path: Path = DEFAULT_DB) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path)
+    # Use WAL for better concurrency with jobs + handlers, and longer busy timeout.
+    conn = sqlite3.connect(
+        db_path,
+        isolation_level=None,          # autocommit; explicit transactions via 'with conn'
+        timeout=30.0,                  # 30s busy timeout at driver-level
+        check_same_thread=False,       # safer when used across async contexts/threads
+    )
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON;")
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA busy_timeout=30000;")  # 30s at SQL level
     return conn
 
 
@@ -151,7 +160,7 @@ def get_user_alert_chat_id(owner_id: int) -> Optional[int]:
 def ensure_domain(owner_id: int, name: str) -> None:
     """
     Гарантирует наличие пользователя и пары (owner_id, domain) в таблицах users/domains.
-    Это устраняет ошибки FK при работе команд с «чужими» доменами (например /check_domain без /add).
+    Это устраняет ошибки FK при работе команд с «чужими» доменами (например /check без /add).
     """
     _ensure_initialized()
     name = (name or "").strip().lower()

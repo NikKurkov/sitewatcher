@@ -10,7 +10,7 @@ from typing import Optional
 from .base import BaseCheck, CheckOutcome, Status
 
 DEFAULT_TLS_TIMEOUT_S = 10.0  # Single source of truth for this check
-_IMPL_TAG = "tls_cert@2025-08-28_1"  # для быстрой верификации, что грузится нужный модуль
+_IMPL_TAG = "tls_cert@2025-08-28_1"
 
 
 class TlsCertCheck(BaseCheck):
