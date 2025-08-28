@@ -8,7 +8,6 @@
 ---
 
 ## Возможности
-<img src="https://raw.githubusercontent.com/NikKurkov/sitewatcher/refs/heads/main/screenshot.png" align="right"/>
 
 **Проверки (checks):**
 - **HTTP Basic** — статус-код (200, 440, 500 и т.д.) и время ответа главной страницы (с учётом редиректов).
@@ -19,6 +18,8 @@
 - **IP change** — отслеживание смены A-записей домена.
 - **IP blacklist** — проверка IP сайта на наличие в чёрных списках Spamhaus и т.д.
 - **Ports** — проверка доступности заданных портов (например: веб 80 и 443, почтовый 25 и т.д.)
+
+<img src="https://raw.githubusercontent.com/NikKurkov/sitewatcher/refs/heads/main/screenshot.png"/>
 
 **Другие функции:**
 - Планировщик периодических проверок (общие и индивидуальные для каждого сайта).
