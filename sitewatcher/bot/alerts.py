@@ -11,7 +11,7 @@ from typing import NamedTuple, Optional
 from telegram.ext import ContextTypes
 
 from .. import storage
-from ..config import AppConfig  # ⟵ добавлен импорт
+from ..config import AppConfig
 from .utils import _resolve_alert_chat_id
 
 logger = logging.getLogger("sitewatcher.bot")
@@ -126,7 +126,9 @@ async def maybe_send_alert(update, context, owner_id: int, domain: str, results)
     # policy
     if policy == "worsen_only":
         if _status_weight(overall) <= _status_weight(prev_overall):
-            storage.upsert_alert_state(owner_id, domain, overall, row["last_sent_at"] if row else None)  # ⟵ исправлено
+            storage.upsert_alert_state(
+                owner_id, domain, overall, row["last_sent_at"] if row else None
+            )
             return
     elif policy == "overall_change":
         if overall == prev_overall:
@@ -179,4 +181,5 @@ async def maybe_send_alert(update, context, owner_id: int, domain: str, results)
     except Exception as e:
         logger.exception("alert send failed for %s: %s", domain, e)
         if last_sent_at_dt is not None:
-            storage.upsert_alert_state(owner_id, domain, overall, last_sent_at_dt.isoformat())  # ⟵ исправлено
+                    storage.upsert_alert_state(owner_id, domain, overall, last_sent_at_dt.isoformat())
+

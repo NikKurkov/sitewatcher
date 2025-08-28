@@ -3,11 +3,19 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# Secrets & local env
+.env
+.env.*.local
+
+# Local/ephemeral
 sitewatcher/pyvenv.cfg
-sitewatcher/data/z_i_index.db
 *.db
-sitewatcher.db
 *.sqlite
+sitewatcher.db
+
+# Large/local caches
+sitewatcher/data/z_i_index.db
+sitewatcher/data/*.gz
 
 # C extensions
 *.so

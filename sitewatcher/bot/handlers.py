@@ -39,9 +39,9 @@ logger = logging.getLogger("sitewatcher.bot")
 HELP_TEXT = (
     "/add <domain1> [domain2 ...] — add domains via quick wizard (keywords + interval)\n"
     "/add_domain <name> — add a domain (legacy, no wizard)\n"
-    "/remove_domain <name> — remove a domain\n"
-    "/list_domain — list domains\n"
-    "/check_domain <name> [--force] — run checks for a domain (use cache unless --force)\n"
+    "/remove <name> — remove a domain\n"
+    "/list — list domains\n"
+    "/check <name> [--force] — run checks for a domain (use cache unless --force)\n"
     "/check_all [--force] — run checks for all domains\n"
     "/cfg <name> — show effective config and DB override for a domain\n"
     "/cfg_set <name> <key> <value> — set override (e.g. checks.http_basic true, keywords \"a,b\")\n"
@@ -55,7 +55,7 @@ ADD_WAIT_INTERVAL = 1002
 
 # Permissive domain validator
 _DOMAIN_RE = re.compile(r"^[a-z0-9.-]+\.[a-z]{2,}$", re.IGNORECASE)
-
+DOMAIN_RE = re.compile(r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63})+$")
 
 @requires_auth
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -66,17 +66,25 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 @requires_auth
 async def cmd_add_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Legacy add: just insert a domain, no wizard, no overrides."""
+    """Add domain quickly; basic validation is applied."""
     msg = getattr(update, "effective_message", None)
     if not context.args:
         if msg:
             await msg.reply_text("Usage: /add_domain example.com")
         return
+
     owner_id = update.effective_user.id
     name = context.args[0].strip().lower()
+
+    # Basic domain validation to prevent garbage input.
+    if not DOMAIN_RE.match(name):
+        if msg:
+            await msg.reply_text("Invalid domain format. Expect like: example.com")
+        return
+
     storage.add_domain(owner_id, name)
     if msg:
-        await msg.reply_text(f"Added: {name}")
+        await msg.reply_text(f"Added: <b>{html.escape(name)}</b>", parse_mode="HTML")
 
 
 @requires_auth
@@ -346,7 +354,7 @@ async def _finalize_add(update: Update, context: ContextTypes.DEFAULT_TYPE, st: 
             "Checks: http_basic, tls_cert, ping, rkn_block, whois, ip_blacklist, ip_change{kw}\n"
             "Keywords: {kw_str}\n"
             "Auto-check interval: {interval_str}\n\n"
-            "Use /check_domain <name> to run a manual check now."
+            "Use /check <name> to run a manual check now."
             .format(
                 doms=", ".join(added),
                 kw=", keywords" if kw_enabled else "",
@@ -517,7 +525,7 @@ async def cmd_cfg_unset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 @requires_auth
 async def cmd_check_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not context.args:
-        await update.message.reply_text("Usage: /check_domain example.com")
+        await update.message.reply_text("Usage: /check example.com")
         return
 
     owner_id = update.effective_user.id
@@ -669,9 +677,9 @@ def register_handlers(app: Application) -> None:
     # Other handlers
     app.add_handler(CommandHandler(["start", "help"], cmd_help))
     app.add_handler(CommandHandler("add_domain", cmd_add_domain))
-    app.add_handler(CommandHandler("remove_domain", cmd_remove_domain))
-    app.add_handler(CommandHandler("list_domain", cmd_list_domain))
-    app.add_handler(CommandHandler("check_domain", cmd_check_domain))
+    app.add_handler(CommandHandler("remove", cmd_remove_domain))
+    app.add_handler(CommandHandler("list", cmd_list_domain))
+    app.add_handler(CommandHandler("check", cmd_check_domain))
     app.add_handler(CommandHandler("check_all", cmd_check_all))
     app.add_handler(CommandHandler("clear_cache", cmd_clear_cache))
     app.add_handler(CommandHandler("cfg", cmd_cfg))
