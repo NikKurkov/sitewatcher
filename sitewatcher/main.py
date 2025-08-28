@@ -21,7 +21,7 @@ def _parse_args() -> argparse.Namespace:
     CLI parser for three simple modes:
       - bot: run Telegram bot (blocking)
       - check_all: run checks for all domains once
-      - check_domain: run checks for a single domain once
+      - check: run checks for a single domain once
 
     Extra options:
       --config <path>   : path to config.yaml

@@ -13,29 +13,28 @@ from .utils import _strip_cached_suffix, _resolve_alert_chat_id
 logger = logging.getLogger("sitewatcher.bot")
 
 
-async def _run_checks_for_all_domains(context: ContextTypes.DEFAULT_TYPE, warmup: bool) -> None:
-    """Background scheduler loop."""
-    cfg = context.application.bot_data["cfg"]
-    domains = storage.list_domains()
-    if not domains:
+async def _run_checks_for_all_domains(context, warmup: bool) -> None:
+    cfg: AppConfig = context.application.bot_data["cfg"]
+    owners = storage.list_users()
+    if not owners:
         return
-
     async with Dispatcher(cfg) as d:
-        for name in domains:
-            try:
-                # Figure out due checks per domain
-                due = _due_checks_for_domain(cfg, name)
-                if not due:
-                    continue
-                results = await d.run_for(name, only_checks=due, use_cache=False)
-                for r in results:
-                    storage.save_history(name, r.check, r.status, _strip_cached_suffix(r.message), r.metrics)
-                await maybe_send_alert(None, context, name, results)
-            except Exception as e:
-                logger.exception("scheduler: %s failed: %s", name, e)
+        for owner_id in owners:
+            names = storage.list_domains(owner_id)
+            for name in names:
+                try:
+                    due = _due_checks_for_domain(cfg, owner_id, name)
+                    if not due:
+                        continue
+                    results = await d.run_for(owner_id, name, only_checks=due, use_cache=False)
+                    for r in results:
+                        storage.save_history(owner_id, name, r.check, r.status, _strip_cached_suffix(r.message), r.metrics)
+                    await maybe_send_alert(None, context, owner_id, name, results)
+                except Exception as e:
+                    logger.exception("scheduler: %s/%s failed: %s", owner_id, name, e)
 
 
-def _due_checks_for_domain(cfg, domain: str) -> list[str]:
+def _due_checks_for_domain(cfg: AppConfig, owner_id: int, domain: str) -> List[str]:
     """
     Decide which checks are due for the domain.
 
@@ -46,32 +45,28 @@ def _due_checks_for_domain(cfg, domain: str) -> list[str]:
     Otherwise: fall back to per-check intervals from cfg.schedules.
     """
     # Domain-level override
+    override = {}
     try:
-        override = storage.get_domain_override(domain) or {}
+        override = storage.get_domain_override(owner_id, domain) or {}
     except Exception:
         override = {}
-
-    from datetime import datetime
     if isinstance(override.get("interval_minutes"), int):
         iv = int(override["interval_minutes"])
         if iv <= 0:
             return []
-        due: list[str] = []
-        sched_names = list(cfg.schedules.model_dump().keys())
-        for check_name in sched_names:
-            mins = storage.minutes_since_last(domain, check_name)
+        due: List[str] = []
+        for check_name in list(cfg.schedules.model_dump().keys()):
+            mins = storage.minutes_since_last(owner_id, domain, check_name)
             if mins is None or mins >= iv:
                 due.append(check_name)
         return due
-
-    # Default per-check schedule
     sched = cfg.schedules.model_dump()
-    due: list[str] = []
+    due: List[str] = []
     for check_name, sc in sched.items():
         interval_min = int(sc.get("interval_minutes") or 0)
         if interval_min <= 0:
             continue
-        mins = storage.minutes_since_last(domain, check_name)
+        mins = storage.minutes_since_last(owner_id, domain, check_name)
         if mins is None or mins >= interval_min:
             due.append(check_name)
     return due
