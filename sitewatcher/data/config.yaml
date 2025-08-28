@@ -17,7 +17,7 @@ defaults:
     keywords: false                  # HTML keywords presence
     ping: true                       # ICMP if available, TCP fallback
     rkn_block: true                  # RKN blocklist check
-    ports: true                      # Basic TCP port checks
+    ports: false                     # Basic TCP port checks
     whois: true                      # WHOIS/RDAP changes
     ip_blacklist: true               # DNSBL spam/abuse lists
     ip_change: true                  # DNS A/AAAA change detection
@@ -30,7 +30,7 @@ scheduler:
   run_on_startup: true               # run a warmup pass on startup
   domains_concurrency: 5
   per_domain_concurrency: 4
-  domain_timeout_s: 25               # hard time budget for all checks of a single domain
+  domain_timeout_s: 120              # hard time budget for all checks of a single domain
 
 # -------- Per-check schedules (1440 minutes = 1 day) --------
 schedules:

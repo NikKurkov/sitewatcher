@@ -145,6 +145,7 @@ class RknConfig(BaseModel):
     index_db_path: str | None = None
     match_subdomains: bool = True
     check_ip: bool = True
+    dns_timeout_s: int = 3
 
 
 class HttpClientConfig(BaseModel):

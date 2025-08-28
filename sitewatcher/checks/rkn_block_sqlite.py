@@ -1,4 +1,4 @@
-# /checks/rkn_block_sqlite.py
+# checks/rkn_block_sqlite.py
 from __future__ import annotations
 
 import asyncio
@@ -18,15 +18,13 @@ from .base import BaseCheck, CheckOutcome, Status
 from ..config import RknConfig
 from ..utils.http_retry import get_with_retries
 
-# --- SSOT: constants & regexes ---
 _ZI_BASE_URL = "https://raw.githubusercontent.com/zapret-info/z-i/master/"
-_ZI_PARTS_COUNT = 20            # dump-00..19.csv
-_BATCH_SIZE = 10_000            # insert batch size
+_ZI_PARTS_COUNT = 20
+_BATCH_SIZE = 10_000
 
 _DOMAIN_RE = re.compile(r"\b([a-z0-9-]+\.)+[a-z]{2,}\b", re.IGNORECASE)
 _IP_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 
-# SQLite schema (kept minimal and tuned for fast inserts / lookups)
 SCHEMA_SQL = """
 PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
@@ -48,33 +46,18 @@ CREATE TABLE IF NOT EXISTS ips (
 CREATE INDEX IF NOT EXISTS idx_ips_ip ON ips(ip);
 """
 
-
 class RknBlockCheck(BaseCheck):
-    """
-    SQLite-backed RKN (zapret-info) checker.
-
-    - Maintains a compact local index with two sets: domains and IPv4 addresses.
-    - Rebuilds the index when stale using the official dump with resilient fallbacks.
-    - Queries are simple equality lookups; subdomain matching is done in Python.
-    """
     name = "rkn_block"
-
-    # Process-wide lock to avoid concurrent rebuilds.
     _lock = asyncio.Lock()
 
     def __init__(self, domain: str, client: httpx.AsyncClient, rkn_cfg: RknConfig) -> None:
         super().__init__(domain)
         self.client = client
         self.cfg = rkn_cfg
-
         data_dir = Path(__file__).resolve().parent.parent / "data"
-        # Align with bot's clear-cache routine
         self.db_path = Path(self.cfg.index_db_path) if self.cfg.index_db_path else (data_dir / "z_i_index.db")
 
-    # ---------------- public ----------------
-
     async def run(self) -> CheckOutcome:
-        """Check domain/IP presence in local SQLite index; refresh index if stale."""
         try:
             await self._ensure_index_up_to_date()
         except Exception as e:
@@ -82,7 +65,7 @@ class RknBlockCheck(BaseCheck):
 
         dom = self.domain.lower().rstrip(".")
 
-        # 1) domain & parent labels (if enabled)
+        # 1) domain/parent labels
         matched = self._query_domain_match(dom, self.cfg.match_subdomains)
         if matched:
             return CheckOutcome(
@@ -92,7 +75,7 @@ class RknBlockCheck(BaseCheck):
                 metrics={"type": "domain", "matched": matched, "source": "z-i", "fetched_at": self._get_meta("fetched_at")},
             )
 
-        # 2) IPv4
+        # 2) IPv4 (с коротким DNS-таймаутом)
         if self.cfg.check_ip:
             ips = await self._resolve_ips(dom)
             hit = self._query_ip_match(ips)
@@ -104,26 +87,28 @@ class RknBlockCheck(BaseCheck):
                     metrics={"type": "ip", "matched": hit, "source": "z-i", "fetched_at": self._get_meta("fetched_at")},
                 )
 
-        return CheckOutcome(
-            self.name,
-            Status.OK,
-            "not listed",
-            {"source": "z-i", "fetched_at": self._get_meta("fetched_at")},
-        )
+        return CheckOutcome(self.name, Status.OK, "not listed", {"source": "z-i", "fetched_at": self._get_meta("fetched_at")})
 
     # ---------------- indexing / TTL ----------------
 
     async def _ensure_index_up_to_date(self) -> None:
-        """Create schema if needed and refresh index when older than TTL."""
+        """Не ходим в сеть, если БД уже наполнена и/или не просрочена."""
         self._ensure_schema()
 
         async with self._lock:
             fetched_at = self._get_meta("fetched_at")
+
+            # Если метки нет, но таблицы не пустые — считаем индекс валидным и проставляем метку сейчас.
+            if not fetched_at and self._has_data():
+                self._set_meta("fetched_at", datetime.now(timezone.utc).isoformat())
+                return
+
+            # Если метка есть и не истёк TTL — ничего не делаем.
             if fetched_at and not self._expired_iso(fetched_at):
                 return
 
+            # Иначе — действительно обновляем из сети.
             text = await self._download_dump(self.cfg.z_i_url)
-            # Heavy work moved to a thread to keep the loop responsive
             await asyncio.to_thread(self._rebuild_index, text)
             await asyncio.to_thread(self._set_meta, "fetched_at", datetime.now(timezone.utc).isoformat())
 
@@ -143,6 +128,15 @@ class RknBlockCheck(BaseCheck):
         ttl = timedelta(hours=int(self.cfg.cache_ttl_hours or 12))
         return datetime.now(timezone.utc) - dt >= ttl
 
+    def _has_data(self) -> bool:
+        conn = self._connect()
+        try:
+            c1 = conn.execute("SELECT 1 FROM domains LIMIT 1").fetchone() is not None
+            c2 = conn.execute("SELECT 1 FROM ips     LIMIT 1").fetchone() is not None
+            return c1 or c2
+        finally:
+            conn.close()
+
     # ---------------- DB helpers ----------------
 
     def _connect(self) -> sqlite3.Connection:
@@ -155,8 +149,7 @@ class RknBlockCheck(BaseCheck):
     def _get_meta(self, key: str) -> Optional[str]:
         conn = self._connect()
         try:
-            cur = conn.execute("SELECT value FROM meta WHERE key = ?", (key,))
-            row = cur.fetchone()
+            row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
             return row[0] if row else None
         finally:
             conn.close()
@@ -174,7 +167,6 @@ class RknBlockCheck(BaseCheck):
             conn.close()
 
     def _rebuild_index(self, text: str) -> None:
-        """Rebuild tables in a single immediate transaction, batched inserts for speed."""
         conn = self._connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -186,16 +178,10 @@ class RknBlockCheck(BaseCheck):
 
             def flush() -> None:
                 if dom_batch:
-                    conn.executemany(
-                        "INSERT OR IGNORE INTO domains(domain) VALUES(?)",
-                        ((d,) for d in dom_batch),
-                    )
+                    conn.executemany("INSERT OR IGNORE INTO domains(domain) VALUES(?)", ((d,) for d in dom_batch))
                     dom_batch.clear()
                 if ip_batch:
-                    conn.executemany(
-                        "INSERT OR IGNORE INTO ips(ip) VALUES(?)",
-                        ((i,) for i in ip_batch),
-                    )
+                    conn.executemany("INSERT OR IGNORE INTO ips(ip) VALUES(?)", ((i,) for i in ip_batch))
                     ip_batch.clear()
 
             for line in text.splitlines():
@@ -220,7 +206,6 @@ class RknBlockCheck(BaseCheck):
     # ---------------- queries ----------------
 
     def _query_domain_match(self, domain: str, subdomains: bool) -> Optional[str]:
-        """Return the first match for domain or its parents (if enabled)."""
         candidates = [domain]
         if subdomains:
             labels = domain.split(".")
@@ -231,35 +216,26 @@ class RknBlockCheck(BaseCheck):
         sql = f"SELECT domain FROM domains WHERE domain IN ({placeholders}) LIMIT 1"
         conn = self._connect()
         try:
-            cur = conn.execute(sql, candidates)
-            row = cur.fetchone()
+            row = conn.execute(sql, candidates).fetchone()
             return row[0] if row else None
         finally:
             conn.close()
 
     def _query_ip_match(self, ips: Sequence[str]) -> list[str]:
-        """Return all hits among provided IPv4 strings."""
         if not ips:
             return []
         placeholders = ",".join("?" for _ in ips)
         sql = f"SELECT ip FROM ips WHERE ip IN ({placeholders})"
         conn = self._connect()
         try:
-            cur = conn.execute(sql, list(ips))
-            return [r[0] for r in cur.fetchall()]
+            return [r[0] for r in conn.execute(sql, list(ips)).fetchall()]
         finally:
             conn.close()
 
-    # ---------------- downloading (with fallbacks) ----------------
+    # ---------------- downloading (fallbacks) ----------------
 
     async def _download_dump(self, url: str) -> str:
-        """
-        1) Try dump.csv.gz (decompress if needed).
-        2) Fallback to dump-00..19.csv concatenation.
-        3) Fallback to mirrors.txt (gz/plain).
-        All HTTP calls use retry logic and modest timeouts.
-        """
-        # 1) gz (or plain csv)
+        # 1) gz (или plain csv)
         try:
             r = await get_with_retries(self.client, url, timeout_s=45.0, retries=3, backoff_s=0.5, retry_on_status=(502, 503, 504), follow_redirects=True)
             r.raise_for_status()
@@ -295,10 +271,7 @@ class RknBlockCheck(BaseCheck):
         try:
             mirrors_txt = await get_with_retries(self.client, f"{_ZI_BASE_URL}mirrors.txt", timeout_s=15.0, retries=2, backoff_s=0.3, retry_on_status=(502, 503, 504), follow_redirects=True)
             if mirrors_txt.status_code == 200:
-                mirrors = [
-                    ln.strip() for ln in mirrors_txt.text.splitlines()
-                    if ln.strip() and not ln.strip().startswith("#")
-                ]
+                mirrors = [ln.strip() for ln in mirrors_txt.text.splitlines() if ln.strip() and not ln.strip().startswith("#")]
                 for m in mirrors:
                     for cand in (f"{m.rstrip('/')}/dump.csv.gz", f"{m.rstrip('/')}/dump.csv"):
                         try:
@@ -328,7 +301,6 @@ class RknBlockCheck(BaseCheck):
 
     @staticmethod
     def _decode_bytes(data: bytes) -> str:
-        """Prefer UTF-8; fallback to CP1251 (common on mirrors)."""
         try:
             return data.decode("utf-8")
         except UnicodeDecodeError:
@@ -336,7 +308,6 @@ class RknBlockCheck(BaseCheck):
 
     @staticmethod
     def _looks_like_domain(d: str) -> bool:
-        """Reject IP tokens; require ≥2 labels and TLD len ≥2."""
         try:
             ipaddress.ip_address(d)
             return False
@@ -354,10 +325,13 @@ class RknBlockCheck(BaseCheck):
             return False
 
     async def _resolve_ips(self, domain: str) -> list[str]:
-        """Resolve IPv4 addresses via getaddrinfo; return unique list."""
+        """DNS с небольшим тайм-аутом, чтобы не срывать общий бюджет домена."""
         loop = asyncio.get_running_loop()
+        timeout_s = float(getattr(self.cfg, "dns_timeout_s", 3) or 3)
         try:
-            infos = await loop.getaddrinfo(domain, 80, type=socket.SOCK_STREAM)
+            infos = await asyncio.wait_for(loop.getaddrinfo(domain, 80, type=socket.SOCK_STREAM), timeout=timeout_s)
+        except asyncio.TimeoutError:
+            return []
         except Exception:
             return []
         out: list[str] = []
