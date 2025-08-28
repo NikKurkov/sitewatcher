@@ -1,5 +1,6 @@
 <img src="https://raw.githubusercontent.com/NikKurkov/sitewatcher/refs/heads/main/sitewatcher_logo.png" width="300"/>
 
+
 # SiteWatcher — бот для мониторинга сайтов
 Лёгкий асинхронный мониторинг доступности сайтов и доменов с уведомлениями в Telegram.
 Поддерживает плановые проверки, быстрые разовые проверки, дедупликацию алертов и гибкую конфигурацию.
@@ -7,6 +8,7 @@
 ---
 
 ## Возможности
+<img src="https://raw.githubusercontent.com/NikKurkov/sitewatcher/refs/heads/main/screenshot.png" align="right"/>
 
 **Проверки (checks):**
 - **HTTP Basic** — статус-код (200, 440, 500 и т.д.) и время ответа главной страницы (с учётом редиректов).
