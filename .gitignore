@@ -16,6 +16,7 @@ sitewatcher.db
 # Large/local caches
 sitewatcher/data/z_i_index.db
 sitewatcher/data/*.gz
+sitewatcher.zip
 
 # C extensions
 *.so
