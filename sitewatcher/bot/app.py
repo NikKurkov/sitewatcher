@@ -9,7 +9,7 @@ from telegram.request import HTTPXRequest
 
 from ..config import AppConfig, get_bot_token_from_env
 from .alerts import AlertDeduper
-from .handlers import register_handlers
+from .router import register_handlers
 from .jobs import register_jobs
 from .utils import _parse_allowed_user_ids
 
