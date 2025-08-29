@@ -5,8 +5,8 @@ version: 1
 defaults:
   # HTTP client
   http_timeout_s: 5                  # per-request timeout (seconds)
-  latency_warn_ms: 1200              # WARN threshold for latency (ms)
-  latency_crit_ms: 3000              # CRIT threshold for latency (ms)
+  latency_warn_ms: 3000              # WARN threshold for latency (ms)
+  latency_crit_ms: 5000              # CRIT threshold for latency (ms)
   tls_warn_days: 14                  # days before TLS expiry to raise WARN
   proxy: null                        # global proxy (http://user:pass@host:port or socks5://...)
   keywords: []                       # global keywords (can be overridden per domain)
