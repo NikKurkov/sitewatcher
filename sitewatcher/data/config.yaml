@@ -1,4 +1,4 @@
-# sitewatcher: sample configuration (English comments)
+# sitewatcher: sample configuration
 version: 1
 
 # -------- Global defaults (overridable per-domain) --------
@@ -48,7 +48,7 @@ schedules:
 alerts:
   enabled: true
   policy: worsen_only                  # one of: all | overall_change | worsen_only
-  cooldown_sec: 120                    # anti-spam: minimum seconds between alerts for the same domain
+  cooldown_sec: 1440                   # anti-spam: minimum seconds between alerts for the same domain (1440 - once a day)
   # debounce_sec can be left for backward-compat setups; code supports both.
   # debounce_sec: 120
   chat_id: null                        # if set, alerts always go here; otherwise to the invoking chat
