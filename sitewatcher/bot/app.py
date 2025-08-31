@@ -45,7 +45,9 @@ def run_bot(cfg: AppConfig) -> None:
     app.bot_data["allowed_user_ids"] = allowed_ids
 
     # Alerts deduper instance in bot_data (no globals)
-    cooldown = int(getattr(cfg.alerts, "cooldown_sec", getattr(cfg.alerts, "debounce_sec", 300)) or 300)
+    cooldown = int((getattr(cfg.alerts, "cooldown_sec", None)
+                        or getattr(cfg.alerts, "debounce_sec", None)
+                        or 0))
     app.bot_data["alert_deduper"] = AlertDeduper(cooldown_sec=cooldown)
 
     # Handlers & jobs

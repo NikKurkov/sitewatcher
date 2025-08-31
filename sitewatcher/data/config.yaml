@@ -25,9 +25,9 @@ defaults:
 # -------- Scheduler settings --------
 scheduler:
   enabled: true
-  interval_minutes: 10               # how often background checks run
-  jitter_seconds: 30                 # random delay at startup to avoid herd thundering
-  run_on_startup: true               # run a warmup pass on startup
+  interval_minutes: 1                 # how often background checks run
+  jitter_seconds: 30                  # random delay at startup to avoid herd thundering
+  run_on_startup: false               # run a warmup pass on startup
   domains_concurrency: 5
   per_domain_concurrency: 4
   domain_timeout_s: 120              # hard time budget for all checks of a single domain
