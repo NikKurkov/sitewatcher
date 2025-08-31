@@ -84,7 +84,7 @@ rkn:
   cache_ttl_hours: 12
   index_db_path: null                 # default: sitewatcher/data/z_i_index.db
   match_subdomains: true
-  check_ip: true
+  check_ip: false
 
 # -------- Port checks (global defaults) --------
 ports:

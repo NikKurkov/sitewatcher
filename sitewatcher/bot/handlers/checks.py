@@ -75,5 +75,27 @@ async def cmd_check_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             parts.append(await _format_results(owner_id, name, results, persist=True))
             await maybe_send_alert(update, context, owner_id, name, results)
 
+    # Split long output into multiple Telegram-safe messages (limit ~4096 chars).
     if msg:
-        await safe_reply_html(msg, "\n\n".join(parts))
+        MAX_LEN = 3800  # keep headroom for HTML entities/formatting
+        blocks: list[str] = []
+        cur: list[str] = []
+        cur_len = 0
+
+        # Group domain result blocks into chunks under MAX_LEN
+        for p in parts:
+            add_len = (2 if cur else 0) + len(p)  # +2 for "\n\n" joiner
+            if cur_len + add_len > MAX_LEN and cur:
+                blocks.append("\n\n".join(cur))
+                cur = [p]
+                cur_len = len(p)
+            else:
+                cur.append(p)
+                cur_len += add_len
+
+        if cur:
+            blocks.append("\n\n".join(cur))
+
+        # Send sequentially
+        for b in blocks:
+            await safe_reply_html(msg, b)
