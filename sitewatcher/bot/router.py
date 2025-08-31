@@ -11,7 +11,7 @@ from .handlers.domains import (
     cmd_remove_all_start, cmd_remove_all_confirm, cmd_remove_all_cancel,
     REMOVE_ALL_CONFIRM
 )
-from .handlers.checks import cmd_check_domain, cmd_check_all
+from .handlers.checks import cmd_check_domain, cmd_check_all, cmd_check_all_detail
 from .handlers.cfg import cmd_cfg, cmd_cfg_set, cmd_cfg_unset
 from .handlers.backup_csv import register_backup_csv_handlers
 from .handlers.cache import cmd_clear_cache
@@ -68,6 +68,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("list", cmd_list_domain))
     app.add_handler(CommandHandler("check", cmd_check_domain))
     app.add_handler(CommandHandler("check_all", cmd_check_all))
+    app.add_handler(CommandHandler("check_all_detail", cmd_check_all_detail))
     app.add_handler(CommandHandler("clear_cache", cmd_clear_cache))
     app.add_handler(CommandHandler("cfg", cmd_cfg))
     app.add_handler(CommandHandler("cfg_set", cmd_cfg_set))
