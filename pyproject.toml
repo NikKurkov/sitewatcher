@@ -12,6 +12,7 @@ dependencies = [
   "icmplib>=3.0; platform_system != 'Windows'",
   "python-dotenv>=1.0",
   "dnspython>=2.6",
+  "tldextract>=3.1",
   
 ]
 

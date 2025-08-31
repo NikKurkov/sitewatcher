@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
+import tldextract
 
 from .base import BaseCheck, CheckOutcome, Status
 from ..config import WhoisConfig
@@ -22,6 +23,22 @@ WHOIS_PORT = 43  # single source of truth for raw WHOIS
 
 
 # ----------------------------- RDAP parsing utils -----------------------------
+def registrable_domain(hostname: str) -> str:
+    """Return eTLD+1 (registrable domain) for a given hostname.
+
+    Examples:
+      - "www.example.com"   -> "example.com"
+      - "api.service.co.uk" -> "service.co.uk"
+      - "example.biz"       -> "example.biz"
+    """
+    hn = (hostname or "").strip().rstrip(".").lower()
+    ext = tldextract.extract(hn)
+    if not ext.domain or not ext.suffix:
+        # Fallback to original if parsing fails
+        return hn
+    return f"{ext.domain}.{ext.suffix}"
+
+
 def _get_event_date(obj: Dict[str, Any], action: str) -> Optional[datetime]:
     """Return timezone-aware datetime for RDAP 'events' by action."""
     for ev in obj.get("events", []) or []:
@@ -205,16 +222,19 @@ class WhoisInfoCheck(BaseCheck):
     # ------------------------------- Fetch helpers ------------------------------
     async def _fetch_snapshot(self, domain: str) -> Tuple[Dict[str, Any], datetime]:
         """Fetch snapshot for domain via RDAP or raw WHOIS override."""
-        tld = domain.split(".")[-1].lower()
+        reg_domain = registrable_domain(domain)  # normalize to eTLD+1 for WHOIS/RDAP
+        tld = reg_domain.split(".")[-1].lower()
+
         override = self.cfg.tld_overrides.get(tld)
         if override and override.get("method") == "whois":
-            txt = await self._whois_query(override["host"], domain)
+            txt = await self._whois_query(override["host"], reg_domain)
             snap = self._parse_tcinet_ru(txt, whois_host=override["host"])
             return snap, datetime.now(timezone.utc)
 
-        rdap = await self._fetch_rdap(domain)
+        rdap = await self._fetch_rdap(reg_domain)
         snap = _extract_snapshot(rdap)
         return snap, datetime.now(timezone.utc)
+
 
     async def _fetch_rdap(self, domain: str) -> Dict[str, Any]:
         """Perform RDAP query with retry policy and raise on non-2xx."""
