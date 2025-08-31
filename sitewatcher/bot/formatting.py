@@ -31,3 +31,28 @@ async def _format_results(owner_id: int, domain: str, results: Iterable, persist
             )
         )
     return "\n".join(lines)
+
+async def _format_results_summary(owner_id: int, domain: str, results: Iterable, persist: bool = True) -> str:
+    """Compact per-domain summary: only overall line; show details only for non-OK checks."""
+    if persist:
+        for r in results:
+            storage.save_history(owner_id, domain, r.check, r.status, _strip_cached_suffix(r.message), r.metrics)
+
+    overall = _overall_from_results(results)
+    head = f"{_status_emoji(overall)} <b>{html.escape(domain)}</b> — {overall}"
+
+    lines = [head]
+    if overall in ("WARN", "CRIT"):
+        for r in results:
+            st = getattr(r.status, "value", str(r.status)).upper()
+            if st in ("WARN", "CRIT", "UNKNOWN"):
+                bullet = _status_bullet(st)
+                lines.append(
+                    "{bullet} <code>{check}</code> — <b>{status}</b> — {msg}".format(
+                        bullet=bullet,
+                        check=html.escape(str(r.check)),
+                        status=html.escape(st),
+                        msg=html.escape(str(r.message)),
+                    )
+                )
+    return "\n".join(lines)
