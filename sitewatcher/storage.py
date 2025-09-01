@@ -76,6 +76,9 @@ CREATE TABLE IF NOT EXISTS alert_state (
   PRIMARY KEY(owner_id, domain),
   FOREIGN KEY(owner_id, domain) REFERENCES domains(owner_id, name) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS hx_owner_created ON history(owner_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS hx_owner_domain_created ON history(owner_id, domain, created_at DESC);
 """
 
 _INITIALIZED = False
@@ -410,3 +413,56 @@ def unset_domain_override(owner_id: int, domain: str, key: str | None) -> None:
         ref = ref[p]
     ref.pop(parts[-1], None)
     set_domain_override(owner_id, domain, cur)
+
+def iter_history(
+    owner_id: int,
+    domain: str | None = None,
+    check: str | None = None,
+    statuses: set[str] | None = None,
+    since: datetime | None = None,
+    limit: int = 20,
+):
+    """
+    Yield last history rows for the owner with optional filters.
+    Returned rows are sqlite3.Row with keys:
+      domain, check, status, message, metrics_json, created_at
+    Ordered by created_at DESC, limited by 'limit'.
+    """
+    _ensure_initialized()
+    conn = _connect()
+    try:
+        where = ["owner_id = ?"]
+        args: list = [int(owner_id)]
+
+        if domain:
+            where.append("domain = ?")
+            args.append(domain.lower())
+
+        if check:
+            where.append("check_name = ?")
+            args.append(check)
+
+        if statuses:
+            qs = ",".join("?" for _ in statuses)
+            where.append(f"UPPER(status) IN ({qs})")
+            args.extend(s.upper() for s in statuses)
+
+        if since:
+            where.append("created_at >= ?")
+            args.append(since.isoformat() if hasattr(since, "isoformat") else str(since))
+
+        sql = (
+            'SELECT domain, check_name AS "check", status, message, metrics_json, created_at '
+            "FROM history "
+            f"WHERE {' AND '.join(where)} "
+            "ORDER BY created_at DESC "
+            "LIMIT ?"
+        )
+        args.append(int(limit))
+        cur = conn.execute(sql, tuple(args))
+        rows = cur.fetchall()
+        for row in rows:
+            yield row
+    finally:
+        conn.close()
+
