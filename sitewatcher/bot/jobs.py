@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import random
+import asyncio
 from telegram.ext import Application, ContextTypes
 
 from .. import storage
@@ -72,12 +73,34 @@ def _due_checks_for_domain(cfg: AppConfig, owner_id: int, domain: str) -> List[s
     return due
 
 
+async def _get_periodic_lock(context: ContextTypes.DEFAULT_TYPE) -> asyncio.Lock:
+    """Return a per-application lock to prevent overlapping runs."""
+    # Create lazily inside the running event loop.
+    lock = context.application.bot_data.get("periodic_lock")
+    if not isinstance(lock, asyncio.Lock):
+        lock = asyncio.Lock()
+        context.application.bot_data["periodic_lock"] = lock
+    return lock
+
+
 async def job_warmup(context: ContextTypes.DEFAULT_TYPE) -> None:
-    await _run_checks_for_all_domains(context, warmup=True)
+    # Prevent overlap with periodic run
+    lock = await _get_periodic_lock(context)
+    if lock.locked():
+        logger.info("job_warmup: previous run still in progress, skipping")
+        return
+    async with lock:
+        await _run_checks_for_all_domains(context, warmup=True)
 
 
 async def job_periodic(context: ContextTypes.DEFAULT_TYPE) -> None:
-    await _run_checks_for_all_domains(context, warmup=False)
+    # Prevent overlapping runs if the previous tick is still running
+    lock = await _get_periodic_lock(context)
+    if lock.locked():
+        logger.info("job_periodic: previous run still in progress, skipping")
+        return
+    async with lock:
+        await _run_checks_for_all_domains(context, warmup=False)
 
 
 async def _flush_alert_summaries_job(context: ContextTypes.DEFAULT_TYPE) -> None:

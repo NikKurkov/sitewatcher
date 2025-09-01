@@ -19,6 +19,10 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger("sitewatcher.bot")
 
+# Enable extra debug for dispatcher when SW_DEBUG_DEFACE=1
+if os.getenv("SW_DEBUG_DEFACE") == "1":
+    logging.getLogger("sitewatcher.dispatcher").setLevel(logging.DEBUG)
+
 
 def run_bot(cfg: AppConfig) -> None:
     token = get_bot_token_from_env()

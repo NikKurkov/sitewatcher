@@ -44,7 +44,7 @@ schedules:
   whois:        { interval_minutes: 1440, cache_ttl_minutes: 1440 }
   ip_blacklist: { interval_minutes: 1440, cache_ttl_minutes: 1440 }
   ip_change:    { interval_minutes: 1440, cache_ttl_minutes: 0    }
-  deface:       { interval_minutes: 5,    cache_ttl_minutes: 0    }
+  deface:       { interval_minutes: 60,   cache_ttl_minutes: 0    }
 
 # -------- Alerting --------
 alerts:
