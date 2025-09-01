@@ -109,6 +109,8 @@ python -m sitewatcher.main check_all --config ./config.yaml
 - `/cfg <name.ru>` — показать эффективные настройки домена (с учётом глобальных и доменных override).
 - `/cfg_set <name.ru> <path> <value>` — задать override на домен (см. примеры ниже).
 - `/cfg_unset <name.ru> <path>` — удалить доменный override по указанному пути.
+- `/stop_alerts` — выключить уведомления от бота.
+- `/start_alerts` — включить уведомления от бота.
 
 **Примеры `/cfg_set`:**
 ```text

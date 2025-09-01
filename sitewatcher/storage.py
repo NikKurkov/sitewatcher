@@ -14,13 +14,14 @@ SCHEMA_SQL = """
 PRAGMA foreign_keys=ON;
 
 CREATE TABLE IF NOT EXISTS users (
-  telegram_id INTEGER PRIMARY KEY,
-  username TEXT,
-  first_name TEXT,
-  last_name TEXT,
+  telegram_id   INTEGER PRIMARY KEY,
+  username      TEXT,
+  first_name    TEXT,
+  last_name     TEXT,
   alert_chat_id INTEGER,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now'))
+  alerts_enabled INTEGER DEFAULT 1,
+  created_at    TEXT DEFAULT (datetime('now')),
+  updated_at    TEXT DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS domains (
@@ -156,6 +157,29 @@ def get_user_alert_chat_id(owner_id: int) -> Optional[int]:
     with _connect() as conn:
         row = conn.execute("SELECT alert_chat_id FROM users WHERE telegram_id=?", (int(owner_id),)).fetchone()
         return int(row[0]) if row and row[0] is not None else None
+
+
+def is_user_alerts_enabled(owner_id: int) -> bool:
+    _ensure_initialized()
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT alerts_enabled FROM users WHERE telegram_id=?",
+            (int(owner_id),)
+        ).fetchone()
+        if not row or row[0] is None:
+            return True  # default ON if user row missing
+        return bool(int(row[0]))
+
+
+def set_user_alerts_enabled(owner_id: int, enabled: bool) -> None:
+    _ensure_initialized()
+    with _connect() as conn, conn:
+        # ensure user row exists
+        conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES(?)", (int(owner_id),))
+        conn.execute(
+            "UPDATE users SET alerts_enabled=?, updated_at=datetime('now') WHERE telegram_id=?",
+            (1 if enabled else 0, int(owner_id))
+        )
 
 
 # ---------- helpers: ensure domain row exists (and user) ----------
