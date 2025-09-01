@@ -12,6 +12,7 @@ from .handlers.domains import (
     REMOVE_ALL_CONFIRM
 )
 from .handlers.checks import cmd_check_domain, cmd_check_all, cmd_check_all_detail
+from .handlers.status import cmd_status
 from .handlers.cfg import cmd_cfg, cmd_cfg_set, cmd_cfg_unset
 from .handlers.backup_csv import register_backup_csv_handlers
 from .handlers.cache import cmd_clear_cache
@@ -73,6 +74,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("cfg", cmd_cfg))
     app.add_handler(CommandHandler("cfg_set", cmd_cfg_set))
     app.add_handler(CommandHandler("cfg_unset", cmd_cfg_unset))
+    app.add_handler(CommandHandler("status", cmd_status))
     register_backup_csv_handlers(app)
 
     # Global error handler
