@@ -40,9 +40,10 @@
 # Python 3.11+ (рекомендуется 3.12), Linux/Windows
 
 # 2) Установка
-python -m venv .venv # Создаем виртуальное окружение в папке с программой
+python -m venv .venv
 source .venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -e . # 
+python -m pip install -U pip
+pip install -r requirements.txt
 
 # 3) Настройка окружения
 cp .env.example .env
