@@ -193,6 +193,13 @@ async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await safe_reply_html(update.effective_message, "No history rows found.")
         return
 
+    # Display oldest → newest
+    try:
+        rows = sorted(rows, key=lambda r: r["created_at"])
+    except Exception:
+        # fallback if something is odd with types
+        rows = list(rows)[::-1]
+
     lines: List[str] = []
     for r in rows[:limit]:
         emoji = _status_emoji(_row_status(r))

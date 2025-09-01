@@ -265,6 +265,10 @@ async def maybe_send_alert(update, context, owner_id: int, domain: str, results)
     if not getattr(cfg.alerts, "enabled", True):
         return
 
+    # Per-user switch: skip all alert sends for this owner if disabled
+    if not storage.is_user_alerts_enabled(owner_id):
+        return
+
     now = datetime.now(timezone.utc)
     overall = _overall_from_results(results)
     overall_txt = _status_text(overall)
