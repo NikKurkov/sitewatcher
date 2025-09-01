@@ -15,6 +15,7 @@ defaults:
     http_basic: true                 # HTTP status and latency
     tls_cert: true                   # TLS certificate expiry
     keywords: false                  # HTML keywords presence
+    deface: true                     # Check site homepage for deface words
     ping: true                       # ICMP if available, TCP fallback
     rkn_block: true                  # RKN blocklist check
     ports: false                     # Basic TCP port checks
@@ -43,6 +44,7 @@ schedules:
   whois:        { interval_minutes: 1440, cache_ttl_minutes: 1440 }
   ip_blacklist: { interval_minutes: 1440, cache_ttl_minutes: 1440 }
   ip_change:    { interval_minutes: 1440, cache_ttl_minutes: 0    }
+  deface:       { interval_minutes: 5,    cache_ttl_minutes: 0    }
 
 # -------- Alerting --------
 alerts:
@@ -96,6 +98,10 @@ ports:
     - { port: 443, tls: true }
     - { port: 22 }
     # - { port: 25, send: "EHLO example.com\r\n", expect: "^250[ -]" }
+
+# -------- Deface check --------
+deface:
+  phrases_path: "sitewatcher/data/deface_markers.txt"
 
 # -------- Per-domain overrides --------
 domains:

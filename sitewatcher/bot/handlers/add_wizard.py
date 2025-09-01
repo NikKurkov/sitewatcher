@@ -23,6 +23,7 @@ def _default_checks(keywords_enabled: bool) -> dict:
         "ip_blacklist": True,
         "ip_change": True,
         "keywords": bool(keywords_enabled),
+        "deface": True,
         # Disable ports by default in quick wizard
         "ports": False,
     }
