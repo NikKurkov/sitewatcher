@@ -10,6 +10,7 @@ HELP_TEXT = (
     "/add <domain1> [domain2 ...] — add domains via quick wizard (keywords + interval)\n"
     "/add_domain <name> — add a domain (legacy, no wizard)\n"
     "/status [crit|warn|ok|unknown|problems] — show last known status for all your domains (no new checks)\n"
+    "/status <domain> [crit|warn|ok|unknown|problems] — detailed last results for one domain (no new checks)\n"
     "/remove <name> — remove a domain\n"
     "/remove_all — remove all your domains (confirmation required)\n"
     "/list — list domains\n"

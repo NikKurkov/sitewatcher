@@ -12,8 +12,10 @@ from telegram.ext import ContextTypes
 
 from ... import storage
 from ..utils import requires_auth, safe_reply_html, _strip_cached_suffix
-from ..alerts import _status_emoji, _status_weight, _enabled_checks_for
+from ..alerts import _status_bullet, _status_emoji, _status_weight, _enabled_checks_for
+from ..validators import DOMAIN_RE
 
+FILTER_TOKENS = {"ok", "warn", "crit", "unknown", "problems"}
 
 def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
     """Parse ISO timestamp to aware UTC datetime; return None on failure."""
@@ -83,6 +85,12 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
       <emoji> <domain> — <OVERALL> (DD.MM HH:MM UTC — <latency>, exp <days>)
       If OVERALL in {WARN, CRIT}: append up to 3 problem reasons inside the same parentheses.
     """
+    args = [a.lower() for a in (context.args or [])]
+    if args and (args[0] not in FILTER_TOKENS) and DOMAIN_RE.match(args[0]):
+        domain = args[0]
+        filters = set(args[1:]) & FILTER_TOKENS
+        return await cmd_status_one(update, context, domain=domain, filters=filters)
+        
     owner_id = update.effective_user.id
     names = sorted(storage.list_domains(owner_id))
 
@@ -208,3 +216,78 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             end = min(len(text), start + MAX)
         await safe_reply_html(update.effective_message, text[start:end])
         start = end + 1
+
+
+def _allow_status(st: str, filters: Optional[set[str]]) -> bool:
+    if not filters:
+        return True
+    f = {x.upper() for x in filters}
+    if "PROBLEMS" in f:
+        return st in {"WARN", "CRIT", "UNKNOWN"}
+    return st in f  # OK/WARN/CRIT/UNKNOWN
+
+
+@requires_auth
+async def cmd_status_one(update: Update, context: ContextTypes.DEFAULT_TYPE, *, domain: str | None = None, filters: set[str] | None = None) -> None:
+    msg = getattr(update, "effective_message", None)
+    if domain is None:
+        if not context.args:
+            if msg:
+                await msg.reply_text("Usage: /status <domain>")
+            return
+        domain = context.args[0].strip().lower()
+    owner_id = update.effective_user.id
+    name = domain
+
+    if not storage.domain_exists(owner_id, name):
+        if msg:
+            await msg.reply_text("Domain not found or no data yet.")
+        return
+
+    cfg = context.application.bot_data["cfg"]
+    # Walk through known checks (by schedules) and pick the latest saved row for each
+    checks = list(cfg.schedules.model_dump().keys())
+    rows: list[tuple[str, dict]] = []
+    for chk in checks:
+        row = storage.last_history_for_check(owner_id, name, chk)
+        if row:
+            rows.append((chk, row))
+
+    if not rows:
+        if msg:
+            await msg.reply_text("No data for this domain yet.")
+        return
+
+    # Overall = worst of last saved statuses
+    worst = 0
+    for _, row in rows:
+        st = str(row["status"]).upper()
+        worst = max(worst, _status_weight(st))
+    overall = {2: "CRIT", 1: "WARN", 0: "OK"}[worst]
+
+    lines = [f"{_status_emoji(overall)} <b>{html.escape(name)}</b> — {overall}"]
+
+    # Show CRIT/WARN first, then OK; alphabetical inside same severity
+    rows_sorted = sorted(
+        rows,
+        key=lambda p: (-_status_weight(str(p[1]["status"]).upper()), p[0])
+    )
+
+    for chk, row in rows_sorted:
+        st = str(row["status"]).upper()
+        if not _allow_status(st, filters):
+            continue
+        bullet = _status_bullet(st)
+        msg_txt = _strip_cached_suffix(row["message"] or "")
+        lines.append(
+            "{bullet} <code>{check}</code> — <b>{status}</b> — {msg}".format(
+                bullet=bullet,
+                check=html.escape(chk),
+                status=html.escape(st),
+                msg=html.escape(msg_txt),
+            )
+        )
+
+    if msg:
+        await safe_reply_html(msg, "\n".join(lines))
+
