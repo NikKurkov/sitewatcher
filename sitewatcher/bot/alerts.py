@@ -12,7 +12,7 @@ from typing import NamedTuple, Optional
 from telegram.ext import ContextTypes  # noqa: F401
 
 from .. import storage
-from ..config import AppConfig
+from ..config import AppConfig, resolve_settings
 from .utils import _resolve_alert_chat_id
 
 logger = logging.getLogger("sitewatcher.bot")
@@ -154,6 +154,103 @@ def _compose_message(domain: str, overall: str, prev_overall: Optional[str], res
     return "\n".join(lines)
 
 
+def _enabled_checks_for(cfg: AppConfig, owner_id: int, domain: str) -> list[str]:
+    """
+    Вернёт список имён включённых проверок (с учётом доменных override из storage).
+    Логика совпадает по сути с Dispatcher._resolve() для checks.*.
+    """
+    settings = resolve_settings(cfg, domain)
+    try:
+        patch = storage.get_domain_override(owner_id, domain) or {}
+    except Exception:
+        patch = {}
+
+    if isinstance(patch.get("checks"), dict):
+        for k, v in patch["checks"].items():
+            if hasattr(settings.checks, k):
+                setattr(settings.checks, k, bool(v))
+
+    enabled: list[str] = []
+    for name in dir(settings.checks):
+        if name.startswith("_"):
+            continue
+        try:
+            val = getattr(settings.checks, name)
+        except Exception:
+            continue
+        if isinstance(val, bool) and val:
+            enabled.append(name)
+    return enabled
+
+
+def _is_fresh_ok_for_all(
+    cfg: AppConfig,
+    owner_id: int,
+    domain: str,
+    enabled_checks: list[str],
+    current_results: list,
+) -> bool:
+    """
+    Для recovery в OK: проверяем, что все включённые проверки имеют OK:
+      - или прямо в текущем запуске,
+      - или по последнему свежему результату из БД (не старше своего интервала).
+    Если чего-то нет/протухло/не OK — считаем, что recovery неподтверждён.
+    """
+    # Текущие статусы из этого тика
+    current_map: dict[str, str] = {
+        getattr(r, "check", ""): getattr(getattr(r, "status", None), "value", str(getattr(r, "status", ""))).upper()
+        for r in current_results
+    }
+
+    # В доменном override может быть общий interval_minutes
+    try:
+        override = storage.get_domain_override(owner_id, domain) or {}
+    except Exception:
+        override = {}
+
+    domain_iv = None
+    if isinstance(override.get("interval_minutes"), int) and override["interval_minutes"] > 0:
+        domain_iv = int(override["interval_minutes"])
+
+    # Проходим по всем включённым проверкам
+    for check in enabled_checks:
+        # Если в текущем запуске была эта проверка — она должна быть OK
+        if check in current_map:
+            if _status_weight(current_map[check]) > 0:
+                return False
+            continue
+
+        # Иначе — смотрим последний результат в БД и его «свежесть»
+        row = storage.last_history_for_check(owner_id, domain, check)
+        if not row:
+            return False  # нет информации — восстановления не подтверждаем
+
+        # Свежесть: берём доменный общий интервал, иначе индивидуальный из schedules
+        if domain_iv is not None:
+            ttl_min = domain_iv
+        else:
+            sched = getattr(cfg.schedules, check, None)
+            ttl_min = int(getattr(sched, "interval_minutes", 0) or 0)
+            if ttl_min <= 0:
+                # если вдруг нет интервала в конфиге — считаем несвежим
+                return False
+
+        mins = storage.minutes_since_last(owner_id, domain, check)
+        if mins is None or mins > ttl_min:
+            return False  # протухло — не подтверждаем
+
+        # Сам статус должен быть OK
+        if isinstance(row, dict):
+            st = str(row.get("status", "")).upper()
+        else:
+            st = str(row["status"]).upper()
+            
+        if _status_weight(st) > 0:
+            return False
+
+    return True
+
+
 async def maybe_send_alert(update, context, owner_id: int, domain: str, results) -> None:
     """Send problem alerts (WARN/CRIT) and a recovery alert when status returns to OK.
 
@@ -190,23 +287,26 @@ async def maybe_send_alert(update, context, owner_id: int, domain: str, results)
         storage.upsert_alert_state(owner_id, domain, overall_txt, None)
         return
 
-    # Recovery path: previous was bad and now OK -> notify immediately (no cooldown, no deduper)
+    # Recovery path: previous was bad and now OK -> notify только если ВСЕ включённые проверки подтверждённо OK
     if overall_txt == "OK" and prev_overall_txt in {"WARN", "CRIT"}:
+        enabled = _enabled_checks_for(cfg, owner_id, domain)
+        if not _is_fresh_ok_for_all(cfg, owner_id, domain, enabled, results):
+            logger.debug("alert: suppress recovery OK for %s (not all enabled checks are fresh/OK)", domain)
+            return
+
         text = _compose_message(domain, overall_txt, prev_overall_txt, results)
 
-        # Determine which checks actually recovered (were bad before, are OK now).
+        # Дополнительно: показать, какие именно проверки «выздоровели»
         recovered: list[str] = []
         deduper = context.application.bot_data.get("alert_deduper")
         if deduper is not None:
             prev_key = _AlertKey(domain=domain, level=prev_overall_txt)
-            last_problem_text = deduper.peek_last_text(prev_key)  # may be None
+            last_problem_text = deduper.peek_last_text(prev_key)  # may be None (после рестарта)
             bad_before = _parse_bad_checks_from_alert(last_problem_text or "")
             if bad_before:
                 for r in results:
-                    if _status_text(r.status) == "OK":
-                        chk = str(r.check)
-                        if chk in bad_before:
-                            recovered.append(chk)
+                    if _status_text(r.status) == "OK" and str(r.check) in bad_before:
+                        recovered.append(str(r.check))
         if recovered:
             text += "\n\nRecovered checks: " + ", ".join(f"<code>{html.escape(c)}</code>" for c in recovered)
 
@@ -218,7 +318,6 @@ async def maybe_send_alert(update, context, owner_id: int, domain: str, results)
             await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML", disable_web_page_preview=True)
             storage.upsert_alert_state(owner_id, domain, overall_txt, now.isoformat())
         except Exception:
-            # Preserve previous timestamp on send failure to avoid skewing cooldown accounting
             storage.upsert_alert_state(owner_id, domain, overall_txt, last_sent_at_dt.isoformat() if last_sent_at_dt else None)
             raise
         return
