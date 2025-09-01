@@ -15,10 +15,12 @@ data/config.yaml
 
 # Databases & local caches
 *.db
+*..db-shm
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
 sitewatcher.db
+sitewatcher.db-shm
 sitewatcher/data/z_i_index.db
 sitewatcher/data/*.gz
 
