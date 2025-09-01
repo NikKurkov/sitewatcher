@@ -17,6 +17,7 @@ class ChecksModel(BaseModel):
     http_basic: bool = True
     tls_cert: bool = True
     keywords: bool = False
+    deface: bool = True
     ping: bool = True
     rkn_block: bool = True
     ports: bool = False
@@ -24,6 +25,9 @@ class ChecksModel(BaseModel):
     ip_blacklist: bool = False
     ip_change: bool = True
 
+@dataclass
+class DefaceConfig:
+    phrases_path: Optional[str] = None  # e.g. "sitewatcher/data/deface_markers.txt"
 
 class CheckSchedule(BaseModel):
     """
@@ -47,7 +51,7 @@ class SchedulesConfig(BaseModel):
     whois:        CheckSchedule = Field(default_factory=lambda: CheckSchedule(interval_minutes=1440, cache_ttl_minutes=1440))
     ip_blacklist: CheckSchedule = Field(default_factory=lambda: CheckSchedule(interval_minutes=1440, cache_ttl_minutes=1440))
     ip_change:    CheckSchedule = Field(default_factory=lambda: CheckSchedule(interval_minutes=1440, cache_ttl_minutes=0))
-
+    deface:       CheckSchedule = Field(default_factory=lambda: CheckSchedule(interval_minutes=5,   cache_ttl_minutes=0))
 
 # -------------------------- Runtime knobs --------------------------
 
@@ -201,6 +205,7 @@ class AppConfig(BaseModel):
     alerts: AlertsConfig = Field(default_factory=AlertsConfig)
     schedules: SchedulesConfig = Field(default_factory=SchedulesConfig)
     http: Optional[HttpClientConfig] = None  # optional client tuning
+    deface: DefaceConfig = DefaceConfig()
 
 
 # -------------------------- Load/resolve helpers --------------------------

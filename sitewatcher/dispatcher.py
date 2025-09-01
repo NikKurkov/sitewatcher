@@ -5,6 +5,7 @@ import asyncio
 import json
 import re
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from pathlib import Path
 
 import httpx
 
@@ -18,6 +19,7 @@ from .checks.ping import PingCheck
 from .checks.ports import PortsCheck
 from .checks.tls_cert import TlsCertCheck
 from .checks.whois_info import WhoisInfoCheck
+from .checks.deface import DefaceCheck
 from .config import AppConfig, ResolvedSettings, resolve_settings
 
 # Optional RKN plugin (kept soft to avoid import-time failures)
@@ -238,6 +240,39 @@ class Dispatcher:
                     client=self._client,
                     timeout_s=settings.http_timeout_s,
                     keywords=settings.keywords,
+                )
+            )
+
+        if getattr(settings.checks, "deface", False):
+            timeout_s = getattr(settings, "http_timeout_s", 10) or 10
+            markers = None
+
+            # Load phrases from cfg.deface.phrases_path (one phrase per line).
+            # Robust path resolution: support absolute path, project-relative, and package-relative.
+            phrases_path = getattr(getattr(self.cfg, "deface", None), "phrases_path", None)
+            if phrases_path:
+                pkg_root = Path(__file__).resolve().parent  # .../sitewatcher
+                candidates = [
+                    Path(phrases_path),          # as-is (absolute or relative to CWD)
+                    pkg_root / phrases_path,     # relative to package root
+                ]
+                for cand in candidates:
+                    try:
+                        if cand.exists():
+                            # Read with utf-8-sig to handle BOM; strip blanks and '#' comments
+                            with open(cand, "r", encoding="utf-8-sig") as fh:
+                                markers = [ln.strip() for ln in fh if ln.strip() and not ln.lstrip().startswith("#")]
+                            break
+                    except Exception:
+                        # Fall back to built-in defaults if anything goes wrong
+                        markers = None
+
+            out.append(
+                DefaceCheck(
+                    settings.name,
+                    client=self._client,
+                    timeout_s=timeout_s,
+                    markers=markers,  # None -> use built-in defaults
                 )
             )
 

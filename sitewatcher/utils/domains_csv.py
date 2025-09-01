@@ -17,6 +17,7 @@ HEADERS: Tuple[str, ...] = (
     "checks.tls_cert",
     "checks.ping",
     "checks.keywords",
+    "checks.deface",
     "checks.rkn_block",
     "checks.whois",
     "checks.ip_blacklist",
@@ -140,6 +141,7 @@ def _flatten_for_export(override: Dict) -> Dict[str, str]:
         "checks.tls_cert":   b(checks.get("tls_cert")),
         "checks.ping":       b(checks.get("ping")),
         "checks.keywords":   b(checks.get("keywords")),
+        "checks.deface":     b(checks.get("deface")),
         "checks.rkn_block":  b(checks.get("rkn_block")),
         "checks.whois":      b(checks.get("whois")),
         "checks.ip_blacklist": b(checks.get("ip_blacklist")),
@@ -186,10 +188,12 @@ def _build_override_from_row(row: Dict[str, str], *, mode: str) -> Dict:
     checks: Dict[str, bool] = {}
     for key in (
         "checks.http_basic", "checks.tls_cert", "checks.ping", "checks.keywords",
+        "checks.deface",
         "checks.rkn_block", "checks.whois", "checks.ip_blacklist", "checks.ip_change", "checks.ports"
     ):
         val = pb(key)
         if val is not None:
+            # store as inner key without "checks."
             checks[key.split(".", 1)[1]] = val
 
     # Parse lists (None -> not provided; [] -> explicitly empty (replace mode))
