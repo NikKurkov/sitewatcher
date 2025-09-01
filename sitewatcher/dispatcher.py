@@ -6,6 +6,7 @@ import json
 import re
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 from pathlib import Path
+import logging
 
 import httpx
 
@@ -21,6 +22,9 @@ from .checks.tls_cert import TlsCertCheck
 from .checks.whois_info import WhoisInfoCheck
 from .checks.deface import DefaceCheck
 from .config import AppConfig, ResolvedSettings, resolve_settings
+
+
+logger = logging.getLogger("sitewatcher.dispatcher")
 
 # Optional RKN plugin (kept soft to avoid import-time failures)
 try:  # pragma: no cover
@@ -244,37 +248,29 @@ class Dispatcher:
             )
 
         if getattr(settings.checks, "deface", False):
-            timeout_s = getattr(settings, "http_timeout_s", 10) or 10
-            markers = None
+            # Use HTTP timeout from settings for consistency with other HTTP checks.
+            timeout_s = float(getattr(settings, "http_timeout_s", 10) or 10)
 
-            # Load phrases from cfg.deface.phrases_path (one phrase per line).
-            # Robust path resolution: support absolute path, project-relative, and package-relative.
+            # Load phrases from cfg.deface.phrases_path if provided; fallback to built-ins.
+            markers = None
             phrases_path = getattr(getattr(self.cfg, "deface", None), "phrases_path", None)
             if phrases_path:
-                pkg_root = Path(__file__).resolve().parent  # .../sitewatcher
-                candidates = [
-                    Path(phrases_path),          # as-is (absolute or relative to CWD)
-                    pkg_root / phrases_path,     # relative to package root
-                ]
-                for cand in candidates:
-                    try:
-                        if cand.exists():
-                            # Read with utf-8-sig to handle BOM; strip blanks and '#' comments
-                            with open(cand, "r", encoding="utf-8-sig") as fh:
-                                markers = [ln.strip() for ln in fh if ln.strip() and not ln.lstrip().startswith("#")]
-                            break
-                    except Exception:
-                        # Fall back to built-in defaults if anything goes wrong
-                        markers = None
+                try:
+                    with open(phrases_path, "r", encoding="utf-8") as fh:
+                        markers = [ln.strip() for ln in fh if ln.strip()]
+                    logger.debug("DefaceCheck: loaded %d markers from %s", len(markers), phrases_path)
+                except Exception as e:
+                    logger.warning("DefaceCheck: failed to read markers file %r: %s (fallback to built-in)", phrases_path, e)
+                    markers = None
+            else:
+                logger.debug("DefaceCheck: no phrases_path configured; using built-in defaults")
 
-            out.append(
-                DefaceCheck(
-                    settings.name,
-                    client=self._client,
-                    timeout_s=timeout_s,
-                    markers=markers,  # None -> use built-in defaults
-                )
-            )
+            out.append(DefaceCheck(settings.name, client=self._client, timeout_s=timeout_s, markers=markers))
+        else:
+            logger.debug("DefaceCheck: disabled for %s", settings.name)
+
+        # В самом конце метода _build_checks добавьте единый лог:
+        logger.debug("Build checks for %s: %s", settings.name, [getattr(c, 'name', '?') for c in out])
 
         if getattr(settings.checks, "ping", False):
             out.append(PingCheck(settings.name))

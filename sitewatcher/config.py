@@ -45,13 +45,13 @@ class SchedulesConfig(BaseModel):
     http_basic:   CheckSchedule = Field(default_factory=lambda: CheckSchedule(interval_minutes=5,    cache_ttl_minutes=0))
     tls_cert:     CheckSchedule = Field(default_factory=lambda: CheckSchedule(interval_minutes=1440, cache_ttl_minutes=1440))
     keywords:     CheckSchedule = Field(default_factory=lambda: CheckSchedule(interval_minutes=60,   cache_ttl_minutes=0))
+    deface:       CheckSchedule = Field(default_factory=lambda: CheckSchedule(interval_minutes=60,   cache_ttl_minutes=0))  # NEW
     ping:         CheckSchedule = Field(default_factory=lambda: CheckSchedule(interval_minutes=5,    cache_ttl_minutes=0))
     rkn_block:    CheckSchedule = Field(default_factory=lambda: CheckSchedule(interval_minutes=1440, cache_ttl_minutes=1440))
     ports:        CheckSchedule = Field(default_factory=lambda: CheckSchedule(interval_minutes=1440, cache_ttl_minutes=1440))
     whois:        CheckSchedule = Field(default_factory=lambda: CheckSchedule(interval_minutes=1440, cache_ttl_minutes=1440))
     ip_blacklist: CheckSchedule = Field(default_factory=lambda: CheckSchedule(interval_minutes=1440, cache_ttl_minutes=1440))
     ip_change:    CheckSchedule = Field(default_factory=lambda: CheckSchedule(interval_minutes=1440, cache_ttl_minutes=0))
-    deface:       CheckSchedule = Field(default_factory=lambda: CheckSchedule(interval_minutes=5,   cache_ttl_minutes=0))
 
 # -------------------------- Runtime knobs --------------------------
 
