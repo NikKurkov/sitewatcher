@@ -11,6 +11,7 @@ HELP_TEXT = (
     "/add_domain <name> — add a domain (legacy, no wizard)\n"
     "/status [crit|warn|ok|unknown|problems] — show last known status for all your domains (no new checks)\n"
     "/status <domain> [crit|warn|ok|unknown|problems] — detailed last results for one domain (no new checks)\n"
+    "/history [<domain>] [check.<name>] [crit|warn|ok|unknown|problems] [limit=N] [since=YYYY-MM-DD|7d|24h|90m] [changes] — show recent saved results without running new checks.\n"
     "/remove <name> — remove a domain\n"
     "/remove_all — remove all your domains (confirmation required)\n"
     "/list — list domains\n"

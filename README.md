@@ -101,6 +101,7 @@ python -m sitewatcher.main check_all --config ./config.yaml
 - `/remove <name.ru>` — удалить домен.
 - `/status [crit|warn|ok|unknown|problems]` — показать последние известные статусы по всем доменам (без новых проверок).
 - `/status <domain> [crit|warn|ok|unknown|problems]` — подробный отчёт по одному домену на основе последних сохранённых результатов (без новых проверок).
+- `/history [<domain>] [check.<name>] [crit|warn|ok|unknown|problems] [limit=N] [since=YYYY-MM-DD|7d|24h|90m] [changes]` — показать последние сохранение результаты проверок.
 - `/list` — показать домены владельца.
 - `/check <name.ru>` — проверить домен разово **без** записи в историю и **без** алертов (для доменов, которых нет в БД). Для уже добавленных — обычная проверка.
 - `/check_all` — проверить все домены владельца по разу.
