@@ -72,7 +72,7 @@ def _overall_from_rows(rows: Sequence[Dict]) -> str:
     return {2: "CRIT", 1: "WARN", 0: "OK"}[worst] if rows else "UNKNOWN"
 
 
-@requires_auth
+@requires_auth(allow_while_busy=True)
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Show last known status for all user's domains (no new checks).
@@ -227,7 +227,7 @@ def _allow_status(st: str, filters: Optional[set[str]]) -> bool:
     return st in f  # OK/WARN/CRIT/UNKNOWN
 
 
-@requires_auth
+@requires_auth(allow_while_busy=True)
 async def cmd_status_one(update: Update, context: ContextTypes.DEFAULT_TYPE, *, domain: str | None = None, filters: set[str] | None = None) -> None:
     msg = getattr(update, "effective_message", None)
     if domain is None:

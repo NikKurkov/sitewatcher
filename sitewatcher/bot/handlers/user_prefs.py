@@ -7,7 +7,7 @@ from telegram.ext import ContextTypes
 from ... import storage
 from ..utils import requires_auth
 
-@requires_auth
+@requires_auth(allow_while_busy=True)
 async def cmd_stop_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     owner_id = update.effective_user.id
     storage.set_user_alerts_enabled(owner_id, False)
@@ -15,7 +15,7 @@ async def cmd_stop_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "Alerts have been disabled for your account. Use /start_alerts to re-enable."
     )
 
-@requires_auth
+@requires_auth(allow_while_busy=True)
 async def cmd_start_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     owner_id = update.effective_user.id
     storage.set_user_alerts_enabled(owner_id, True)

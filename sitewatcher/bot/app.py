@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import asyncio
 
 from telegram.ext import Application
 from telegram.request import HTTPXRequest
@@ -11,7 +12,7 @@ from ..config import AppConfig, get_bot_token_from_env
 from .alerts import AlertDeduper
 from .router import register_handlers
 from .jobs import register_jobs
-from .utils import _parse_allowed_user_ids
+from .utils import _parse_allowed_user_ids,  BUSY_USERS_KEY, BUSY_USERS_LOCK_KEY
 
 # Basic logging (centralized here)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
@@ -37,8 +38,18 @@ def run_bot(cfg: AppConfig) -> None:
         proxy=os.getenv("TELEGRAM_PROXY"),  # e.g. http://user:pass@host:3128
     )
 
-    app = Application.builder().token(token).request(request).build()
+    app = (
+        Application.builder()
+        .token(token)
+        .request(request)
+        .concurrent_updates(True)
+        .build()
+    )
     app.bot_data["cfg"] = cfg
+
+    # Busy-guard registry (init once to avoid races)
+    app.bot_data[BUSY_USERS_KEY] = {}
+    app.bot_data[BUSY_USERS_LOCK_KEY] = asyncio.Lock()
 
     # Access control
     allowed_ids = _parse_allowed_user_ids()

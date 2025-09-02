@@ -15,7 +15,7 @@ from ..validators import DOMAIN_RE
 # Confirmation state for /remove_all
 REMOVE_ALL_CONFIRM = 1201
 
-@requires_auth
+@requires_auth(allow_while_busy=True)
 async def cmd_remove_all_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Ask the user to confirm bulk deletion of all domains."""
     msg = getattr(update, "effective_message", None)
@@ -24,7 +24,7 @@ async def cmd_remove_all_start(update: Update, context: ContextTypes.DEFAULT_TYP
         await msg.reply_text("Are you sure? Type delete if you want to delete, or /none if you changed your mind.")
     return REMOVE_ALL_CONFIRM
 
-@requires_auth
+@requires_auth(allow_while_busy=True)
 async def cmd_remove_all_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle confirmation input for /remove_all."""
     text = (update.effective_message.text or "").strip()
@@ -54,14 +54,14 @@ async def cmd_remove_all_confirm(update: Update, context: ContextTypes.DEFAULT_T
     await update.effective_message.reply_text("Are you sure? Type delete if you want to delete, or /none if you changed your mind.")
     return REMOVE_ALL_CONFIRM
 
-@requires_auth
+@requires_auth(allow_while_busy=True)
 async def cmd_remove_all_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Explicit cancel handler for conversation fallbacks."""
     await update.effective_message.reply_text("Cancelled.")
     return ConversationHandler.END
 
 
-@requires_auth
+@requires_auth(allow_while_busy=True)
 async def cmd_add_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Add a single domain; strict validation is applied."""
     msg = getattr(update, "effective_message", None)
@@ -83,7 +83,7 @@ async def cmd_add_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await msg.reply_text(f"Added: <b>{html.escape(name)}</b>", parse_mode="HTML")
 
 
-@requires_auth
+@requires_auth(allow_while_busy=True)
 async def cmd_remove_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Remove a domain from owner's list."""
     msg = getattr(update, "effective_message", None)
@@ -98,7 +98,7 @@ async def cmd_remove_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await msg.reply_text("Removed" if ok else "Not found")
 
 
-@requires_auth
+@requires_auth(allow_while_busy=True)
 async def cmd_list_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """List domains owned by the user (alphabetically sorted)."""
     owner_id = update.effective_user.id

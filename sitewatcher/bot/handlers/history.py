@@ -135,7 +135,7 @@ def _parse_changes_flag(tokens: Sequence[str]) -> bool:
     return any(t.lower() == "changes" for t in tokens)
 
 
-@requires_auth
+@requires_auth(allow_while_busy=True)
 async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     /history [<domain>] [check.<name>] [crit|warn|ok|unknown|problems] [limit=N] [since=YYYY-MM-DD|7d|24h|90m] [changes]
