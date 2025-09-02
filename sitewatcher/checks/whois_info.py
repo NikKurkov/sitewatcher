@@ -1,11 +1,11 @@
-# /checks/whois_info.py
+# sitewatcher/checks/whois_info.py
 from __future__ import annotations
 
 import asyncio
 import contextlib
 import json
-import os
 import sqlite3
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -42,10 +42,12 @@ def registrable_domain(hostname: str) -> str:
 def _get_event_date(obj: Dict[str, Any], action: str) -> Optional[datetime]:
     """Return timezone-aware datetime for RDAP 'events' by action."""
     for ev in obj.get("events", []) or []:
-        if ev.get("eventAction") == action and "eventDate" in ev:
+        if (ev.get("eventAction") or "").lower() == action.lower() and "eventDate" in ev:
             try:
                 # Normalize trailing Z to +00:00 then parse to aware datetime
-                return datetime.fromisoformat(ev["eventDate"].replace("Z", "+00:00"))
+                return datetime.fromisoformat(str(ev["eventDate"]).replace("Z", "+00:00")).astimezone(
+                    timezone.utc
+                )
             except Exception:
                 continue
     return None
@@ -53,7 +55,13 @@ def _get_event_date(obj: Dict[str, Any], action: str) -> Optional[datetime]:
 
 def _get_entities(obj: Dict[str, Any], role: str) -> List[Dict[str, Any]]:
     """Return entities matching requested RDAP role."""
-    return [e for e in (obj.get("entities") or []) if role in (e.get("roles") or [])]
+    role = role.lower()
+    out: List[Dict[str, Any]] = []
+    for e in (obj.get("entities") or []):
+        roles = [str(r).lower() for r in (e.get("roles") or [])]
+        if role in roles:
+            out.append(e)
+    return out
 
 
 def _vcard_get(entity: Dict[str, Any], key: str) -> Optional[str]:
@@ -91,10 +99,10 @@ def _extract_snapshot(rdap: Dict[str, Any]) -> Dict[str, Any]:
     for n in (rdap.get("nameservers") or []):
         name = n.get("ldhName") or n.get("unicodeName")
         if name:
-            ns.append(name.lower().rstrip("."))
+            ns.append(str(name).lower().rstrip("."))
 
     # Status codes
-    status = sorted([s.lower() for s in (rdap.get("status") or [])])
+    status = sorted([str(s).lower() for s in (rdap.get("status") or [])])
 
     # Dates
     expires = _get_event_date(rdap, "expiration")
@@ -111,7 +119,7 @@ def _extract_snapshot(rdap: Dict[str, Any]) -> Dict[str, Any]:
         "expires_at": expires.isoformat() if expires else None,
         "created_at": created.isoformat() if created else None,
         "updated_at": updated.isoformat() if updated else None,
-        "rdap_source": rdap.get("port43") or "rdap.org",
+        "rdap_source": rdap.get("port43") or "rdap",  # best effort hint
     }
 
 
@@ -139,30 +147,54 @@ class WhoisInfoCheck(BaseCheck):
         prev = self._db_get()
         now = datetime.now(timezone.utc)
 
+        # Cache policy: refresh if data is older than refresh_hours
         must_refresh = True
         if prev:
             age_hours = (now - prev.fetched_at).total_seconds() / 3600.0
-            must_refresh = age_hours >= float(self.cfg.refresh_hours)
+            must_refresh = age_hours >= float(getattr(self.cfg, "refresh_hours", 24) or 24)
+
+        # Always define rx_metrics so except-paths can safely reference it
+        rx_metrics: Dict[str, Any] = {}
 
         try:
             if must_refresh or not prev:
-                snap, fetched_at = await self._fetch_snapshot(self.domain)
+                snap, fetched_at, rx_metrics = await self._fetch_snapshot(self.domain)
                 self._db_upsert(snap, fetched_at)
             else:
                 snap = json.loads(prev.snapshot_json)
                 fetched_at = prev.fetched_at
+
         except httpx.HTTPStatusError as e:
-            # RDAP returned 4xx/5xx — consider the data source unavailable/critical.
             code = e.response.status_code if e.response is not None else None
             url = str(e.request.url) if e.request is not None else None
-            return CheckOutcome(self.name, Status.CRIT, f"RDAP HTTP {code}" if code else "RDAP HTTP error", {"url": url, "status_code": code})
+            base = {"url": url, "status_code": code, **rx_metrics}
+            if code == 429:
+                ra = e.response.headers.get("Retry-After") if e.response is not None else None
+                base["retry_after"] = ra
+                return CheckOutcome(self.name, Status.UNKNOWN, "RDAP rate-limited", base)
+            return CheckOutcome(
+                self.name,
+                Status.CRIT,
+                f"RDAP HTTP {code}" if code is not None else "RDAP HTTP error",
+                base,
+            )
+
         except httpx.RequestError as e:
-            # Network issues/timeouts after retries — UNKNOWN (transient).
             url = str(e.request.url) if getattr(e, "request", None) else None
-            return CheckOutcome(self.name, Status.UNKNOWN, f"RDAP request error: {e.__class__.__name__}", {"url": url})
+            return CheckOutcome(
+                self.name,
+                Status.UNKNOWN,
+                f"RDAP request error: {e.__class__.__name__}",
+                {"url": url, "error": str(e), **rx_metrics},
+            )
+
         except Exception as e:
-            # Anything else — UNKNOWN.
-            return CheckOutcome(self.name, Status.UNKNOWN, f"whois/rdap error: {e.__class__.__name__}", {})
+            return CheckOutcome(
+                self.name,
+                Status.UNKNOWN,
+                f"whois/rdap error: {e.__class__.__name__}: {e}",
+                {"error": str(e), **rx_metrics},
+            )
 
         # 1) Expiry assessment
         expires_at = snap.get("expires_at")
@@ -172,12 +204,16 @@ class WhoisInfoCheck(BaseCheck):
         changes_msg = ""
         if prev:
             before = json.loads(prev.snapshot_json)
-            diff = self._diff_snapshots(before, snap, self.cfg.track_fields)
+            track_keys = getattr(
+                self.cfg,
+                "track_fields",
+                ["registrar", "registrant", "nameservers", "status"],
+            )
+            diff = self._diff_snapshots(before, snap, track_keys)
             if diff:
                 parts: List[str] = []
                 for k, (old, new) in diff.items():
                     if isinstance(old, list) or isinstance(new, list):
-                        # Normalize to lists to avoid set() on None
                         old_list = old or []
                         new_list = new or []
                         added = sorted(set(new_list) - set(old_list))
@@ -216,45 +252,87 @@ class WhoisInfoCheck(BaseCheck):
             "nameservers": snap.get("nameservers"),
             "status_list": snap.get("status"),
             "fetched_at": fetched_at.isoformat(),
+            **rx_metrics,
         }
         return CheckOutcome(self.name, status, message, metrics)
 
     # ------------------------------- Fetch helpers ------------------------------
-    async def _fetch_snapshot(self, domain: str) -> Tuple[Dict[str, Any], datetime]:
-        """Fetch snapshot for domain via RDAP or raw WHOIS override."""
+    async def _fetch_snapshot(self, domain: str) -> Tuple[Dict[str, Any], datetime, Dict[str, Any]]:
+        """Fetch snapshot for domain via RDAP or raw WHOIS override.
+
+        Returns:
+            (snapshot_dict, fetched_at_utc, metrics_dict)
+        """
         reg_domain = registrable_domain(domain)  # normalize to eTLD+1 for WHOIS/RDAP
         tld = reg_domain.split(".")[-1].lower()
 
-        override = self.cfg.tld_overrides.get(tld)
-        if override and override.get("method") == "whois":
-            txt = await self._whois_query(override["host"], reg_domain)
-            snap = self._parse_tcinet_ru(txt, whois_host=override["host"])
-            return snap, datetime.now(timezone.utc)
+        # Optional TLD-specific override (e.g., RU/SU via whois.tcinet.ru)
+        override = getattr(self.cfg, "tld_overrides", {}).get(tld)
+        if isinstance(override, dict) and str(override.get("method", "")).lower() == "whois":
+            host = str(override.get("host", "")).strip() or "whois.tcinet.ru"
+            start = time.perf_counter()
+            text = await self._whois_query(host, reg_domain)
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
 
-        rdap = await self._fetch_rdap(reg_domain)
+            # Currently only specialized parser we provide is for tcinet
+            if "tcinet" in host or host.endswith("tcinet.ru"):
+                snap = self._parse_tcinet_ru(text, host)
+            else:
+                # Generic fallback: keep minimal snapshot; expiry unknown
+                snap = {
+                    "registrar": "",
+                    "registrant": "",
+                    "nameservers": [],
+                    "status": [],
+                    "expires_at": None,
+                    "created_at": None,
+                    "updated_at": None,
+                    "rdap_source": host,
+                }
+
+            return snap, datetime.now(timezone.utc), {
+                "whois_latency_ms": elapsed_ms,
+                "whois_host": host,
+            }
+
+        # Default: RDAP path
+        rdap, rdap_ms = await self._fetch_rdap(reg_domain)
         snap = _extract_snapshot(rdap)
-        return snap, datetime.now(timezone.utc)
+        return snap, datetime.now(timezone.utc), {
+            "rdap_latency_ms": rdap_ms,
+            "rdap_url": str(getattr(self.cfg, "rdap_endpoint", "https://rdap.org/domain/{domain}")).format(
+                domain=reg_domain
+            ),
+        }
 
-
-    async def _fetch_rdap(self, domain: str) -> Dict[str, Any]:
-        """Perform RDAP query with retry policy and raise on non-2xx."""
-        url = self.cfg.rdap_endpoint.format(domain=domain)
+    async def _fetch_rdap(self, domain: str) -> Tuple[Dict[str, Any], int]:
+        """Perform RDAP query with retry policy; returns (json, latency_ms)."""
+        url = str(getattr(self.cfg, "rdap_endpoint", "https://rdap.org/domain/{domain}")).format(
+            domain=domain
+        )
+        start = time.perf_counter()
         r = await get_with_retries(
             self.client,
             url,
-            timeout_s=30.0,
+            timeout_s=float(getattr(self.cfg, "timeout_s", 30.0) or 30.0),
             retries=2,
             backoff_s=0.3,
-            retry_on_status=(502, 503, 504),
             follow_redirects=True,
+            headers={
+                "User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"
+            },
         )
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
         r.raise_for_status()
-        return r.json()
+        return r.json(), elapsed_ms
 
     # ------------------------------ Raw WHOIS (43) ------------------------------
     async def _whois_query(self, host: str, query: str) -> str:
         """Minimalistic port-43 WHOIS query (RFC 3912)."""
-        reader, writer = await asyncio.wait_for(asyncio.open_connection(host=host, port=WHOIS_PORT), timeout=15.0)
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host=host, port=WHOIS_PORT),
+            timeout=15.0,
+        )
         try:
             writer.write((query + "\r\n").encode("utf-8", "ignore"))
             await writer.drain()
@@ -360,13 +438,15 @@ class WhoisInfoCheck(BaseCheck):
 
         if days_left < 0:
             return Status.CRIT, f"domain expired {-days_left}d ago ({exp.date()} UTC)", days_left
-        if days_left <= int(self.cfg.expiry_crit_days):
+        if days_left <= int(getattr(self.cfg, "expiry_crit_days", 7) or 7):
             return Status.CRIT, f"expires in {days_left}d ({exp.date()} UTC)", days_left
-        if days_left <= int(self.cfg.expiry_warn_days):
+        if days_left <= int(getattr(self.cfg, "expiry_warn_days", 30) or 30):
             return Status.WARN, f"expires in {days_left}d ({exp.date()} UTC)", days_left
         return Status.OK, f"expires in {days_left}d ({exp.date()} UTC)", days_left
 
-    def _diff_snapshots(self, old: Dict[str, Any], new: Dict[str, Any], keys: List[str]) -> Dict[str, Tuple[Any, Any]]:
+    def _diff_snapshots(
+        self, old: Dict[str, Any], new: Dict[str, Any], keys: List[str]
+    ) -> Dict[str, Tuple[Any, Any]]:
         """Return a dict of {key: (old, new)} for changed tracked fields."""
         diff: Dict[str, Tuple[Any, Any]] = {}
         for k in keys:

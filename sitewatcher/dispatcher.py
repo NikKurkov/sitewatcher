@@ -64,10 +64,39 @@ class Dispatcher:
         timeout = httpx.Timeout(connect=connect, read=read, write=write, pool=pool)
         limits = httpx.Limits(max_connections=max_conn, max_keepalive_connections=max_keep)
 
+        # Respect proxies from config (if any) and environment (trust_env=True)
+        proxy_kw: dict[str, object] = {}
+        if http_cfg:
+            proxy_val = getattr(http_cfg, "proxy", None) or getattr(http_cfg, "proxies", None)
+            if isinstance(proxy_val, str):
+                proxy_kw = {"proxy": proxy_val}
+            elif isinstance(proxy_val, dict):
+                # Map scheme => transport using AsyncHTTPTransport
+                mounts: dict[str, httpx.AsyncHTTPTransport] = {}
+                for scheme, url in proxy_val.items():
+                    key = scheme if scheme.endswith("://") else f"{scheme}://"
+                    mounts[key] = httpx.AsyncHTTPTransport(proxy=url)
+                proxy_kw = {"mounts": mounts}
+
         try:
-            self._client = httpx.AsyncClient(http2=True, timeout=timeout, limits=limits)
+            self._client = httpx.AsyncClient(
+                http2=True,
+                timeout=timeout,
+                limits=limits,
+                trust_env=True,
+                headers={"User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"},
+                **proxy_kw,
+            )
         except Exception:
-            self._client = httpx.AsyncClient(http2=False, timeout=timeout, limits=limits)
+            self._client = httpx.AsyncClient(
+                http2=False,
+                timeout=timeout,
+                limits=limits,
+                trust_env=True,
+                headers={"User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"},
+                **proxy_kw,
+            )
+
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:

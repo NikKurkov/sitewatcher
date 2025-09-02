@@ -55,8 +55,8 @@ class HttpBasicCheck(BaseCheck):
                 timeout_s=self.timeout_s,
                 retries=2,
                 backoff_s=0.3,
-                retry_on_status=(502, 503, 504),
                 follow_redirects=False,
+                headers={"User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"},
                 **kw,
             )
         except httpx.RequestError as e:
@@ -81,25 +81,28 @@ class HttpBasicCheck(BaseCheck):
         if 300 <= code1 < 400 and "location" in r1.headers:
             try:
                 start2 = time.perf_counter()
-                kw = {"proxies": self.proxy} if self.proxy else {}
+                # Follow from the advertised Location to avoid repeating the 1st hop
+                loc = r1.headers["location"]
+                base = httpx.URL(str(r1.url))
+                target = str(base.join(loc))
                 r2 = await get_with_retries(
                     self.client,
-                    final_url,
+                    target,
                     timeout_s=self.timeout_s,
                     retries=2,
                     backoff_s=0.3,
-                    retry_on_status=(502, 503, 504),
                     follow_redirects=True,
+                    headers={"User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"},
                     **kw,
                 )
                 elapsed2_ms = int((time.perf_counter() - start2) * 1000)
-                redirects = len(r2.history) + 1  # include the initial 3xx
+                redirects = len(r2.history) or 1  # at least one redirect happened
                 final_url = str(r2.url)
                 final_code = r2.status_code
                 total_ms = elapsed1_ms + elapsed2_ms
             except httpx.RequestError:
-                # If redirect chain failed, keep the initial result/latency.
                 pass
+
 
         # --- 3) Derive status from initial code and initial latency thresholds ---
         status = self._status_from_initial(code1, elapsed1_ms)

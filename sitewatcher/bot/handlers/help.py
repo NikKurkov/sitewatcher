@@ -26,6 +26,7 @@ HELP_TEXT = (
     "/import_csv [replace] — import domains from CSV (default: merge; use 'replace' to overwrite)\n"
     "/stop_alerts — disable alerts for your account\n"
     "/start_alerts — enable alerts for your account\n"
+    "\n"
 )
 
 

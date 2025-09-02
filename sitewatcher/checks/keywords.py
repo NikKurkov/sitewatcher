@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import List, Tuple
+import time
 import httpx
 
 from .base import BaseCheck, CheckOutcome, Status
@@ -45,15 +46,18 @@ class KeywordsCheck(BaseCheck):
 
         url = f"https://{self.domain}/"
         try:
+            start = time.perf_counter()
             r = await get_with_retries(
                 self.client,
                 url,
                 timeout_s=self.timeout_s,
                 retries=2,
                 backoff_s=0.3,
-                retry_on_status=(502, 503, 504),
                 follow_redirects=True,
+                headers={"User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"},
             )
+            elapsed_ms = int((time.perf_counter() - start) * 1000)
+            redirects = len(r.history)
         except httpx.RequestError as e:
             return CheckOutcome(
                 self.name,
@@ -83,6 +87,9 @@ class KeywordsCheck(BaseCheck):
                     "keywords_total": total,
                     "keywords_missing": missing_cnt,
                     "missing": missing,
+                    "final_url": str(r.url),
+                    "redirects": redirects,
+                    "latency_ms": elapsed_ms,
                 },
             )
 
@@ -114,5 +121,8 @@ class KeywordsCheck(BaseCheck):
                 "keywords_total": total,
                 "keywords_missing": 0,
                 "found_count": total,
+                "final_url": str(r.url),
+                "redirects": redirects,
+                "latency_ms": elapsed_ms,
             },
         )
