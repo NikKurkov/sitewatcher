@@ -12,7 +12,7 @@ from ...dispatcher import Dispatcher
 from ..utils import requires_auth, _parse_bool, _parse_scalar_or_list, _format_preview_dict
 
 
-@requires_auth
+@requires_auth(allow_while_busy=True)
 async def cmd_cfg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show effective settings and DB override for a domain."""
     if not context.args:
@@ -64,7 +64,7 @@ async def cmd_cfg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
 
 
-@requires_auth
+@requires_auth(allow_while_busy=True)
 async def cmd_cfg_set(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Set a config override (typed) for a domain."""
     msg = getattr(update, "effective_message", None)
@@ -139,7 +139,7 @@ async def cmd_cfg_set(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
 
 
-@requires_auth
+@requires_auth(allow_while_busy=True)
 async def cmd_cfg_unset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Unset one key or the whole override for a domain."""
     msg = getattr(update, "effective_message", None)

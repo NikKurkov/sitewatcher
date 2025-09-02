@@ -12,7 +12,7 @@ from ...config import AppConfig
 from ..utils import requires_auth
 
 
-@requires_auth
+@requires_auth()
 async def cmd_clear_cache(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Clear WHOIS cache and RKN index artifacts."""
     cfg: AppConfig = context.application.bot_data["cfg"]

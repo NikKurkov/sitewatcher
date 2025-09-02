@@ -29,7 +29,7 @@ def _default_checks(keywords_enabled: bool) -> dict:
     }
 
 
-@requires_auth
+@requires_auth(allow_while_busy=True)
 async def cmd_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /add <domain1> [domain2 ...]
@@ -79,7 +79,7 @@ async def cmd_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ADD_WAIT_KEYWORDS
 
 
-@requires_auth
+@requires_auth()
 async def cmd_add_keywords_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle free-text keywords input for the wizard."""
     st = context.user_data.get("add_state")
@@ -118,7 +118,7 @@ async def cmd_add_keywords_text(update: Update, context: ContextTypes.DEFAULT_TY
     return ADD_WAIT_INTERVAL
 
 
-@requires_auth
+@requires_auth()
 async def cmd_add_keywords_none(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /none during the keywords step."""
     st = context.user_data.get("add_state")
@@ -140,7 +140,7 @@ async def cmd_add_keywords_none(update: Update, context: ContextTypes.DEFAULT_TY
     return ADD_WAIT_INTERVAL
 
 
-@requires_auth
+@requires_auth()
 async def cmd_add_interval_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle interval minutes input for the wizard."""
     st = context.user_data.get("add_state")
@@ -166,7 +166,7 @@ async def cmd_add_interval_text(update: Update, context: ContextTypes.DEFAULT_TY
     return await _finalize_add(update, context, st)
 
 
-@requires_auth
+@requires_auth()
 async def cmd_add_interval_none(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /none during the interval step (disables auto checks)."""
     st = context.user_data.get("add_state")
@@ -226,7 +226,7 @@ async def _finalize_add(update: Update, context: ContextTypes.DEFAULT_TYPE, st: 
     return ConversationHandler.END
 
 
-@requires_auth
+@requires_auth()
 async def cmd_add_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancel the wizard and cleanup state."""
     context.user_data.pop("add_state", None)

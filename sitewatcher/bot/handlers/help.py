@@ -30,7 +30,7 @@ HELP_TEXT = (
 
 
 
-@requires_auth
+@requires_auth(allow_while_busy=True)
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Reply with help text and available commands."""
     msg = getattr(update, "effective_message", None)

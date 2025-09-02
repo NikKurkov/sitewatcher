@@ -13,7 +13,7 @@ from ..utils import requires_auth, safe_reply_html
 from ..alerts import maybe_send_alert
 
 
-@requires_auth
+@requires_auth(allow_while_busy=True)
 async def cmd_check_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Run checks for a single domain (ephemeral if not owned)."""
     if not context.args:
@@ -50,7 +50,7 @@ async def cmd_check_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await safe_reply_html(update.message, text)
 
 
-@requires_auth
+@requires_auth()
 async def cmd_check_all_detail(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Detailed check for all owned domains (per-check lines for every domain)."""
     msg = getattr(update, "effective_message", None)
@@ -95,7 +95,7 @@ async def cmd_check_all_detail(update: Update, context: ContextTypes.DEFAULT_TYP
         for b in blocks:
             await safe_reply_html(msg, b)
 
-@requires_auth
+@requires_auth()
 async def cmd_check_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Summary check for all owned domains (overall line; details only for non-OK)."""
     msg = getattr(update, "effective_message", None)

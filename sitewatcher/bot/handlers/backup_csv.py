@@ -15,7 +15,7 @@ from ...utils.domains_csv import export_domains_csv, import_domains_csv, ImportR
 WAIT_CSV = 9201
 
 
-@requires_auth
+@requires_auth()
 async def cmd_export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Export user's domains and overrides as a CSV file."""
     owner_id = update.effective_user.id
@@ -33,7 +33,7 @@ async def cmd_export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
 
-@requires_auth
+@requires_auth()
 async def cmd_import_csv_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start a short conversation to receive a CSV file or text."""
     args = context.args or []
@@ -71,7 +71,7 @@ async def _handle_import_data(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ConversationHandler.END
 
 
-@requires_auth
+@requires_auth()
 async def on_import_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receive CSV as a document."""
     doc: Optional[Document] = getattr(update.effective_message, "document", None)
@@ -83,7 +83,7 @@ async def on_import_document(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return await _handle_import_data(update, context, bytes(data))
 
 
-@requires_auth
+@requires_auth()
 async def on_import_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receive CSV as plain text."""
     txt = (update.effective_message.text or "").strip()
@@ -93,7 +93,7 @@ async def on_import_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return await _handle_import_data(update, context, txt.encode("utf-8"))
 
 
-@requires_auth
+@requires_auth()
 async def import_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.pop("import_mode", None)
     await update.effective_message.reply_text("Cancelled.")
