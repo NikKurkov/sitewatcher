@@ -8,7 +8,7 @@ from typing import Iterable, Optional
 from dotenv import load_dotenv
 
 from .bot import run_bot
-from .config import AppConfig, load_config
+from .config import AppConfig, load_config, validate_config
 from .dispatcher import Dispatcher
 from . import storage
 
@@ -71,22 +71,11 @@ async def _run_and_persist(
     only_checks: Optional[list[str]] = None,
     use_cache: bool = True,
 ) -> list:
-    """Run checks for a single domain and persist results to storage.
-
-    Args:
-        cfg: Resolved application config.
-        owner_id: Telegram user id whose domain we act on.
-        domain: Domain name to check.
-        only_checks: Optional list of check names to run.
-        use_cache: If False, force fresh execution (no cached results).
-
-    Returns:
-        A list of check result objects returned by Dispatcher.
-    """
+    """Run checks for a single domain and persist results to storage."""
     async with Dispatcher(cfg) as d:
-        results = await d.run_for(domain, only_checks=only_checks, use_cache=use_cache)
+        # pass owner_id first — актуальная сигнатура Dispatcher.run_for(owner_id, domain, ...)
+        results = await d.run_for(owner_id, domain, only_checks=only_checks, use_cache=use_cache)
     for r in results:
-        # Persist under the correct owner for history/alerts features.
         storage.save_history(owner_id, domain, r.check, r.status, r.message, r.metrics)
     return results
 
@@ -123,17 +112,36 @@ async def _cmd_check_all(
             print(f"[{oid}] {_status_emoji(overall)} {name} — {overall} -> {checks_summary}")
 
 
-async def _cmd_scan_one(cfg: AppConfig, name: str, *, only: Optional[list[str]], use_cache: bool) -> None:
-    """Run checks for a single domain WITHOUT persisting results.
-
-    Note:
-        Intended for ad-hoc diagnostics (no DB writes).
-    """
+async def _cmd_scan_one(
+    cfg: AppConfig,
+    owner_id: int,
+    name: str,
+    *,
+    only: Optional[list[str]],
+    use_cache: bool,
+) -> None:
+    """Run checks for a single domain WITHOUT persisting results."""
     async with Dispatcher(cfg) as d:
-        results = await d.run_for(name, only_checks=only, use_cache=use_cache)
+        # use owner_id to resolve overrides, но ничего не сохраняем
+        results = await d.run_for(owner_id, name, only_checks=only, use_cache=use_cache)
     overall = _overall_from(results)
     checks_summary = ", ".join(f"{r.check}:{_status_str(r.status)}" for r in results)
     print(f"{_status_emoji(overall)} {name} — {overall} -> {checks_summary}")
+
+
+async def _cmd_check_one(
+    cfg: AppConfig,
+    owner_id: int,
+    name: str,
+    *,
+    only: Optional[list[str]],
+    use_cache: bool,
+) -> None:
+    """Run checks for a single domain and persist results to storage."""
+    results = await _run_and_persist(cfg, owner_id, name, only_checks=only, use_cache=use_cache)
+    overall = _overall_from(results)
+    checks_summary = ", ".join(f"{r.check}:{_status_str(r.status)}" for r in results)
+    print(f"[{owner_id}] {_status_emoji(overall)} {name} — {overall} -> {checks_summary}")
 
 
 def main() -> None:
@@ -141,11 +149,16 @@ def main() -> None:
     args = _parse_args()
     cfg = load_config(args.config)
 
+    # validate config early (fail-fast с понятной сводкой)
+    try:
+        validate_config(cfg)
+    except ValueError as e:
+        raise SystemExit(str(e))
+
     use_cache = not bool(args.force)
     only = _parse_only(args.only)
 
     if args.mode == "bot":
-        # Blocking call; Application.run_polling() manages the event loop internally.
         run_bot(cfg)
         return
 
@@ -161,9 +174,8 @@ def main() -> None:
                 "Notes:\n"
                 "  Runs checks WITHOUT saving to DB. Use this for ad-hoc diagnostics."
             )
-        # For diagnostics default to fresh execution unless user explicitly set --force/--no-force
-        use_cache_scan = False if args.force is None else (not bool(args.force))
-        asyncio.run(_cmd_scan_one(cfg, args.name, only=only, use_cache=use_cache_scan))
+        # scan всегда «живой» прогон без кэша
+        asyncio.run(_cmd_scan_one(cfg, args.owner or 0, args.name, only=only, use_cache=False))
         return
 
     # check_domain
@@ -174,7 +186,6 @@ def main() -> None:
             "Example:\n"
             "  sitewatcher check_domain example.com --owner 123456789 --only http_basic,tls_cert"
         )
-
     asyncio.run(_cmd_check_one(cfg, args.owner, args.name, only=only, use_cache=use_cache))
 
 

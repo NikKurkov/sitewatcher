@@ -31,11 +31,13 @@ def run_bot(cfg: AppConfig) -> None:
         raise RuntimeError("TELEGRAM_TOKEN is not set in environment (.env)")
 
     request = HTTPXRequest(
-        http_version="1.1",      # force HTTP/1.1 for stability
+        http_version="1.1",
         connect_timeout=10.0,
         read_timeout=30.0,
         write_timeout=30.0,
         proxy=os.getenv("TELEGRAM_PROXY"),  # e.g. http://user:pass@host:3128
+        connection_pool_size=32,
+        pool_timeout=10.0,
     )
 
     app = (

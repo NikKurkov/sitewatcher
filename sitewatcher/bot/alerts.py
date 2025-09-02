@@ -4,14 +4,14 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
-import time
 import re
+import time
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import NamedTuple, Optional
 
+from telegram.error import NetworkError, RetryAfter, TimedOut
 from telegram.ext import ContextTypes  # noqa: F401
-from telegram.error import RetryAfter, TimedOut, NetworkError
 
 from .. import storage
 from ..config import AppConfig, resolve_settings
@@ -267,7 +267,6 @@ def _is_fresh_ok_for_all(
     return True
 
 
-# новая универсальная обёртка отправки (поведение совместимо с bot.send_message)
 async def safe_send_message(
     bot,
     *,
@@ -380,7 +379,7 @@ async def maybe_send_alert(update, context, owner_id: int, domain: str, results)
         try:
             await safe_send_message(
                 context.bot,
-                chat_id=alert_chat_id,
+                chat_id=chat_id,  # <- use unified variable name
                 text=text,
                 parse_mode="HTML",
                 disable_web_page_preview=True,
@@ -421,8 +420,8 @@ async def maybe_send_alert(update, context, owner_id: int, domain: str, results)
         return
 
     # Resolve destination chat
-    alert_chat_id = _resolve_alert_chat_id(context, update, cfg, owner_id)
-    if not alert_chat_id:
+    chat_id = _resolve_alert_chat_id(context, update, cfg, owner_id)
+    if not chat_id:
         storage.upsert_alert_state(owner_id, domain, overall_txt, None)
         return
 
@@ -442,8 +441,9 @@ async def maybe_send_alert(update, context, owner_id: int, domain: str, results)
 
     # Send and persist
     try:
-        await context.bot.send_message(
-            chat_id=alert_chat_id,
+        await safe_send_message(
+            context.bot,
+            chat_id=chat_id,
             text=text,
             parse_mode="HTML",
             disable_web_page_preview=True,

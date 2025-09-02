@@ -1,261 +1,271 @@
+# sitewatcher/checks/tls_cert.py
 from __future__ import annotations
 
 import asyncio
 import ssl
-import contextlib
-import traceback
-import datetime as dt
-from typing import Optional
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Iterable, Optional
 
 from .base import BaseCheck, CheckOutcome, Status
 
-DEFAULT_TLS_TIMEOUT_S = 10.0  # Single source of truth for this check
+
+@dataclass(frozen=True)
+class _TlsResult:
+    """Container with raw peer certificate and timestamps."""
+    cert: dict[str, Any]
+    fetched_at: datetime
+
+
+def _flatten_x509_name(seq: Any) -> list[tuple[str, str]]:
+    """
+    Flatten OpenSSL subject/issuer representation from ssl.getpeercert() into [(key, value), ...].
+
+    ssl.getpeercert() returns e.g.:
+        subject = ((('countryName', 'US'),), (('commonName', 'example.com'),))
+        issuer  = ((('organizationName', "Let's Encrypt"),), (('commonName', 'R3'),))
+    """
+    out: list[tuple[str, str]] = []
+    if not isinstance(seq, (list, tuple)):
+        return out
+    for rdn in seq:
+        if not isinstance(rdn, (list, tuple)):
+            continue
+        for pair in rdn:
+            if isinstance(pair, (list, tuple)) and len(pair) >= 2:
+                k, v = pair[0], pair[1]
+                try:
+                    out.append((str(k), str(v)))
+                except Exception:
+                    # Be tolerant to odd shapes/values
+                    continue
+    return out
+
+
+def _extract_san_dns(cert: Optional[dict[str, Any]]) -> list[str]:
+    """Extract DNS names from subjectAltName; robust to odd shapes."""
+    if not cert:
+        return []
+    san = cert.get("subjectAltName") or []
+    out: list[str] = []
+    if isinstance(san, (list, tuple)):
+        for entry in san:
+            # Expected: ('DNS', 'example.com'), but tolerate weird entries
+            if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                kind, value = entry[0], entry[1]
+                if isinstance(kind, str) and kind.upper() == "DNS" and isinstance(value, str):
+                    out.append(value.strip())
+            elif isinstance(entry, str):
+                # Rare: SAN as plain string
+                out.append(entry.strip())
+    return out
+
+
+def _parse_not_after(cert: dict[str, Any]) -> Optional[datetime]:
+    """
+    Parse 'notAfter' from ssl.getpeercert() dict into an aware datetime (UTC).
+
+    Common formats observed:
+      - 'Jun 10 12:00:00 2025 GMT'         (OpenSSL default)
+      - ISO variants with 'Z' or '+00:00'  (rare)
+    """
+    raw = cert.get("notAfter")
+    if not raw:
+        return None
+    s = str(raw).strip()
+
+    # OpenSSL default: e.g. 'Jun 10 12:00:00 2025 GMT'
+    for fmt in ("%b %d %H:%M:%S %Y %Z", "%b %d %H:%M:%S %Y GMT"):
+        try:
+            dt = datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
+            return dt
+        except ValueError:
+            pass
+
+    # ISO-ish fallbacks
+    if s.endswith("Z"):
+        try:
+            return datetime.fromisoformat(s[:-1] + "+00:00")
+        except Exception:
+            pass
+    try:
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+
+def _hostname_matches(hostname: str, san_dns: Iterable[str]) -> bool:
+    """
+    Check whether hostname matches any SAN DNS entry.
+    Wildcards: only left-most label ('*.example.com') semantics are supported.
+    """
+    hn = (hostname or "").strip().lower().rstrip(".")
+    for pattern in san_dns:
+        p = (pattern or "").lower().rstrip(".")
+        if not p:
+            continue
+        if p == hn:
+            return True
+        if p.startswith("*."):
+            # Match single-label wildcard: sub.example.com matches, example.com doesn't
+            suffix = p[1:]  # "*.example.com" -> ".example.com"
+            if hn.endswith(suffix) and hn.count(".") >= p.count("."):
+                return True
+    return False
 
 
 class TlsCertCheck(BaseCheck):
-    """Fetch peer certificate via TLS and report time-to-expiry."""
-
+    """TLS certificate expiry and hostname/SAN validation."""
     name = "tls_cert"
 
-    def __init__(self, domain: str, warn_days: int = 14, timeout_s: float = DEFAULT_TLS_TIMEOUT_S) -> None:
+    def __init__(
+        self,
+        domain: str,
+        *,
+        warn_days: int = 30,
+        port: int = 443,
+        timeout_s: float = 10.0,
+    ) -> None:
+        """
+        Args:
+            domain: Hostname to connect to.
+            warn_days: Warning threshold for days until expiry.
+            port: TLS port (default 443).
+            timeout_s: Overall connection handshake timeout.
+        """
         super().__init__(domain)
         self.warn_days = int(warn_days)
+        self.port = int(port)
         self.timeout_s = float(timeout_s)
 
     async def run(self) -> CheckOutcome:
+        """Open a TLS connection, parse the leaf certificate and classify status."""
         try:
-            cert = await self._fetch_peer_cert()
-            if not cert or not isinstance(cert, dict):
-                return CheckOutcome(self.name, Status.UNKNOWN, "no certificate", {
-                    "module": __name__,
-                    "file": __file__,
-                    "cert_type": type(cert).__name__ if cert is not None else None,
-                })
-
-            # Например: 'Apr 10 12:00:00 2026 GMT' или 'Jun  9 12:00:00 2026 GMT'
-            not_after = cert.get("notAfter")
-            if not not_after:
-                return CheckOutcome(self.name, Status.UNKNOWN, "no notAfter in certificate", {
-                    "module": __name__,
-                    "file": __file__,
-                    "cert_keys": list(cert.keys()),
-                })
-
-            expires_at = self._parse_openssl_gmt(not_after)
-            if not expires_at:
-                return CheckOutcome(self.name, Status.UNKNOWN, "bad notAfter format", {
-                    "module": __name__,
-                    "file": __file__,
-                    "not_after_raw": not_after,
-                })
-
-            now = dt.datetime.now(dt.timezone.utc)
-            days_left = int((expires_at - now).total_seconds() // 86400)
-            date_str = expires_at.strftime("%Y-%m-%d")
-
-            # Promote near-expiry to CRIT under 7 days (common SRE practice),
-            # keep WARN threshold configurable via self.warn_days.
-            crit_days = 7
-            if days_left < 0:
-                status = Status.CRIT
-                msg = f"expired {-days_left}d ago ({date_str} UTC)"
-            elif days_left <= crit_days:
-                status = Status.CRIT
-                msg = f"expires in {days_left}d ({date_str} UTC)"
-            elif days_left <= self.warn_days:
-                status = Status.WARN
-                msg = f"expires in {days_left}d ({date_str} UTC)"
-            else:
-                status = Status.OK
-                msg = f"expires in {days_left}d ({date_str} UTC)"
-
-            issuer = cert.get("issuer")
-            subject = cert.get("subject")
-            san = cert.get("subjectAltName")
-
-            # Extract DNS names from SAN and check if they match the requested hostname (wildcards supported).
-            san_dns = self._extract_san_dns(cert)
-            host_matches = self._hostname_matches(self.domain, san_dns)
-
-            return CheckOutcome(
-                check=self.name,
-                status=status,
-                message=msg,
-                metrics={
-                    "expires_at": expires_at.isoformat(),
-                    "days_left": days_left,
-                    "not_after_raw": not_after,
-                    "chain_ok": True,
-                    "issuer": issuer,
-                    "subject": subject,
-                    "san": san,
-                    "san_present": bool(san_dns),
-                    "san_dns": san_dns,
-                    "host_matches": host_matches,
-                    "common_name": next((v for k, v in (subject or []) if k == "commonName"), None),
-                },
+            res = await asyncio.wait_for(
+                self._fetch_peer_cert(self.domain, self.port),
+                timeout=self.timeout_s,
             )
-
         except asyncio.TimeoutError:
-            return CheckOutcome(self.name, Status.UNKNOWN, "connect timeout", {
-                "module": __name__, "file": __file__
-            })
-        except (ConnectionError, OSError) as e:
-            # Port closed, network unreachable, DNS errors, etc.
-            return CheckOutcome(self.name, Status.UNKNOWN, f"network error: {type(e).__name__}: {e}", {
-                "module": __name__, "file": __file__
-            })
-        except ssl.SSLCertVerificationError as e:
-            # Most common case: hostname mismatch (e.g., cert issued for *.example.com, queried foo.test)
-            # Try to fetch peer cert WITHOUT hostname check (still verifying CA) to expose SAN for diagnostics.
-            with contextlib.suppress(Exception):
-                bad_cert = await self._fetch_peer_cert_no_hostcheck()
-            san_dns = self._extract_san_dns(bad_cert or {}) if bad_cert else []
+            return CheckOutcome(self.name, Status.UNKNOWN, "tls timeout", {"timeout_s": self.timeout_s})
+        except ssl.SSLError as e:
+            # SSL-level failures (handshake issues, protocol mismatch, etc.)
+            return CheckOutcome(self.name, Status.UNKNOWN, f"tls error: {e.__class__.__name__}: {e}", {})
+        except OSError as e:
+            # DNS/socket-level failures
+            return CheckOutcome(self.name, Status.UNKNOWN, f"socket error: {e.__class__.__name__}: {e}", {})
+        except Exception as e:
+            # Defensive default
+            return CheckOutcome(self.name, Status.UNKNOWN, f"tls error: {e.__class__.__name__}: {e}", {})
+
+        cert = res.cert or {}
+        not_after = _parse_not_after(cert)
+        if not not_after:
             return CheckOutcome(
                 self.name,
-                Status.CRIT,
-                f"hostname verification failed: {e}",
-                {
-                    "module": __name__,
-                    "file": __file__,
-                    "san_dns": san_dns,
-                    "host": self.domain,
-                    "trace": "\n".join(traceback.format_exc().splitlines()[-8:]),
-                },
+                Status.UNKNOWN,
+                "no notAfter in certificate",
+                {"subject": cert.get("subject")},
             )
-        except ssl.SSLError as e:
-            # Other TLS errors (protocol alerts, chain issues, etc.)
-            return CheckOutcome(self.name, Status.CRIT, f"tls handshake error: {type(e).__name__}: {e}", {
-                "module": __name__,
-                "file": __file__,
-                "trace": "\n".join(traceback.format_exc().splitlines()[-8:]),
-            })
-        except Exception as e:
-            # Любые неожиданные ошибки — как UNKNOWN, плюс подробности для отладки
-            return CheckOutcome(self.name, Status.UNKNOWN, f"tls error: {type(e).__name__}: {e}", {
-                "module": __name__,
-                "file": __file__,
-                "trace": "\n".join(traceback.format_exc().splitlines()[-8:]),
-            })
 
-    # ------------------------------ internals ------------------------------
+        now = datetime.now(timezone.utc)
+        days_left = int((not_after - now).total_seconds() // 86400)
 
-    async def _fetch_peer_cert(self) -> Optional[dict]:
+        # Expiry classification
+        if days_left < 0:
+            status = Status.CRIT
+            msg_exp = f"expired {-days_left}d ago ({not_after.date()} UTC)"
+        elif days_left <= 3:
+            status = Status.CRIT
+            msg_exp = f"expires in {days_left}d ({not_after.date()} UTC)"
+        elif days_left <= self.warn_days:
+            status = Status.WARN
+            msg_exp = f"expires in {days_left}d ({not_after.date()} UTC)"
+        else:
+            status = Status.OK
+            msg_exp = f"expires in {days_left}d ({not_after.date()} UTC)"
+
+        # Hostname vs SAN validation
+        san_dns = _extract_san_dns(cert)
+        host_matches = _hostname_matches(self.domain, san_dns) if san_dns else False
+        if san_dns and not host_matches:
+            # Don't escalate to CRIT by default (endpoints may terminate for other hostnames);
+            # but still surface a WARN.
+            status = Status.WARN if status == Status.OK else status
+
+        # Subject CN (robust)
+        subject_pairs = _flatten_x509_name(cert.get("subject"))
+        common_name = next((v for k, v in subject_pairs if k in ("commonName", "CN")), None)
+
+        # Human-friendly message
+        details = [msg_exp]
+        if san_dns:
+            details.append("hostname match" if host_matches else "hostname mismatch")
+        else:
+            details.append("no SAN")
+        msg = "; ".join(details)
+
+        metrics = {
+            "not_after_raw": cert.get("notAfter"),
+            "expires_at": not_after.isoformat(),
+            "days_left": days_left,
+            "issuer": cert.get("issuer"),
+            "subject": cert.get("subject"),
+            "san": cert.get("subjectAltName"),
+            "san_dns": san_dns,
+            "san_present": bool(san_dns),
+            "host_matches": host_matches,
+            "common_name": common_name,
+            "port": self.port,
+            "fetched_at": res.fetched_at.isoformat(),
+        }
+        return CheckOutcome(self.name, status, msg, metrics)
+
+    # ------------------------------- IO helpers -------------------------------
+
+    async def _fetch_peer_cert(self, host: str, port: int) -> _TlsResult:
         """
-        Open a TLS connection (with SNI), return getpeercert() dict or None.
+        Open a TLS connection to host:port and return the peer certificate dict.
 
-        Нормируем поведение разных платформ:
-        - пробуем get_extra_info('peercert') (может вернуть dict или callbable),
-        - фоллбэк через ssl_object.getpeercert().
+        We request SNI using server_hostname=host. We set check_hostname=False in the
+        SSL context to always obtain the certificate even if it doesn't match.
         """
-        ssl_ctx = ssl.create_default_context()  # CERT_REQUIRED + hostname check
-        writer = None
+        # Create a standard client context but do not enforce host verification here.
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        # Verify certificates against system CAs (validates the chain), but hostname
+        # mismatch will not prevent retrieval.
+        ctx.verify_mode = ssl.CERT_REQUIRED
+
+        reader: asyncio.StreamReader
+        writer: asyncio.StreamWriter
+        reader, writer = await asyncio.open_connection(
+            host=host,
+            port=port,
+            ssl=ctx,
+            server_hostname=host,
+        )
         try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(self.domain, 443, ssl=ssl_ctx, server_hostname=self.domain),
-                timeout=self.timeout_s,
-            )
+            # StreamWriter.get_extra_info proxies transport.get_extra_info(...)
+            ssl_obj = None
+            try:
+                ssl_obj = writer.get_extra_info("ssl_object")  # type: ignore[attr-defined]
+            except Exception:
+                ssl_obj = None
+            if ssl_obj is None:
+                # Fallback: try reader transport
+                try:
+                    ssl_obj = getattr(getattr(reader, "_transport", None), "get_extra_info", lambda *_: None)("ssl_object")  # type: ignore[attr-defined]
+                except Exception:
+                    ssl_obj = None
 
-            cert = None
-
-            info = writer.get_extra_info("peercert")
-            if callable(info):
-                with contextlib.suppress(Exception):
-                    cert = info()
-            elif info:
-                cert = info
-
-            if not cert:
-                sslobj = writer.get_extra_info("ssl_object")
-                if sslobj:
-                    with contextlib.suppress(Exception):
-                        cert = sslobj.getpeercert()
-
-            return cert
+            cert: dict[str, Any] = ssl_obj.getpeercert() if ssl_obj is not None else {}
+            return _TlsResult(cert=cert or {}, fetched_at=datetime.now(timezone.utc))
         finally:
-            if writer is not None:
-                with contextlib.suppress(Exception):
-                    writer.close()
-                wc = getattr(writer, "wait_closed", None)
-                if callable(wc):
-                    with contextlib.suppress(Exception):
-                        await wc()
-
-    @staticmethod
-    def _extract_san_dns(cert: dict | None) -> list[str]:
-        """Extract a flat list of DNS names from subjectAltName."""
-        if not cert:
-            return []
-        san = cert.get("subjectAltName") or []
-        out: list[str] = []
-        for kind, value in san:
-            if kind.upper() == "DNS" and isinstance(value, str):
-                out.append(value.strip())
-        return out
-
-
-    @staticmethod
-    def _hostname_matches(host: str, san_dns: list[str]) -> bool:
-        """Check if host matches any SAN DNS entry (supports wildcards like *.example.com).
-
-        Rules (rough RFC 6125):
-            - Only a single wildcard in the left-most label is allowed.
-            - Wildcard does not match dot (i.e., *.example.com matches a.example.com but not a.b.example.com).
-        """
-        host = host.lower().strip(".")
-        for pattern in san_dns:
-            p = pattern.lower().strip(".")
-            if "*" not in p:
-                if host == p:
-                    return True
-                continue
-            # Wildcard pattern like "*.example.com"
-            if p.count("*") == 1 and p.startswith("*."):
-                suffix = p[1:]  # ".example.com"
-                # host must have exactly one extra left-most label
-                if host.endswith(suffix) and host.count(".") == suffix.count(".") + 1:
-                    return True
-        return False
-
-
-    async def _fetch_peer_cert_no_hostcheck(self) -> Optional[dict]:
-        """Open a TLS connection with hostname check disabled (still verifies CA)."""
-        ssl_ctx = ssl.create_default_context()
-        ssl_ctx.check_hostname = False  # disable hostname verification
-        writer = None
-        try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(self.domain, 443, ssl=ssl_ctx, server_hostname=self.domain),
-                timeout=self.timeout_s,
-            )
-            cert = None
-            info = writer.get_extra_info("peercert")
-            if callable(info):
-                with contextlib.suppress(Exception):
-                    cert = info()
-            elif info:
-                cert = info
-            if not cert:
-                sslobj = writer.get_extra_info("ssl_object")
-                if sslobj:
-                    with contextlib.suppress(Exception):
-                        cert = sslobj.getpeercert()
-            return cert
-        finally:
-            if writer is not None:
-                with contextlib.suppress(Exception):
-                    writer.close()
-                wc = getattr(writer, "wait_closed", None)
-                if callable(wc):
-                    with contextlib.suppress(Exception):
-                        await wc()
-
-    @staticmethod
-    def _parse_openssl_gmt(val: str) -> Optional[dt.datetime]:
-        """Parse OpenSSL 'notAfter' like 'Jun  9 12:00:00 2026 GMT' → aware UTC datetime."""
-        try:
-            # %d «пережёвывает» ведущий пробел для дней 1–9 (двойной пробел после месяца — ок)
-            naive = dt.datetime.strptime(val, "%b %d %H:%M:%S %Y %Z")
-            return naive.replace(tzinfo=dt.timezone.utc)
-        except Exception:
-            return None
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except asyncio.CancelledError:
+                # allow clean task cancellation during shutdown
+                pass
+            except Exception:
+                pass
