@@ -11,7 +11,7 @@ from telegram.ext import Application, ContextTypes
 from .. import storage
 from ..config import AppConfig
 from ..dispatcher import Dispatcher
-from .alerts import AlertDeduper, maybe_send_alert
+from .alerts import AlertDeduper, maybe_send_alert, safe_send_message
 from .utils import _resolve_alert_chat_id
 
 logger = logging.getLogger("sitewatcher.bot")
@@ -143,7 +143,8 @@ async def _flush_alert_summaries_job(context: ContextTypes.DEFAULT_TYPE) -> None
             chat_id = _resolve_alert_chat_id(context, update=None, cfg=cfg, owner_id=key.owner_id)
             if not chat_id:
                 continue
-            await context.bot.send_message(
+            await safe_send_message(
+                context.bot,
                 chat_id=chat_id,
                 text=text,
                 parse_mode=None,

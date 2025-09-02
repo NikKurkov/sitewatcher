@@ -1,6 +1,7 @@
 # sitewatcher/bot/alerts.py
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 import time
@@ -10,6 +11,7 @@ from datetime import datetime, timezone, timedelta
 from typing import NamedTuple, Optional
 
 from telegram.ext import ContextTypes  # noqa: F401
+from telegram.error import RetryAfter, TimedOut, NetworkError
 
 from .. import storage
 from ..config import AppConfig, resolve_settings
@@ -265,6 +267,43 @@ def _is_fresh_ok_for_all(
     return True
 
 
+# новая универсальная обёртка отправки (поведение совместимо с bot.send_message)
+async def safe_send_message(
+    bot,
+    *,
+    chat_id: int,
+    text: str,
+    parse_mode: Optional[str] = None,
+    disable_web_page_preview: bool = True,
+    max_attempts: int = 3,
+):
+    """Send a message with tiny retry logic (RetryAfter/TimedOut/NetworkError).
+
+    - Honors RetryAfter from Telegram (sleeps and retries).
+    - Retries once or twice on transient network timeouts.
+    - On success returns telegram.Message; on final failure re-raises the error.
+    """
+    attempt = 1
+    while True:
+        try:
+            return await bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=parse_mode,
+                disable_web_page_preview=disable_web_page_preview,
+            )
+        except RetryAfter as e:
+            if attempt >= max_attempts:
+                raise
+            await asyncio.sleep(max(1.0, float(getattr(e, "retry_after", 1.0))))
+        except (TimedOut, NetworkError):
+            if attempt >= max_attempts:
+                raise
+            # simple linear backoff (1s, 2s, ...)
+            await asyncio.sleep(float(attempt))
+        attempt += 1
+
+
 async def maybe_send_alert(update, context, owner_id: int, domain: str, results) -> None:
     """Send problem alerts (WARN/CRIT) and a recovery alert when status returns to OK.
 
@@ -339,8 +378,9 @@ async def maybe_send_alert(update, context, owner_id: int, domain: str, results)
             storage.upsert_alert_state(owner_id, domain, overall_txt, None)
             return
         try:
-            await context.bot.send_message(
-                chat_id=chat_id,
+            await safe_send_message(
+                context.bot,
+                chat_id=alert_chat_id,
                 text=text,
                 parse_mode="HTML",
                 disable_web_page_preview=True,
