@@ -18,6 +18,8 @@ from .base import BaseCheck, CheckOutcome, Status
 from ..config import RknConfig
 from ..utils.http_retry import get_with_retries
 
+ua = {"User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"}
+
 _ZI_BASE_URL = "https://raw.githubusercontent.com/zapret-info/z-i/master/"
 _ZI_PARTS_COUNT = 20
 _BATCH_SIZE = 10_000
@@ -237,7 +239,7 @@ class RknBlockCheck(BaseCheck):
     async def _download_dump(self, url: str) -> str:
         # 1) gz (или plain csv)
         try:
-            r = await get_with_retries(self.client, url, timeout_s=45.0, retries=3, backoff_s=0.5, retry_on_status=(502, 503, 504), follow_redirects=True)
+            r = await get_with_retries(self.client, url, timeout_s=45.0, retries=3, backoff_s=0.5, follow_redirects=True, headers=ua)
             r.raise_for_status()
             content = r.content
             if self._looks_like_gzip(content):
@@ -256,7 +258,7 @@ class RknBlockCheck(BaseCheck):
         for i in range(_ZI_PARTS_COUNT):
             try:
                 u = f"{_ZI_BASE_URL}dump-{i:02d}.csv"
-                rr = await get_with_retries(self.client, u, timeout_s=30.0, retries=2, backoff_s=0.3, retry_on_status=(502, 503, 504), follow_redirects=True)
+                rr = await get_with_retries(self.client, u, timeout_s=30.0, retries=2, backoff_s=0.3, follow_redirects=True, headers=ua)
                 if rr.status_code == 200 and rr.content:
                     try:
                         parts.append(rr.text)
@@ -269,13 +271,13 @@ class RknBlockCheck(BaseCheck):
 
         # 3) mirrors
         try:
-            mirrors_txt = await get_with_retries(self.client, f"{_ZI_BASE_URL}mirrors.txt", timeout_s=15.0, retries=2, backoff_s=0.3, retry_on_status=(502, 503, 504), follow_redirects=True)
+            mirrors_txt = await get_with_retries(self.client, f"{_ZI_BASE_URL}mirrors.txt", timeout_s=15.0, retries=2, backoff_s=0.3, follow_redirects=True, headers=ua)
             if mirrors_txt.status_code == 200:
                 mirrors = [ln.strip() for ln in mirrors_txt.text.splitlines() if ln.strip() and not ln.strip().startswith("#")]
                 for m in mirrors:
                     for cand in (f"{m.rstrip('/')}/dump.csv.gz", f"{m.rstrip('/')}/dump.csv"):
                         try:
-                            mr = await get_with_retries(self.client, cand, timeout_s=30.0, retries=3, backoff_s=0.5, retry_on_status=(502, 503, 504), follow_redirects=True)
+                            mr = await get_with_retries(self.client, cand, timeout_s=30.0, retries=3, backoff_s=0.5, follow_redirects=True, headers=ua)
                             if mr.status_code == 200:
                                 data = mr.content
                                 if self._looks_like_gzip(data):

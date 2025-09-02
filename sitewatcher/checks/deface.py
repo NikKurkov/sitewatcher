@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import html
+import time
 from typing import Iterable, List, Tuple
 
 import httpx
@@ -56,15 +57,20 @@ class DefaceCheck(BaseCheck):
             url = f"{scheme}://{self.domain}/"
             tried_urls.append(url)
             try:
+                start = time.perf_counter()
                 r = await get_with_retries(
                     self.client,
                     url,
                     timeout_s=self.timeout_s,
-                    retries=1,
+                    retries=2,
                     backoff_s=0.25,
-                    retry_on_status=(502, 503, 504),
                     follow_redirects=True,
+                    headers={"User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"},
                 )
+                elapsed_ms = int((time.perf_counter() - start) * 1000)
+                redirects = len(r.history)
+                code = r.status_code
+                
                 # We still inspect the body even for non-2xx in case the hacked page returns 403/503 but shows text.
                 text = (r.text or "").lower()
                 for phrase in self.markers:
@@ -74,14 +80,14 @@ class DefaceCheck(BaseCheck):
                             self.name,
                             Status.CRIT,
                             f"'{phrase}' found on main page",
-                            {"url": str(r.url), "matched": phrase},
+                            {"url": str(r.url), "matched": phrase, "status_code": code, "redirects": redirects, "latency_ms": elapsed_ms}
                         )
                 # No markers found on a successfully fetched page: OK.
                 return CheckOutcome(
                     self.name,
                     Status.OK,
                     "no deface markers",
-                    {"url": str(r.url)},
+                    {"url": str(r.url), "status_code": code, "redirects": redirects, "latency_ms": elapsed_ms}
                 )
             except httpx.RequestError:
                 # Try next scheme (HTTP) if HTTPS request failed to connect.

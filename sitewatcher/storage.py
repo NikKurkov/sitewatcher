@@ -97,7 +97,7 @@ def _connect(db_path: Path = DEFAULT_DB) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON;")
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
-    conn.execute("PRAGMA busy_timeout=30000;")  # 30s at SQL level
+    conn.execute("PRAGMA busy_timeout=3000;")   # 3s at SQL level
     return conn
 
 

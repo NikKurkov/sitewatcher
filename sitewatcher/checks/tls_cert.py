@@ -53,15 +53,29 @@ class TlsCertCheck(BaseCheck):
             days_left = int((expires_at - now).total_seconds() // 86400)
             date_str = expires_at.strftime("%Y-%m-%d")
 
+            # Promote near-expiry to CRIT under 7 days (common SRE practice),
+            # keep WARN threshold configurable via self.warn_days.
+            crit_days = 7
             if days_left < 0:
                 status = Status.CRIT
                 msg = f"expired {-days_left}d ago ({date_str} UTC)"
+            elif days_left <= crit_days:
+                status = Status.CRIT
+                msg = f"expires in {days_left}d ({date_str} UTC)"
             elif days_left <= self.warn_days:
                 status = Status.WARN
                 msg = f"expires in {days_left}d ({date_str} UTC)"
             else:
                 status = Status.OK
                 msg = f"expires in {days_left}d ({date_str} UTC)"
+
+            issuer = cert.get("issuer")
+            subject = cert.get("subject")
+            san = cert.get("subjectAltName")
+
+            # Extract DNS names from SAN and check if they match the requested hostname (wildcards supported).
+            san_dns = self._extract_san_dns(cert)
+            host_matches = self._hostname_matches(self.domain, san_dns)
 
             return CheckOutcome(
                 check=self.name,
@@ -71,6 +85,14 @@ class TlsCertCheck(BaseCheck):
                     "expires_at": expires_at.isoformat(),
                     "days_left": days_left,
                     "not_after_raw": not_after,
+                    "chain_ok": True,
+                    "issuer": issuer,
+                    "subject": subject,
+                    "san": san,
+                    "san_present": bool(san_dns),
+                    "san_dns": san_dns,
+                    "host_matches": host_matches,
+                    "common_name": next((v for k, v in (subject or []) if k == "commonName"), None),
                 },
             )
 
@@ -83,8 +105,26 @@ class TlsCertCheck(BaseCheck):
             return CheckOutcome(self.name, Status.UNKNOWN, f"network error: {type(e).__name__}: {e}", {
                 "module": __name__, "file": __file__
             })
+        except ssl.SSLCertVerificationError as e:
+            # Most common case: hostname mismatch (e.g., cert issued for *.example.com, queried foo.test)
+            # Try to fetch peer cert WITHOUT hostname check (still verifying CA) to expose SAN for diagnostics.
+            with contextlib.suppress(Exception):
+                bad_cert = await self._fetch_peer_cert_no_hostcheck()
+            san_dns = self._extract_san_dns(bad_cert or {}) if bad_cert else []
+            return CheckOutcome(
+                self.name,
+                Status.CRIT,
+                f"hostname verification failed: {e}",
+                {
+                    "module": __name__,
+                    "file": __file__,
+                    "san_dns": san_dns,
+                    "host": self.domain,
+                    "trace": "\n".join(traceback.format_exc().splitlines()[-8:]),
+                },
+            )
         except ssl.SSLError as e:
-            # Handshake/cert validation problems
+            # Other TLS errors (protocol alerts, chain issues, etc.)
             return CheckOutcome(self.name, Status.CRIT, f"tls handshake error: {type(e).__name__}: {e}", {
                 "module": __name__,
                 "file": __file__,
@@ -131,6 +171,75 @@ class TlsCertCheck(BaseCheck):
                     with contextlib.suppress(Exception):
                         cert = sslobj.getpeercert()
 
+            return cert
+        finally:
+            if writer is not None:
+                with contextlib.suppress(Exception):
+                    writer.close()
+                wc = getattr(writer, "wait_closed", None)
+                if callable(wc):
+                    with contextlib.suppress(Exception):
+                        await wc()
+
+    @staticmethod
+    def _extract_san_dns(cert: dict | None) -> list[str]:
+        """Extract a flat list of DNS names from subjectAltName."""
+        if not cert:
+            return []
+        san = cert.get("subjectAltName") or []
+        out: list[str] = []
+        for kind, value in san:
+            if kind.upper() == "DNS" and isinstance(value, str):
+                out.append(value.strip())
+        return out
+
+
+    @staticmethod
+    def _hostname_matches(host: str, san_dns: list[str]) -> bool:
+        """Check if host matches any SAN DNS entry (supports wildcards like *.example.com).
+
+        Rules (rough RFC 6125):
+            - Only a single wildcard in the left-most label is allowed.
+            - Wildcard does not match dot (i.e., *.example.com matches a.example.com but not a.b.example.com).
+        """
+        host = host.lower().strip(".")
+        for pattern in san_dns:
+            p = pattern.lower().strip(".")
+            if "*" not in p:
+                if host == p:
+                    return True
+                continue
+            # Wildcard pattern like "*.example.com"
+            if p.count("*") == 1 and p.startswith("*."):
+                suffix = p[1:]  # ".example.com"
+                # host must have exactly one extra left-most label
+                if host.endswith(suffix) and host.count(".") == suffix.count(".") + 1:
+                    return True
+        return False
+
+
+    async def _fetch_peer_cert_no_hostcheck(self) -> Optional[dict]:
+        """Open a TLS connection with hostname check disabled (still verifies CA)."""
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False  # disable hostname verification
+        writer = None
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(self.domain, 443, ssl=ssl_ctx, server_hostname=self.domain),
+                timeout=self.timeout_s,
+            )
+            cert = None
+            info = writer.get_extra_info("peercert")
+            if callable(info):
+                with contextlib.suppress(Exception):
+                    cert = info()
+            elif info:
+                cert = info
+            if not cert:
+                sslobj = writer.get_extra_info("ssl_object")
+                if sslobj:
+                    with contextlib.suppress(Exception):
+                        cert = sslobj.getpeercert()
             return cert
         finally:
             if writer is not None:

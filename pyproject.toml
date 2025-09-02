@@ -4,16 +4,43 @@ version = "0.1.0"
 description = "Lightweight async website monitoring bot (Telegram)"
 authors = [{ name = "Nikolay Kurkov", email = "nikkurkov@gmail.com" }]
 requires-python = ">=3.11"
+
+# Runtime dependencies (aligned with requirements.txt)
 dependencies = [
-  "httpx[http2]>=0.27",
-  "pydantic>=2.6",
-  "PyYAML>=6.0",
-  "python-telegram-bot[job-queue]>=21.6",
-  "icmplib>=3.0; platform_system != 'Windows'",
-  "python-dotenv>=1.0",
-  "dnspython>=2.6",
-  "tldextract>=3.1",
-  
+  # Lock to safe major/minor ranges to avoid future breaking changes
+  "httpx[http2,socks]>=0.28.1,<0.29",
+  "pydantic>=2.11.7,<3",
+  "PyYAML>=6.0.2,<7",
+  "python-telegram-bot[job-queue]>=22.3,<23",
+  "icmplib>=3,<4; platform_system != 'Windows'",
+  "python-dotenv>=1.1.1,<2",
+  "dnspython>=2.7.0,<3",
+  "tldextract>=5.3.0,<6",
+]
+
+# Project metadata (helps on PyPI and tooling)
+readme = "README.md"
+
+# CLI entrypoint: `sitewatcher <command>`
+[project.scripts]
+sitewatcher = "sitewatcher.main:main"
+
+# New: handy links for packaging tools / IDEs
+[project.urls]
+Homepage = "https://github.com/NikKurkov/sitewatcher"
+Repository = "https://github.com/NikKurkov/sitewatcher"
+Issues = "https://github.com/NikKurkov/sitewatcher/issues"
+
+# Developer tools
+[project.optional-dependencies]
+dev = [
+  "ruff>=0.5.0",
+  "pytest>=8.2.0",
+  "pytest-asyncio>=0.23.0",
+  "respx>=0.21.0",
+  "mypy>=1.10.0",
+  "types-PyYAML>=6.0.12.20240808",
+  "freezegun>=1.5.0"
 ]
 
 [tool.setuptools.packages.find]
@@ -22,10 +49,27 @@ include = ["sitewatcher*"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
 select = ["E","F","I","UP","B"]
+ignore = []
 
 [tool.pyright]
 reportMissingTypeStubs = false
+
+[tool.mypy]
+python_version = "3.11"
+strict_optional = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+asyncio_mode = "auto"
 
 [build-system]
 requires = ["setuptools", "wheel"]

@@ -85,6 +85,8 @@ class IpBlacklistCheck(BaseCheck):
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         hits: List[Hit] = [r for r in results if isinstance(r, Hit)]
+        errors_count = sum(1 for r in results if isinstance(r, Exception))
+        queries_total = len(ips) * len(self.zones)
 
         if hits:
             # Compact message like "IP@zone (reason...); ..."
@@ -100,10 +102,19 @@ class IpBlacklistCheck(BaseCheck):
                 "ips_v4": ips_v4,
                 "ips_v6": ips_v6,
             }
+            metrics |= {
+                "queries_total": queries_total,
+                "hits_count": len(hits),
+                "errors_count": errors_count,
+            }
             return CheckOutcome(self.name, Status.CRIT, message, metrics)
 
-        return CheckOutcome(self.name, Status.OK, "not listed", {"ips_v4": ips_v4, "ips_v6": ips_v6})
-
+        return CheckOutcome(
+            self.name,
+            Status.OK,
+            "not listed",
+            {"ips_v4": ips_v4, "ips_v6": ips_v6, "queries_total": queries_total, "hits_count": 0, "errors_count": errors_count},
+        )
     # ---------- internals ----------
 
     async def _resolve_ips(self) -> Tuple[List[str], List[str]]:
