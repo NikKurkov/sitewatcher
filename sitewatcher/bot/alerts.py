@@ -348,10 +348,14 @@ async def maybe_send_alert(update, context, owner_id: int, domain: str, results)
     if overall_txt == "OK" and prev_overall_txt in {"WARN", "CRIT"}:
         enabled = _enabled_checks_for(cfg, owner_id, domain)
         if not _is_fresh_ok_for_all(cfg, owner_id, domain, enabled, results):
-            logger.debug(
-                "alert: suppress recovery OK for %s (not all enabled checks are fresh/OK)",
-                domain,
-            )
+            logger.debug("alert: suppress recovery OK for %s (not all enabled checks are fresh/OK)", domain)
+            return
+
+        # Guard against repeated recovery spam: reuse cooldown_sec unless recovery_guard_sec is provided
+        guard_sec = int(getattr(cfg.alerts, "recovery_guard_sec", getattr(cfg.alerts, "cooldown_sec", 0)) or 0)
+        if guard_sec > 0 and last_sent_at_dt is not None and (now - last_sent_at_dt) < timedelta(seconds=guard_sec):
+            # State stays as-is; just persist overall to OK if needed
+            storage.upsert_alert_state(owner_id, domain, overall_txt, last_sent_iso)
             return
 
         text = _compose_message(domain, overall_txt, prev_overall_txt, results)
