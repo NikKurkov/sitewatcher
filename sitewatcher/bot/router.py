@@ -40,18 +40,20 @@ def register_handlers(app: Application) -> None:
         entry_points=[CommandHandler("add", requires_auth(cmd_add_start))],
         states={
             ADD_WAIT_KEYWORDS: [
-                CommandHandler("none", requires_auth(cmd_add_keywords_none)),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, requires_auth(cmd_add_keywords_text)),
+                # Allow subsequent messages during the wizard without busy-block
+                CommandHandler("none", requires_auth(cmd_add_keywords_none, allow_while_busy=True)),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, requires_auth(cmd_add_keywords_text, allow_while_busy=True)),
             ],
             ADD_WAIT_INTERVAL: [
-                CommandHandler("none", requires_auth(cmd_add_interval_none)),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, requires_auth(cmd_add_interval_text)),
+                CommandHandler("none", requires_auth(cmd_add_interval_none, allow_while_busy=True)),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, requires_auth(cmd_add_interval_text, allow_while_busy=True)),
             ],
         },
-        fallbacks=[CommandHandler("cancel", requires_auth(cmd_add_cancel))],
+        fallbacks=[CommandHandler("cancel", requires_auth(cmd_add_cancel, allow_while_busy=True))],
         name="sitewatcher:add_wizard",
         persistent=False,
     )
+
     app.add_handler(add_conv)
 
     # Conversation for /remove_all (bulk delete with confirmation)
@@ -59,11 +61,12 @@ def register_handlers(app: Application) -> None:
         entry_points=[CommandHandler("remove_all", requires_auth(cmd_remove_all_start))],
         states={
             REMOVE_ALL_CONFIRM: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, requires_auth(cmd_remove_all_confirm)),
-                CommandHandler("none", requires_auth(cmd_remove_all_cancel)),
+                # Confirmation step also needs to accept quick follow-ups
+                MessageHandler(filters.TEXT & ~filters.COMMAND, requires_auth(cmd_remove_all_confirm, allow_while_busy=True)),
+                CommandHandler("none", requires_auth(cmd_remove_all_cancel, allow_while_busy=True)),
             ],
         },
-        fallbacks=[CommandHandler("cancel", requires_auth(cmd_remove_all_cancel))],
+        fallbacks=[CommandHandler("cancel", requires_auth(cmd_remove_all_cancel, allow_while_busy=True))],
         name="sitewatcher:remove_all_confirm",
         persistent=False,
     )
