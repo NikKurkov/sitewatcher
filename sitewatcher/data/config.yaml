@@ -127,3 +127,46 @@ domains:
       tls_cert: false
       keywords: false
       ping: true
+      
+# -------- Logging settings --------
+logging:
+  enabled: true
+  level: INFO            # DEBUG/INFO/WARNING/ERROR
+  destination: console   # console | file
+  format: pretty         # pretty | json
+
+  file:
+    path: ./logs/sitewatcher.log
+    rotate: size         # size | time
+    max_bytes: 10000000
+    backup_count: 5
+    when: midnight
+    interval: 1
+    utc: true
+
+  pretty:
+    use_rich: true
+    show_path: false
+    show_time: true
+
+  json:
+    ensure_ascii: false
+    include_fields:
+      - timestamp
+      - level
+      - logger
+      - message
+      - module
+      - line
+      - pid
+      - thread
+      - owner
+      - domain
+      - check
+      - run_id
+      - status
+
+  third_party_levels:
+    httpx: WARNING
+    apscheduler: INFO
+    telegram: WARNING
