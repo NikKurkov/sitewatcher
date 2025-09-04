@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from random import random
 from typing import Any, Iterable, Optional
 
 import httpx
+
+log = logging.getLogger(__name__)
 
 
 # Exceptions considered transient and worth retrying for idempotent requests.
@@ -64,6 +67,7 @@ async def get_with_retries(
     follow_redirects: bool = False,
     max_backoff_s: float = 5.0,
     jitter: float = 0.1,
+    log_extra: Optional[dict[str, Any]] = None,
     **kwargs: Any,
 ) -> httpx.Response:
     """
@@ -98,6 +102,16 @@ async def get_with_retries(
     delay = float(backoff_s)
 
     while True:
+        log.debug(
+            "http.retry.try",
+            extra={
+                "event": "http.retry.try",
+                "url": url,
+                "attempt": attempt + 1,
+                "max_attempts": retries + 1,
+                **(log_extra or {}),
+            },
+        )
         try:
             resp = await client.get(
                 url,
@@ -108,31 +122,86 @@ async def get_with_retries(
             )
 
             # Retry on specific status codes
-            if attempt < retries and resp.status_code in retry_on_status:
-                retry_after_hdr = resp.headers.get("Retry-After")
-                retry_after = _parse_retry_after(retry_after_hdr) if retry_after_hdr else None
+            if resp.status_code in retry_on_status:
+                if attempt < retries:
+                    retry_after_hdr = resp.headers.get("Retry-After")
+                    retry_after = _parse_retry_after(retry_after_hdr) if retry_after_hdr else None
 
-                # Proactively release connection before sleeping
-                try:
-                    await resp.aclose()
-                except Exception:
-                    pass
+                    # Proactively release connection before sleeping
+                    try:
+                        await resp.aclose()
+                    except Exception:
+                        pass
 
-                if retry_after is not None and resp.status_code in (429, 503):
-                    sleep_for = _clamp(retry_after, 0.0, max_backoff_s)
+                    if retry_after is not None and resp.status_code in (429, 503):
+                        sleep_for = _clamp(retry_after, 0.0, max_backoff_s)
+                        used_retry_after = True
+                    else:
+                        sleep_for = _clamp(delay * (1.0 + random() * jitter), 0.0, max_backoff_s)
+                        used_retry_after = False
+
+                    # Log the scheduled retry with reason and delay
+                    log.info(
+                        "http.retry.status",
+                        extra={
+                            "event": "http.retry.status",
+                            "url": url,
+                            "status": resp.status_code,
+                            "sleep_for_s": round(sleep_for, 3),
+                            "used_retry_after": used_retry_after,
+                            "attempt": attempt + 1,
+                            "max_attempts": retries + 1,
+                            **(log_extra or {}),
+                        },
+                    )
+
+                    await asyncio.sleep(sleep_for)
+                    attempt += 1
+                    delay = _clamp(delay * 2.0, backoff_s, max_backoff_s)
+                    continue
                 else:
-                    sleep_for = _clamp(delay * (1.0 + random() * jitter), 0.0, max_backoff_s)
+                    # No retries left — return the response but flag the exhaustion
+                    log.warning(
+                        "http.retry.status_exhausted",
+                        extra={
+                            "event": "http.retry.status_exhausted",
+                            "url": url,
+                            "status": resp.status_code,
+                            "attempts": attempt + 1,
+                            "max_attempts": retries + 1,
+                            **(log_extra or {}),
+                        },
+                    )
+                    return resp
 
-                await asyncio.sleep(sleep_for)
-                attempt += 1
-                delay = _clamp(delay * 2.0, backoff_s, max_backoff_s)
-                continue
-
+            # Successful / non-retriable response — log and return
+            log.debug(
+                "http.retry.success",
+                extra={
+                    "event": "http.retry.success",
+                    "url": url,
+                    "status": resp.status_code,
+                    "attempts": attempt + 1,
+                    **(log_extra or {}),
+                },
+            )
             return resp
+
 
         except _RETRYABLE_EXC as e:
             # Give up if no retries left
             if attempt >= retries:
+                log.error(
+                    "http.retry.giveup_error",
+                    extra={
+                        "event": "http.retry.giveup_error",
+                        "url": url,
+                        "error": f"{e.__class__.__name__}: {e}",
+                        "attempts": attempt + 1,
+                        "max_attempts": retries + 1,
+                        **(log_extra or {}),
+                    },
+                )
                 raise
 
             # Async cancellation should not be masked
@@ -141,6 +210,18 @@ async def get_with_retries(
 
             # Sleep with backoff + jitter, then retry
             sleep_for = _clamp(delay * (1.0 + random() * jitter), 0.0, max_backoff_s)
+            log.info(
+                "http.retry.error",
+                extra={
+                    "event": "http.retry.error",
+                    "url": url,
+                    "error": f"{e.__class__.__name__}",
+                    "sleep_for_s": round(sleep_for, 3),
+                    "attempt": attempt + 1,
+                    "max_attempts": retries + 1,
+                    **(log_extra or {}),
+                },
+            )
             await asyncio.sleep(sleep_for)
             attempt += 1
             delay = _clamp(delay * 2.0, backoff_s, max_backoff_s)

@@ -1,6 +1,7 @@
 # sitewatcher/checks/http_basic.py
 from __future__ import annotations
 
+import logging
 import time
 from typing import Optional
 
@@ -8,6 +9,9 @@ import httpx
 
 from .base import BaseCheck, CheckOutcome, Status
 from ..utils.http_retry import get_with_retries
+
+# Module-level logger for structured events
+log = logging.getLogger(__name__)
 
 
 class HttpBasicCheck(BaseCheck):
@@ -45,6 +49,18 @@ class HttpBasicCheck(BaseCheck):
     async def run(self) -> CheckOutcome:
         origin_url = f"https://{self.domain}/"
 
+        # Emit a start event (useful in DEBUG traces)
+        log.debug(
+            "http_basic.start",
+            extra={
+                "event": "http_basic.start",
+                "domain": self.domain,
+                "origin_url": origin_url,
+                "timeout_s": self.timeout_s,
+                "proxy_set": bool(self.proxy),
+            },
+        )
+
         # --- 1) First hop (no redirects) ---
         start1 = time.perf_counter()
         try:
@@ -61,6 +77,17 @@ class HttpBasicCheck(BaseCheck):
             )
         except httpx.RequestError as e:
             elapsed_ms = int((time.perf_counter() - start1) * 1000)
+            # Log request error with initial latency measured
+            log.error(
+                "http_basic.error",
+                extra={
+                    "event": "http_basic.error",
+                    "domain": self.domain,
+                    "url": origin_url,
+                    "latency_ms_initial": elapsed_ms,
+                    "error": e.__class__.__name__,
+                },
+            )
             return CheckOutcome(
                 check=self.name,
                 status=Status.CRIT,
@@ -70,6 +97,18 @@ class HttpBasicCheck(BaseCheck):
 
         elapsed1_ms = int((time.perf_counter() - start1) * 1000)
         code1 = r1.status_code
+
+        # Log initial response hop
+        log.info(
+            "http_basic.initial",
+            extra={
+                "event": "http_basic.initial",
+                "domain": self.domain,
+                "url": str(r1.url),
+                "code_initial": code1,
+                "latency_ms_initial": elapsed1_ms,
+            },
+        )
 
         # Defaults for the final hop
         final_url = str(r1.url)
@@ -100,9 +139,31 @@ class HttpBasicCheck(BaseCheck):
                 final_url = str(r2.url)
                 final_code = r2.status_code
                 total_ms = elapsed1_ms + elapsed2_ms
-            except httpx.RequestError:
-                pass
 
+                log.info(
+                    "http_basic.redirect_chain",
+                    extra={
+                        "event": "http_basic.redirect_chain",
+                        "domain": self.domain,
+                        "origin_url": origin_url,
+                        "final_url": final_url,
+                        "redirects": redirects,
+                        "final_code": final_code,
+                        "latency_ms_total": total_ms,
+                        "latency_ms_initial": elapsed1_ms,
+                    },
+                )
+            except httpx.RequestError as e:
+                # Keep initial hop data; log that following redirects failed
+                log.warning(
+                    "http_basic.redirect_follow_error",
+                    extra={
+                        "event": "http_basic.redirect_follow_error",
+                        "domain": self.domain,
+                        "from_url": str(r1.url),
+                        "error": e.__class__.__name__,
+                    },
+                )
 
         # --- 3) Derive status from initial code and initial latency thresholds ---
         status = self._status_from_initial(code1, elapsed1_ms)
@@ -115,6 +176,22 @@ class HttpBasicCheck(BaseCheck):
             )
         else:
             msg = f"HTTP {code1}, latency {elapsed1_ms} ms"
+
+        # Final event (compact, with derived status)
+        log.info(
+            "http_basic.done",
+            extra={
+                "event": "http_basic.done",
+                "domain": self.domain,
+                "status": getattr(status, "name", str(status)),
+                "code_initial": code1,
+                "latency_ms_initial": elapsed1_ms,
+                "redirects": redirects,
+                "final_url": final_url,
+                "final_code": final_code,
+                "latency_ms_total": total_ms,
+            },
+        )
 
         return CheckOutcome(
             check=self.name,
