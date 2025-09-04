@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
@@ -83,6 +84,8 @@ CREATE INDEX IF NOT EXISTS hx_owner_domain_created ON history(owner_id, domain, 
 """
 
 _INITIALIZED = False
+
+log = logging.getLogger(__name__)
 
 
 def _connect(db_path: Path = DEFAULT_DB) -> sqlite3.Connection:
@@ -247,7 +250,7 @@ def domain_exists(owner_id: int, name: str) -> bool:
     with _connect() as conn:
         row = conn.execute(
             "SELECT 1 FROM domains WHERE owner_id=? AND name=? LIMIT 1",
-            (owner_id, name),
+            (int(owner_id), name),
         ).fetchone()
         return row is not None
 
@@ -266,6 +269,20 @@ def save_history(
     if not domain:
         return
     status_str = getattr(status, "value", str(status))
+    # Safely serialize metrics to JSON
+    try:
+        metrics_json = json.dumps(metrics, ensure_ascii=False)
+    except Exception as e:
+        log.warning(
+            "history.metrics_json.serialize_failed",
+            extra={"event": "history.metrics_json.serialize_failed", "owner_id": int(owner_id), "domain": domain, "check": check_name, "error": e.__class__.__name__}
+        )
+        # Fallback: keep minimal payload as string
+        try:
+            metrics_json = json.dumps({"_raw_str": str(metrics)}, ensure_ascii=False)
+        except Exception:
+            metrics_json = "{}"
+
     with _connect() as conn, conn:
         # страховка от FK: гарантируем домен (и пользователя)
         conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES (?)", (int(owner_id),))
@@ -275,8 +292,19 @@ def save_history(
             INSERT INTO history(owner_id, domain, check_name, status, message, metrics_json, created_at)
             VALUES (?,?,?,?,?, ?, datetime('now'))
             """,
-            (int(owner_id), domain, check_name, status_str, message, json.dumps(metrics, ensure_ascii=False)),
+            (int(owner_id), domain, check_name, status_str, message, metrics_json),
         )
+
+    log.info(
+        "history.save",
+        extra={
+            "event": "history.save",
+            "owner_id": int(owner_id),
+            "domain": domain,
+            "check": check_name,
+            "status": status_str,
+        },
+    )
 
 
 def last_results(owner_id: int, domain: str, limit: int = 10) -> List[sqlite3.Row]:
@@ -296,6 +324,16 @@ def last_history_for_check(owner_id: int, domain: str, check_name: str) -> Optio
             "SELECT * FROM history WHERE owner_id=? AND domain=? AND check_name=? ORDER BY id DESC LIMIT 1",
             (int(owner_id), (domain or "").lower(), check_name),
         ).fetchone()
+        log.debug(
+            "history.last",
+            extra={
+                "event": "history.last",
+                "owner_id": int(owner_id),
+                "domain": (domain or "").lower(),
+                "check": check_name,
+                "found": bool(row),
+            },
+        )
         return row
 
 
@@ -306,17 +344,42 @@ def minutes_since_last(owner_id: int, domain: str, check_name: str) -> Optional[
     ts = row["created_at"]
     if not ts:
         return None
+
+    s = str(ts)
+    dt = None
+    # Try ISO-8601 with 'Z'
     try:
-        dt = datetime.fromisoformat(str(ts))
-    except ValueError:
+        if s.endswith("Z"):
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        else:
+            dt = datetime.fromisoformat(s)
+    except Exception:
+        dt = None
+    # Legacy SQLite DATETIME('now') format: "YYYY-MM-DD HH:MM:SS"
+    if dt is None:
         try:
-            dt = datetime.strptime(str(ts), "%Y-%m-%d %H:%M:%S")
+            dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
         except Exception:
             return None
+
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+
     now = datetime.now(timezone.utc)
-    return max(0, int((now - dt).total_seconds() // 60))
+    age_min = max(0, int((now - dt).total_seconds() // 60))
+    log.debug(
+        "history.age_min",
+        extra={
+            "event": "history.age_min",
+            "owner_id": int(owner_id),
+            "domain": (domain or "").lower(),
+            "check": check_name,
+            "minutes": age_min,
+        },
+    )
+    return age_min
 
 
 # ---------- WHOIS cache (shared) ----------
