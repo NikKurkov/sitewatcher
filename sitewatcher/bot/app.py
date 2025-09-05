@@ -12,17 +12,10 @@ from ..config import AppConfig, get_bot_token_from_env
 from .alerts import AlertDeduper
 from .router import register_handlers
 from .jobs import register_jobs
-from .utils import _parse_allowed_user_ids,  BUSY_USERS_KEY, BUSY_USERS_LOCK_KEY
+from .utils import _parse_allowed_user_ids, BUSY_USERS_KEY, BUSY_USERS_LOCK_KEY, on_error
 
-# Basic logging (centralized here)
-logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
-logger = logging.getLogger("sitewatcher.bot")
-
-# Enable extra debug for dispatcher when SW_DEBUG_DEFACE=1
-if os.getenv("SW_DEBUG_DEFACE") == "1":
-    logging.getLogger("sitewatcher.dispatcher").setLevel(logging.DEBUG)
+# Use module-level logger; global logging is configured in main.setup_logging(...)
+log = logging.getLogger(__name__)
 
 
 def run_bot(cfg: AppConfig) -> None:
@@ -56,9 +49,15 @@ def run_bot(cfg: AppConfig) -> None:
     # Access control
     allowed_ids = _parse_allowed_user_ids()
     if allowed_ids:
-        logger.info("Access limited to %d user(s)", len(allowed_ids))
+        log.info(
+            "bot.access.restricted",
+            extra={"event": "bot.access.restricted", "count": len(allowed_ids)},
+        )
     else:
-        logger.warning("Access is open to all users; set TELEGRAM_ALLOWED_USER_IDS to restrict.")
+        log.warning(
+            "bot.access.open",
+            extra={"event": "bot.access.open", "hint": "set TELEGRAM_ALLOWED_USER_IDS"},
+        )
     app.bot_data["allowed_user_ids"] = allowed_ids
 
     # Alerts deduper instance in bot_data (no globals)
@@ -71,5 +70,15 @@ def run_bot(cfg: AppConfig) -> None:
     register_handlers(app)
     register_jobs(app, cooldown=cooldown)
 
-    # Start polling
-    app.run_polling()
+    log.info(
+        "bot.start",
+        extra={
+            "event": "bot.start",
+            "cooldown_sec": cooldown,
+            "proxy_set": bool(os.getenv("TELEGRAM_PROXY")),
+        },
+    )
+
+    # Start polling; drop pending updates to avoid backlog after restarts
+    app.run_polling(drop_pending_updates=True)
+

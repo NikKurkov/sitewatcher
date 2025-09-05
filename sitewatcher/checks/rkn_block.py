@@ -1,4 +1,4 @@
-# /checks/rkn_block.py
+# /sitewatcher/checks/rkn_block.py
 from __future__ import annotations
 
 import asyncio
@@ -51,10 +51,11 @@ class RknBlockCheck(BaseCheck):
         self.client = client
         self.cfg = rkn_cfg
 
-        # Persist index under sitewatcher/data, same paths as bot clear-cache expects.
+        # Persist index under sitewatcher/data; allow override from config (cfg.rkn.index_db_path)
         data_dir = Path(__file__).resolve().parent.parent / "data"
+        idx_from_cfg = getattr(rkn_cfg, "index_db_path", None)
+        self._idx_path = Path(idx_from_cfg) if idx_from_cfg else (data_dir / "z_i_index.json.gz")
         self._raw_path = data_dir / "z_i_dump.csv.gz"
-        self._idx_path = data_dir / "z_i_index.json.gz"
 
     # ---------------- public ----------------
 

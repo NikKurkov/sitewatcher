@@ -2,292 +2,277 @@
 from __future__ import annotations
 
 import html
-import json
+import logging
 import re
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Sequence
+from typing import Any, Iterable, List, Optional, Set, Tuple
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from ... import storage
-from ..utils import requires_auth, safe_reply_html, _strip_cached_suffix
+from ..utils import safe_reply_html, _strip_cached_suffix
 from ..alerts import _status_bullet, _status_emoji, _status_weight, _enabled_checks_for
 from ..validators import DOMAIN_RE
 
-FILTER_TOKENS = {"ok", "warn", "crit", "unknown", "problems"}
+log = logging.getLogger(__name__)
+
+# Accepted filter tokens for statuses
+FILTER_TOKENS = {"crit", "warn", "ok", "unknown", "problems"}
+
+
+# ---------------------------- small helpers ----------------------------
 
 def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
-    """Parse ISO timestamp to aware UTC datetime; return None on failure."""
+    """Parse ISO timestamp (supports '...Z') or SQLite 'YYYY-MM-DD HH:MM:SS' to aware UTC datetime."""
     if not ts:
         return None
+    s = str(ts)
     try:
-        dt = datetime.fromisoformat(ts)
+        if s.endswith("Z"):
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        else:
+            dt = datetime.fromisoformat(s)
     except Exception:
-        return None
+        # SQLite DATETIME('now') style
+        try:
+            dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        except Exception:
+            return None
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
 
 
-def _fmt_utc(dt: Optional[datetime]) -> str:
-    """Format datetime as 'DD.MM HH:MM UTC'; return dash if missing."""
+def _fmt_ts(ts: Optional[str]) -> str:
+    """Format timestamp to '[DD.MM HH:MM UTC]' or placeholder if missing."""
+    dt = _parse_iso(ts)
     if not dt:
-        return "–"
-    return dt.strftime("%d.%m %H:%M UTC")
+        return "[--.-- --:-- UTC]"
+    return "[" + dt.strftime("%d.%m %H:%M UTC") + "]"
 
 
-def _last_row(owner_id: int, domain: str, check: str) -> Optional[Dict]:
-    """Load last stored result for a given (owner, domain, check) and decode metrics."""
-    row = storage.last_history_for_check(owner_id, domain, check)
-    if not row:
-        return None
-    # Convert sqlite3.Row → plain dict
-    d = {k: row[k] for k in row.keys()}
-    # Decode metrics JSON if present
+def _get(row: Any, key: str, default: Any = None) -> Any:
+    """Duck-typed access for dict/sqlite3.Row/objects."""
     try:
-        d["metrics"] = json.loads(d.get("metrics_json") or "{}")
+        if hasattr(row, "keys") and key in row.keys():  # sqlite3.Row supports keys() and __getitem__
+            return row[key]
     except Exception:
-        d["metrics"] = {}
-    return d
+        pass
+    if isinstance(row, dict):
+        return row.get(key, default)
+    return getattr(row, key, default)
 
 
-def _short_msg(msg: str, limit: int = 120) -> str:
-    """Compact message: strip cached suffix, collapse whitespace, clip to limit."""
-    if not msg:
-        return ""
-    msg = _strip_cached_suffix(msg)
-    msg = re.sub(r"\s+", " ", msg).strip()
-    if len(msg) > limit:
-        msg = msg[: limit - 1] + "…"
-    return msg
+def _row_status(row: Any) -> str:
+    val = _get(row, "status", "UNKNOWN")
+    return str(getattr(val, "value", val)).upper()
 
 
-def _overall_from_rows(rows: Sequence[Dict]) -> str:
-    """Compute overall status (OK/WARN/CRIT/UNKNOWN) from individual last rows."""
+def _row_check(row: Any) -> str:
+    val = _get(row, "check_name", None)
+    if not val:
+        val = _get(row, "check", "")
+    return str(val or "")
+
+
+def _row_message(row: Any) -> str:
+    return str(_get(row, "message", "") or "")
+
+
+def _row_created_at(row: Any) -> Optional[str]:
+    return _get(row, "created_at", None)
+
+
+def _overall_from_rows(rows: Iterable[Any]) -> str:
     worst = 0
     for r in rows:
-        st = str(r.get("status", "")).upper()
-        worst = max(worst, _status_weight(st))
-    return {2: "CRIT", 1: "WARN", 0: "OK"}[worst] if rows else "UNKNOWN"
+        worst = max(worst, _status_weight(_row_status(r)))
+    return {2: "CRIT", 1: "WARN", 0: "OK"}[worst]
 
 
-@requires_auth(allow_while_busy=True)
-async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Show last known status for all user's domains (no new checks).
-
-    Filters (optional args): crit|warn|ok|unknown|problems
-      - "problems" == {CRIT, WARN}
-      - default: all statuses
-
-    Output per domain (single line):
-      <emoji> <domain> — <OVERALL> (DD.MM HH:MM UTC — <latency>, exp <days>)
-      If OVERALL in {WARN, CRIT}: append up to 3 problem reasons inside the same parentheses.
-    """
-    args = [a.lower() for a in (context.args or [])]
-    if args and (args[0] not in FILTER_TOKENS) and DOMAIN_RE.match(args[0]):
-        domain = args[0]
-        filters = set(args[1:]) & FILTER_TOKENS
-        return await cmd_status_one(update, context, domain=domain, filters=filters)
-        
-    owner_id = update.effective_user.id
-    names = sorted(storage.list_domains(owner_id))
-
-    # ---- parse filters
-    want: set[str] = set()
-    aliases = {
+def _parse_filters(args: Iterable[str], *, default_problems: bool) -> Set[str]:
+    """Return desired status set: {'CRIT','WARN','OK','UNKNOWN'}."""
+    mapping = {
         "crit": "CRIT",
         "warn": "WARN",
         "ok": "OK",
         "unknown": "UNKNOWN",
-        "problems": None,  # will expand to {"CRIT","WARN"}
+        "problems": "PROBLEMS",
     }
-    for a in (context.args or []):
+    out: Set[str] = set()
+    for a in args:
         key = a.strip().lower()
-        if key in aliases:
-            if key == "problems":
-                want.update({"CRIT", "WARN"})
+        if key in mapping:
+            v = mapping[key]
+            if v == "PROBLEMS":
+                out.update({"CRIT", "WARN", "UNKNOWN"})
             else:
-                want.add(aliases[key])
-    if not want:
-        want = {"CRIT", "WARN", "OK", "UNKNOWN"}
-
-    # ---- accumulate lines grouped by severity (ordering: CRIT, WARN, OK, UNKNOWN)
-    lines_crit: List[str] = []
-    lines_warn: List[str] = []
-    lines_ok: List[str] = []
-    lines_unk: List[str] = []
-
-    for domain in names:
-        enabled = _enabled_checks_for(context.application.bot_data["cfg"], owner_id, domain)
-
-        last_rows: List[Dict] = []
-        latest_dt: Optional[datetime] = None
-
-        # aggregated display fields
-        latency_txt = "–"
-        exp_txt = "–"
-        problems: List[str] = []
-
-        for chk in enabled:
-            row = _last_row(owner_id, domain, chk)
-            if not row:
-                continue
-            last_rows.append(row)
-
-            # newest timestamp (created_at/ts/updated_at)
-            dt = _parse_iso(row.get("created_at")) or _parse_iso(row.get("ts")) or _parse_iso(row.get("updated_at"))
-            if dt and (latest_dt is None or dt > latest_dt):
-                latest_dt = dt
-
-            # latency from http_basic metrics or from message fallback
-            if chk == "http_basic":
-                m = row.get("metrics") or {}
-                if "latency_ms" in m and isinstance(m["latency_ms"], (int, float)):
-                    latency_txt = f"{int(m['latency_ms'])} ms"
-                else:
-                    mm = re.search(r"latency\s+(\d+)\s*ms", str(row.get("message", "")), re.I)
-                    if mm:
-                        latency_txt = f"{mm.group(1)} ms"
-
-            # expiry days from whois metrics
-            if chk == "whois":
-                m = row.get("metrics") or {}
-                dl = m.get("days_left")
-                if isinstance(dl, (int, float)):
-                    exp_txt = f"{int(dl)}d"
-
-            # collect problem reasons (WARN/CRIT/UNKNOWN)
-            st = str(row.get("status", "")).upper()
-            if st in {"WARN", "CRIT", "UNKNOWN"}:
-                problems.append(f"{chk} {st}: {_short_msg(str(row.get('message','')))}")
-
-        overall = _overall_from_rows(last_rows)
-        if overall not in want:
-            continue
-
-        emoji = _status_emoji(overall)
-        when = _fmt_utc(latest_dt)
-        head = f"{when} — {latency_txt}" if latency_txt != "–" else when
-        base = f"{emoji} {html.escape(domain)} — {overall} ({head}, exp {exp_txt}"
-
-        # append concise problem list only for WARN/CRIT
-        if overall in {"WARN", "CRIT"} and problems:
-            problems = problems[:3] + ([f"+{len(problems)-3} more"] if len(problems) > 3 else [])
-            tail = "; " + "; ".join(html.escape(p) for p in problems)
-        else:
-            tail = ""
-
-        line = f"{base}{tail})"
-
-        if overall == "CRIT":
-            lines_crit.append(line)
-        elif overall == "WARN":
-            lines_warn.append(line)
-        elif overall == "OK":
-            lines_ok.append(line)
-        else:
-            lines_unk.append(line)
-
-    # Build final output (keep group order)
-    out_lines = []
-    if "CRIT" in want:
-        out_lines += lines_crit
-    if "WARN" in want:
-        out_lines += lines_warn
-    if "OK" in want:
-        out_lines += lines_ok
-    if "UNKNOWN" in want:
-        out_lines += lines_unk
-
-    text = "\n".join(out_lines) if out_lines else "No data yet"
-
-    # Telegram safety: chunk if too long
-    MAX = 3500
-    if len(text) <= MAX:
-        await safe_reply_html(update.effective_message, text)
-        return
-
-    start = 0
-    while start < len(text):
-        end = text.rfind("\n", start, start + MAX)
-        if end == -1 or end <= start:
-            end = min(len(text), start + MAX)
-        await safe_reply_html(update.effective_message, text[start:end])
-        start = end + 1
+                out.add(v)
+    if not out:
+        return {"CRIT", "WARN", "UNKNOWN"} if default_problems else {"CRIT", "WARN", "OK", "UNKNOWN"}
+    return out
 
 
-def _allow_status(st: str, filters: Optional[set[str]]) -> bool:
-    if not filters:
-        return True
-    f = {x.upper() for x in filters}
-    if "PROBLEMS" in f:
-        return st in {"WARN", "CRIT", "UNKNOWN"}
-    return st in f  # OK/WARN/CRIT/UNKNOWN
+# ------------------------------ commands -------------------------------
 
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    /status [crit|warn|ok|unknown|problems] — overall per domain (no new checks)
+    /status <domain> [crit|warn|ok|unknown|problems] — detailed last results for one domain
+    """
+    args = [a.lower() for a in (context.args or [])]
+    # If first arg looks like a domain, delegate to detailed mode
+    if args and (args[0] not in FILTER_TOKENS) and DOMAIN_RE.match(args[0]):
+        domain = args[0]
+        filters = _parse_filters(args[1:], default_problems=False)
+        return await cmd_status_one(update, context, domain=domain, filters=filters)
 
-@requires_auth(allow_while_busy=True)
-async def cmd_status_one(update: Update, context: ContextTypes.DEFAULT_TYPE, *, domain: str | None = None, filters: set[str] | None = None) -> None:
-    msg = getattr(update, "effective_message", None)
-    if domain is None:
-        if not context.args:
-            if msg:
-                await msg.reply_text("Usage: /status <domain>")
-            return
-        domain = context.args[0].strip().lower()
     owner_id = update.effective_user.id
-    name = domain
+    names = sorted(storage.list_domains(owner_id))
 
-    if not storage.domain_exists(owner_id, name):
-        if msg:
-            await msg.reply_text("Domain not found or no data yet.")
+    log.info(
+        "status.start",
+        extra={"event": "status.start", "owner_id": owner_id, "domains": len(names), "cmd_args": args},
+    )
+
+    if not names:
+        await safe_reply_html(update.effective_message, "No domains yet.")
+        log.info("status.done", extra={"event": "status.done", "owner_id": owner_id, "lines": 0})
         return
+
+    # Default to problems-only for overall view
+    wanted = _parse_filters(args, default_problems=False)
 
     cfg = context.application.bot_data["cfg"]
-    # Walk through known checks (by schedules) and pick the latest saved row for each
-    checks = list(cfg.schedules.model_dump().keys())
-    rows: list[tuple[str, dict]] = []
+
+    lines: List[str] = []
+    pairs: List[Tuple[int, str, str]] = []  # (neg_severity, domain, line)
+
+    for name in names:
+        checks = _enabled_checks_for(cfg, owner_id, name)
+        rows: List[Any] = []
+        for chk in checks:
+            row = storage.last_history_for_check(owner_id, name, chk)
+            if row:
+                rows.append(row)
+
+        if not rows:
+            overall = "UNKNOWN"
+            if "UNKNOWN" not in wanted:
+                continue
+            line = f"{_status_emoji(overall)} <b>{html.escape(name)}</b> — {overall} (no data)"
+            pairs.append((-_status_weight(overall), name, line))
+            continue
+
+        # Compute overall from latest rows
+        overall = _overall_from_rows(rows)
+        if overall not in wanted:
+            continue
+
+        # Take the newest timestamp among rows for display
+        newest_ts = None
+        try:
+            newest_ts = max((_row_created_at(r) or "" for r in rows))
+        except Exception:
+            newest_ts = None
+
+        ts = _fmt_ts(newest_ts)
+        
+        # Build short reason for CRIT/WARN based on the most recent worst check
+        reason = ""
+        if overall in {"CRIT", "WARN"}:
+            try:
+                worst_weight = max(_status_weight(_row_status(r)) for r in rows)
+                candidates = [r for r in rows if _status_weight(_row_status(r)) == worst_weight]
+                best = max(candidates, key=lambda r: _row_created_at(r) or "") if candidates else None
+            except Exception:
+                best = None
+            if best is not None:
+                chk = html.escape(_row_check(best))
+                msg = html.escape(_strip_cached_suffix(_row_message(best)))
+                if len(msg) > 100:
+                    msg = msg[:97] + "…"
+                reason = f" ({chk}: {msg})"
+
+        line = f"{_status_emoji(overall)} {ts} <b>{html.escape(name)}</b> — {overall}{reason}"
+        pairs.append((-_status_weight(overall), name, line))
+
+
+    if not pairs:
+        await safe_reply_html(update.effective_message, "No data yet")
+        log.info("status.done", extra={"event": "status.done", "owner_id": owner_id, "lines": 0})
+        return
+
+    pairs.sort()
+    lines = [p[2] for p in pairs]
+
+    text = "\n".join(lines)
+    await safe_reply_html(update.effective_message, text)
+    log.info("status.done", extra={"event": "status.done", "owner_id": owner_id, "lines": len(lines)})
+
+
+async def cmd_status_one(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    domain: str | None = None,
+    filters: Set[str] | None = None,
+) -> None:
+    """
+    Detailed last known results for a single domain (no new checks).
+    Shows each enabled check's latest stored status and message.
+    """
+    msg = getattr(update, "effective_message", None)
+    if domain is None:
+        # If invoked directly, parse from args
+        args = [a.lower() for a in (context.args or [])]
+        if not args:
+            if msg:
+                await msg.reply_text("Usage: /status <domain> [crit|warn|ok|unknown|problems]")
+            return
+        domain = args[0]
+        filters = _parse_filters(args[1:], default_problems=False)
+    name = domain
+
+    owner_id = update.effective_user.id
+    cfg = context.application.bot_data["cfg"]
+
+    checks = _enabled_checks_for(cfg, owner_id, name)
+    rows: List[Tuple[str, Any]] = []
     for chk in checks:
         row = storage.last_history_for_check(owner_id, name, chk)
         if row:
             rows.append((chk, row))
 
     if not rows:
-        if msg:
-            await msg.reply_text("No data for this domain yet.")
+        await safe_reply_html(update.effective_message, f"No data yet for <b>{html.escape(name)}</b>.")
         return
 
-    # Overall = worst of last saved statuses
-    worst = 0
-    for _, row in rows:
-        st = str(row["status"]).upper()
-        worst = max(worst, _status_weight(st))
-    overall = {2: "CRIT", 1: "WARN", 0: "OK"}[worst]
+    # Header: overall
+    overall = _overall_from_rows((r for _, r in rows))
+    head = f"{_status_emoji(overall)} <b>{html.escape(name)}</b> — {overall}"
 
-    lines = [f"{_status_emoji(overall)} <b>{html.escape(name)}</b> — {overall}"]
+    # Default: show all for single-domain detailed view, unless filters were provided
+    wanted = filters or {"CRIT", "WARN", "OK", "UNKNOWN"}
 
-    # Show CRIT/WARN first, then OK; alphabetical inside same severity
-    rows_sorted = sorted(
-        rows,
-        key=lambda p: (-_status_weight(str(p[1]["status"]).upper()), p[0])
-    )
-
-    for chk, row in rows_sorted:
-        st = str(row["status"]).upper()
-        if not _allow_status(st, filters):
+    # Sort checks by severity DESC then by check name
+    items: List[Tuple[int, str, str]] = []  # (neg_sev, check, line)
+    for chk, row in rows:
+        st = _row_status(row)
+        if st not in wanted and not (("CRIT" in wanted or "WARN" in wanted or "UNKNOWN" in wanted) and st in {"CRIT", "WARN", "UNKNOWN"}):
+            # simple membership check; above condition is redundant but explicit for clarity
             continue
+        ts = _fmt_ts(_row_created_at(row))
         bullet = _status_bullet(st)
-        msg_txt = _strip_cached_suffix(row["message"] or "")
-        lines.append(
-            "{bullet} <code>{check}</code> — <b>{status}</b> — {msg}".format(
-                bullet=bullet,
-                check=html.escape(chk),
-                status=html.escape(st),
-                msg=html.escape(msg_txt),
-            )
-        )
+        msg_text = html.escape(_strip_cached_suffix(_row_message(row)))
+        line = f"{bullet} {ts} <code>{html.escape(chk)}</code> — <b>{st}</b> — {msg_text}"
+        items.append((-_status_weight(st), chk, line))
 
-    if msg:
-        await safe_reply_html(msg, "\n".join(lines))
+    if not items:
+        await safe_reply_html(update.effective_message, head + "\n(no checks matched filters)")
+        return
 
+    items.sort()
+    lines = [head] + [it[2] for it in items]
+    await safe_reply_html(update.effective_message, "\n".join(lines))
