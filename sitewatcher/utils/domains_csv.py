@@ -5,10 +5,11 @@ import csv
 import io
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 from .. import storage
+
+__all__ = ["HEADERS", "RowResult", "ImportReport", "export_domains_csv", "import_domains_csv"]
 
 # Fixed CSV header (semicolon separated), first row must be exported as headers.
 HEADERS: Tuple[str, ...] = (
@@ -127,8 +128,10 @@ def _normalize_domain(name: str) -> str:
 def _flatten_for_export(override: Dict) -> Dict[str, str]:
     """Flatten override dict to CSV string values (booleans -> 'true'/'false')."""
     checks = (override or {}).get("checks") or {}
+
     def b(v):  # bool to 'true'/'false'
         return "" if v is None else ("true" if bool(v) else "false")
+
     def join(xs):
         if xs is None:
             return ""
@@ -138,15 +141,15 @@ def _flatten_for_export(override: Dict) -> Dict[str, str]:
 
     return {
         "checks.http_basic": b(checks.get("http_basic")),
-        "checks.tls_cert":   b(checks.get("tls_cert")),
-        "checks.ping":       b(checks.get("ping")),
-        "checks.keywords":   b(checks.get("keywords")),
-        "checks.deface":     b(checks.get("deface")),
-        "checks.rkn_block":  b(checks.get("rkn_block")),
-        "checks.whois":      b(checks.get("whois")),
+        "checks.tls_cert": b(checks.get("tls_cert")),
+        "checks.ping": b(checks.get("ping")),
+        "checks.keywords": b(checks.get("keywords")),
+        "checks.deface": b(checks.get("deface")),
+        "checks.rkn_block": b(checks.get("rkn_block")),
+        "checks.whois": b(checks.get("whois")),
         "checks.ip_blacklist": b(checks.get("ip_blacklist")),
-        "checks.ip_change":  b(checks.get("ip_change")),
-        "checks.ports":      b(checks.get("ports")),
+        "checks.ip_change": b(checks.get("ip_change")),
+        "checks.ports": b(checks.get("ports")),
         "keywords": join(override.get("keywords")),
         "ports": join(override.get("ports")),
         "http_timeout_s": str(override.get("http_timeout_s") or "") if override.get("http_timeout_s") is not None else "",
@@ -210,7 +213,7 @@ def _build_override_from_row(row: Dict[str, str], *, mode: str) -> Dict:
     proxy_raw = (row.get("proxy") or "").strip()
     proxy: Optional[str]
     if proxy_raw == "":
-        proxy = None if mode == "replace" else None  # keep None; merge mode will ignore if not present below
+        proxy = None  # merge mode: ignored below; replace mode: will clear if included
     elif proxy_raw.lower() in {"-", "none", "null", "off"}:
         proxy = None
     else:
@@ -266,14 +269,14 @@ def import_domains_csv(owner_id: int, data: bytes, *, mode: str = "merge") -> Im
     f = io.StringIO(text)
     reader = csv.reader(f, delimiter=";")
 
-    # Read first row: skip if header
+    # Read first row: detect header
     try:
         first = next(reader)
     except StopIteration:
         return ImportReport(added=0, updated=0, skipped=0, errors=["empty CSV"])
 
-    # If first cell equals 'domain' and headers length matches — skip as header.
-    if len(first) >= 1 and first[0] == "domain":
+    has_header = len(first) >= 1 and first[0] == "domain"
+    if has_header:
         header = first
         if tuple(header[:len(HEADERS)]) != HEADERS:
             # Enforce exact header match to avoid accidental misalignment
@@ -285,16 +288,17 @@ def import_domains_csv(owner_id: int, data: bytes, *, mode: str = "merge") -> Im
 
     report = ImportReport()
 
-    line_no = 1  # data line counter (after header decision)
-    for row in reader:
-        line_no += 1
+    # Enumerate with correct line numbers (1-based; header is line 1 if present)
+    start_line = 2 if has_header else 1
+    for line_no, row in enumerate(reader, start=start_line):
         # Skip empty lines
         if not row or (len(row) == 1 and (row[0] or "").strip() == ""):
             continue
         if len(row) < len(HEADERS):
             report.skipped += 1
-            report.details.append(RowResult(domain="", status="skipped", error=f"line {line_no}: not enough columns"))
-            report.errors.append(f"line {line_no}: not enough columns")
+            msg = f"line {line_no}: not enough columns"
+            report.details.append(RowResult(domain="", status="skipped", error=msg))
+            report.errors.append(msg)
             continue
 
         # Map columns by fixed positions
@@ -304,8 +308,9 @@ def import_domains_csv(owner_id: int, data: bytes, *, mode: str = "merge") -> Im
             domain = _normalize_domain(raw_domain)
         except Exception as e:
             report.skipped += 1
-            report.details.append(RowResult(domain=raw_domain, status="skipped", error=f"line {line_no}: {e}"))
-            report.errors.append(f"line {line_no}: domain '{raw_domain}': {e}")
+            msg = f"line {line_no}: domain '{raw_domain}': {e}"
+            report.details.append(RowResult(domain=raw_domain, status="skipped", error=msg))
+            report.errors.append(msg)
             continue
 
         # Build override, with field-level validation
@@ -313,8 +318,9 @@ def import_domains_csv(owner_id: int, data: bytes, *, mode: str = "merge") -> Im
             override = _build_override_from_row(data_map, mode=mode)
         except ValueError as e:
             report.skipped += 1
-            report.details.append(RowResult(domain=domain, status="skipped", error=f"line {line_no}: {e}"))
-            report.errors.append(f"line {line_no}: {domain}: {e}")
+            msg = f"line {line_no}: {domain}: {e}"
+            report.details.append(RowResult(domain=domain, status="skipped", error=msg))
+            report.errors.append(msg)
             continue
 
         # Apply to storage
@@ -336,11 +342,13 @@ def import_domains_csv(owner_id: int, data: bytes, *, mode: str = "merge") -> Im
             report.added += 1
             report.details.append(RowResult(domain=domain, status="added"))
         else:
-            # Consider 'updated' only when we had something to change
             if override:
                 report.updated += 1
                 report.details.append(RowResult(domain=domain, status="updated"))
             else:
-                report.details.append(RowResult(domain=domain, status="updated"))  # no-op but processed
+                # No changes were provided for this existing domain
+                report.skipped += 1
+                report.details.append(RowResult(domain=domain, status="skipped", error="no changes"))
+                report.errors.append(f"line {line_no}: {domain}: no changes")
 
     return report
