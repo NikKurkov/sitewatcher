@@ -21,13 +21,11 @@ from .checks.ping import PingCheck
 from .checks.ports import PortsCheck
 from .checks.tls_cert import TlsCertCheck
 from .checks.whois_info import WhoisInfoCheck
-<<<<<<< HEAD
 from .checks.malware_scan import MalwareScanCheck, _VTConfig
 from .utils.rate_limit import MultiWindowRateLimiter, Window
-=======
->>>>>>> fbb85f0e808f8e62eb1ab2a505f698bb82d7d2ca
 from .config import AppConfig, ResolvedSettings, resolve_settings
 
+
 log = logging.getLogger(__name__)
 
 
@@ -35,16 +33,6 @@ def _new_run_id() -> str:
     """Create a short, URL-safe correlation id."""
     return uuid.uuid4().hex
 
-<<<<<<< HEAD
-log = logging.getLogger(__name__)
-
-
-def _new_run_id() -> str:
-    """Create a short, URL-safe correlation id."""
-    return uuid.uuid4().hex
-
-=======
->>>>>>> fbb85f0e808f8e62eb1ab2a505f698bb82d7d2ca
 
 # Optional RKN plugin (kept soft to avoid import-time failures)
 try:  # pragma: no cover

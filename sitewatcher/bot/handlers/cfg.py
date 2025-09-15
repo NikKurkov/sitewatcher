@@ -75,14 +75,10 @@ async def cmd_cfg_set(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 "Usage:\n"
                 "/cfg_set <domain> <key> <value>\n\n"
                 "Keys: checks.<name> (true/false), http_timeout_s, latency_warn_ms, latency_crit_ms,\n"
-<<<<<<< HEAD
                 "tls_warn_days, keywords, ports, proxy, interval_minutes\n\n"
                 "Examples:\n"
                 "  /cfg_set example.com checks.malware true\n"
                 "  /cfg_set example.com keywords \"gtag,metrika\"\n"
-=======
-                "tls_warn_days, keywords, ports, proxy, interval_minutes"
->>>>>>> fbb85f0e808f8e62eb1ab2a505f698bb82d7d2ca
             )
         return
 

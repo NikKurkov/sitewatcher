@@ -43,7 +43,6 @@ class CheckSchedule(BaseModel):
 class SchedulesConfig(BaseModel):
     # Default intervals (tweak in YAML if needed)
     http_basic:   CheckSchedule = CheckSchedule(interval_minutes=5,   cache_ttl_minutes=2)
-<<<<<<< HEAD
     tls_cert:     CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
     keywords:     CheckSchedule = CheckSchedule(interval_minutes=10,  cache_ttl_minutes=5)
     deface:       CheckSchedule = CheckSchedule(interval_minutes=15,  cache_ttl_minutes=5)
@@ -55,18 +54,6 @@ class SchedulesConfig(BaseModel):
     ip_blacklist: CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
     ip_change:    CheckSchedule = CheckSchedule(interval_minutes=120,  cache_ttl_minutes=120)
     malware:      CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
-=======
-    tls_cert:     CheckSchedule = CheckSchedule(interval_minutes=60,  cache_ttl_minutes=30)
-    keywords:     CheckSchedule = CheckSchedule(interval_minutes=10,  cache_ttl_minutes=5)
-    deface:       CheckSchedule = CheckSchedule(interval_minutes=15,  cache_ttl_minutes=5)
-    ping:         CheckSchedule = CheckSchedule(interval_minutes=5,   cache_ttl_minutes=0)
-    rkn_block:    CheckSchedule = CheckSchedule(interval_minutes=30,  cache_ttl_minutes=10)
-    ports:        CheckSchedule = CheckSchedule(interval_minutes=15,  cache_ttl_minutes=0)
-    # For whois we explicitly keep cache_unknown=False to avoid sticking on "no expiry info"
-    whois:        CheckSchedule = CheckSchedule(interval_minutes=360, cache_ttl_minutes=60, cache_unknown=False)
-    ip_blacklist: CheckSchedule = CheckSchedule(interval_minutes=60,  cache_ttl_minutes=30)
-    ip_change:    CheckSchedule = CheckSchedule(interval_minutes=60,  cache_ttl_minutes=30)
->>>>>>> fbb85f0e808f8e62eb1ab2a505f698bb82d7d2ca
 
 
 class SchedulerConfig(BaseModel):
@@ -245,7 +232,6 @@ class LoggingConfig:
     })
 
 
-<<<<<<< HEAD
 class VTLimits(BaseModel):
     """Rate limits for VirusTotal Free tier."""
     per_minute: int = 4
@@ -264,8 +250,6 @@ class MalwareConfig(BaseModel):
     vt_limits: VTLimits = VTLimits()  # strict rate limits for VT Free
 
 
-=======
->>>>>>> fbb85f0e808f8e62eb1ab2a505f698bb82d7d2ca
 class AppConfig(BaseModel):
     """Top-level application configuration."""
     defaults: Defaults = Defaults()
@@ -281,10 +265,7 @@ class AppConfig(BaseModel):
     deface: "DefaceConfig" = Field(default_factory=lambda: DefaceConfig())
     domains: List[DomainConfig] = Field(default_factory=list)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
-<<<<<<< HEAD
     malware: MalwareConfig = Field(default_factory=MalwareConfig)
-=======
->>>>>>> fbb85f0e808f8e62eb1ab2a505f698bb82d7d2ca
 
 
 class DefaceConfig(BaseModel):
