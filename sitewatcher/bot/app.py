@@ -70,6 +70,47 @@ def run_bot(cfg: AppConfig) -> None:
     register_handlers(app)
     register_jobs(app, cooldown=cooldown)
 
+    # ---- Maintenance: daily history cleanup ----
+    from datetime import time as dtime, datetime
+    from .. import storage  # local import to avoid cycles at module import time
+
+    def _parse_hhmm(s: str) -> dtime:
+        """Best-effort HH:MM parser with sane fallback."""
+        try:
+            hh, mm = [int(x) for x in str(s or "03:30").split(":", 1)]
+            if 0 <= hh <= 23 and 0 <= mm <= 59:
+                return dtime(hour=hh, minute=mm)
+        except Exception:
+            pass
+        return dtime(hour=3, minute=30)
+
+    async def _job_cleanup_history(context):
+        """APScheduler job: purge old history and optionally VACUUM on Sundays."""
+        try:
+            retention = int(getattr(getattr(cfg, "history", object()), "retention_days", 30) or 30)
+            vacuum_weekly = bool(getattr(getattr(cfg, "history", object()), "vacuum_weekly", True))
+            deleted = storage.cleanup_history(retention)
+            # Sunday = 6
+            if vacuum_weekly and datetime.now().weekday() == 6:
+                storage.vacuum_and_optimize()
+            log.info(
+                "maintenance.cleanup_history.done",
+                extra={"event": "maintenance.cleanup_history.done", "deleted": int(deleted), "retention_days": retention},
+            )
+        except Exception as e:
+            log.exception("maintenance.cleanup_history.failed", extra={"event": "maintenance.cleanup_history.failed", "etype": e.__class__.__name__})
+
+    cleanup_time = _parse_hhmm(getattr(getattr(cfg, "history", object()), "cleanup_time", "03:30"))
+    try:
+        app.job_queue.run_daily(
+            _job_cleanup_history,
+            time=cleanup_time,
+            name="maintenance.cleanup_history",
+        )
+        log.info("maintenance.cleanup_history.scheduled", extra={"event": "maintenance.cleanup_history.scheduled", "time": str(cleanup_time)})
+    except Exception as e:
+        log.warning("maintenance.cleanup_history.schedule_failed", extra={"event": "maintenance.cleanup_history.schedule_failed", "etype": e.__class__.__name__})
+
     log.info(
         "bot.start",
         extra={
@@ -81,4 +122,3 @@ def run_bot(cfg: AppConfig) -> None:
 
     # Start polling; drop pending updates to avoid backlog after restarts
     app.run_polling(drop_pending_updates=True)
-

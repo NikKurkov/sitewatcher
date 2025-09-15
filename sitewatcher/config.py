@@ -250,6 +250,13 @@ class MalwareConfig(BaseModel):
     vt_limits: VTLimits = VTLimits()  # strict rate limits for VT Free
 
 
+class HistoryConfig(BaseModel):
+    """Retention and cleanup policy for history tables."""
+    retention_days: int = 30          # keep last N days in history
+    cleanup_time: str = "03:30"       # HH:MM (local time) for daily cleanup job
+    vacuum_weekly: bool = True        # run VACUUM/PRAGMA optimize weekly (Sunday)
+
+
 class AppConfig(BaseModel):
     """Top-level application configuration."""
     defaults: Defaults = Defaults()
@@ -266,6 +273,7 @@ class AppConfig(BaseModel):
     domains: List[DomainConfig] = Field(default_factory=list)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     malware: MalwareConfig = Field(default_factory=MalwareConfig)
+    history: HistoryConfig = Field(default_factory=HistoryConfig)
 
 
 class DefaceConfig(BaseModel):
@@ -378,6 +386,19 @@ def validate_config(cfg: AppConfig) -> None:
         if ttl < 0:
             errors.append(f"schedules.{name}.cache_ttl_minutes must be >= 0")
         # cache_unknown is optional bool; no strict validation needed
+
+    # History / retention
+    if cfg.history.retention_days < 0:
+        errors.append("history.retention_days must be >= 0")
+
+    # cleanup_time must be HH:MM within 24h
+    ct = str(getattr(cfg.history, "cleanup_time", "03:30")).strip()
+    try:
+        hh, mm = [int(x) for x in ct.split(":", 1)]
+        if not (0 <= hh <= 23 and 0 <= mm <= 59):
+            raise ValueError
+    except Exception:
+        errors.append("history.cleanup_time must be in HH:MM format (00:00..23:59)")
 
     # Ports defaults and targets
     if cfg.ports.connect_timeout_s <= 0:
