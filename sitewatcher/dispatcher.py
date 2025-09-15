@@ -3,15 +3,16 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
-from pathlib import Path
 import logging
+import re
+import uuid
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import httpx
 
 from . import storage
 from .checks.base import CheckOutcome, Status
+from .checks.deface import DefaceCheck
 from .checks.http_basic import HttpBasicCheck
 from .checks.ip_blacklist import IpBlacklistCheck
 from .checks.ip_change import IpChangeCheck
@@ -20,11 +21,18 @@ from .checks.ping import PingCheck
 from .checks.ports import PortsCheck
 from .checks.tls_cert import TlsCertCheck
 from .checks.whois_info import WhoisInfoCheck
-from .checks.deface import DefaceCheck
+from .checks.malware_scan import MalwareScanCheck, _VTConfig
+from .utils.rate_limit import MultiWindowRateLimiter, Window
 from .config import AppConfig, ResolvedSettings, resolve_settings
 
 
-logger = logging.getLogger("sitewatcher.dispatcher")
+log = logging.getLogger(__name__)
+
+
+def _new_run_id() -> str:
+    """Create a short, URL-safe correlation id."""
+    return uuid.uuid4().hex
+
 
 # Optional RKN plugin (kept soft to avoid import-time failures)
 try:  # pragma: no cover
@@ -41,13 +49,15 @@ class Dispatcher:
       - builds and runs the active checks concurrently,
       - optionally serves cached results by per-check TTL.
 
-    Мульти-тенант: все операции требуют owner_id.
+    Multi-tenant: all operations require owner_id.
     """
 
     def __init__(self, cfg: AppConfig, max_concurrency: int = 10) -> None:
         self.cfg = cfg
         self._client: Optional[httpx.AsyncClient] = None
         self._default_per_domain_concurrency = max(1, int(max_concurrency))
+        # Shared VT rate limiter (process-local for this Dispatcher lifetime)
+        self._vt_limiter: Optional[MultiWindowRateLimiter] = None  # NEW
 
     # ---------- lifecycle ----------
 
@@ -97,6 +107,27 @@ class Dispatcher:
                 **proxy_kw,
             )
 
+        # NEW: build a shared VT limiter from config (Free tier defaults)
+        try:
+            vt_limits = getattr(getattr(self.cfg, "malware", object()), "vt_limits", None)
+            if vt_limits:
+                per_min = int(getattr(vt_limits, "per_minute", 4) or 4)
+                per_day = int(getattr(vt_limits, "per_day", 500) or 500)
+                per_mon = int(getattr(vt_limits, "per_month", 15500) or 15500)
+                windows: list[Window] = []
+                if per_min > 0:
+                    windows.append(Window(60, per_min))
+                if per_day > 0:
+                    windows.append(Window(24 * 3600, per_day))
+                if per_mon > 0:
+                    # month approximated as 30 days for sliding window
+                    windows.append(Window(30 * 24 * 3600, per_mon))
+                if windows:
+                    self._vt_limiter = MultiWindowRateLimiter(windows)
+        except Exception:
+            # If limiter fails to init, proceed without it (check will degrade to UNKNOWN on congestion)
+            self._vt_limiter = None
+
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
@@ -116,8 +147,31 @@ class Dispatcher:
         """
         Run checks for a single domain (owner-aware).
         """
+        assert self._client is not None, "Use 'async with Dispatcher(cfg) as d:'"
+
         settings = self._resolve(owner_id, domain)
-        checks = self._filter_checks(self._build_checks(settings), only_checks)
+        all_checks = self._build_checks(settings)
+        checks = self._filter_checks(all_checks, only_checks)
+
+        run_id = _new_run_id()
+        per_domain_limit = self._get_scheduler_value("per_domain_concurrency", self._default_per_domain_concurrency)
+        domain_timeout = self._get_scheduler_value("domain_timeout_s", None)
+
+        log.info(
+            "dispatcher.run",
+            extra={
+                "event": "dispatcher.run",
+                "run_id": run_id,
+                "owner_id": owner_id,
+                "domain": settings.name,
+                "checks": [getattr(c, "name", "?") for c in checks],
+                "use_cache": bool(use_cache),
+                "per_domain_concurrency": per_domain_limit,
+                "domain_timeout_s": float(domain_timeout) if isinstance(domain_timeout, (int, float)) else None,
+            },
+        )
+
+        sem = asyncio.Semaphore(per_domain_limit)
 
         def _ttl_minutes(check_name: str) -> int:
             sc = getattr(self.cfg.schedules, check_name, None)
@@ -125,9 +179,6 @@ class Dispatcher:
                 return int(getattr(sc, "cache_ttl_minutes", 0) or 0) if sc is not None else 0
             except Exception:
                 return 0
-
-        per_domain_limit = self._get_scheduler_value("per_domain_concurrency", self._default_per_domain_concurrency)
-        sem = asyncio.Semaphore(per_domain_limit)
 
         results_ordered: List[Optional[CheckOutcome]] = [None] * len(checks)
         tasks: List[asyncio.Task[Tuple[int, CheckOutcome]]] = []
@@ -142,20 +193,24 @@ class Dispatcher:
                     res = CheckOutcome(name, Status.UNKNOWN, f"error: {e.__class__.__name__}: {e}", {})
                 return idx, res
 
+        # Prepare tasks, honoring cache if enabled
         for i, chk in enumerate(checks):
             name = getattr(chk, "name", "")
             if use_cache:
                 cached = self._maybe_cached_result(owner_id, domain, name, _ttl_minutes)
                 if cached is not None:
                     results_ordered[i] = cached
+                    log.info(
+                        "check.cached",
+                        extra={"event": "check.cached", "run_id": run_id, "owner_id": owner_id, "domain": domain, "check": name},
+                    )
                     continue
 
             tasks.append(asyncio.create_task(_run_one(i, chk)))
             idx_map.append(i)
 
+        # Run tasks with optional timeout
         if tasks:
-            domain_timeout = self._get_scheduler_value("domain_timeout_s", None)
-
             if isinstance(domain_timeout, (int, float)) and domain_timeout > 0:
                 try:
                     done_results = await asyncio.wait_for(
@@ -189,7 +244,43 @@ class Dispatcher:
                 for idx, res in done_results:
                     results_ordered[idx] = res
 
-        return [r for r in results_ordered if r is not None]
+        results: List[CheckOutcome] = [r for r in results_ordered if r is not None]
+
+        # Log summary
+        def _status_str(x: object) -> str:
+            return getattr(x, "value", str(x))
+
+        def _overall_from(res: Iterable[CheckOutcome]) -> str:
+            def weight(st: str) -> int:
+                st = (st or "").upper()
+                if st == "CRIT":
+                    return 2
+                if st in ("WARN", "UNKNOWN"):
+                    return 1
+                return 0
+
+            worst = 0
+            for rr in res:
+                st = _status_str(getattr(rr, "status", "UNKNOWN")).upper()
+                worst = max(worst, weight(st))
+            return {2: "CRIT", 1: "WARN", 0: "OK"}[worst]
+
+        overall = _overall_from(results)
+        checks_summary = {r.check: _status_str(r.status) for r in results}
+
+        log.info(
+            "dispatcher.done",
+            extra={
+                "event": "dispatcher.done",
+                "run_id": run_id,
+                "owner_id": owner_id,
+                "domain": domain,
+                "overall": overall,
+                "checks_summary": checks_summary,
+            },
+        )
+
+        return results
 
     async def run_many(self, owner_id: int, domains: Sequence[str]) -> Dict[str, List[CheckOutcome]]:
         """
@@ -287,19 +378,19 @@ class Dispatcher:
                 try:
                     with open(phrases_path, "r", encoding="utf-8") as fh:
                         markers = [ln.strip() for ln in fh if ln.strip()]
-                    logger.debug("DefaceCheck: loaded %d markers from %s", len(markers), phrases_path)
+                    log.debug("DefaceCheck: loaded %d markers from %s", len(markers or []), phrases_path)
                 except Exception as e:
-                    logger.warning("DefaceCheck: failed to read markers file %r: %s (fallback to built-in)", phrases_path, e)
+                    log.warning("DefaceCheck: failed to read markers file %r: %s (fallback to built-in)", phrases_path, e)
                     markers = None
             else:
-                logger.debug("DefaceCheck: no phrases_path configured; using built-in defaults")
+                log.debug("DefaceCheck: no phrases_path configured; using built-in defaults")
 
             out.append(DefaceCheck(settings.name, client=self._client, timeout_s=timeout_s, markers=markers))
         else:
-            logger.debug("DefaceCheck: disabled for %s", settings.name)
+            log.debug("DefaceCheck: disabled for %s", settings.name)
 
-        # В самом конце метода _build_checks добавьте единый лог:
-        logger.debug("Build checks for %s: %s", settings.name, [getattr(c, 'name', '?') for c in out])
+        # Log the list of checks built so far
+        log.debug("Build checks for %s: %s", settings.name, [getattr(c, 'name', '?') for c in out])
 
         if getattr(settings.checks, "ping", False):
             out.append(PingCheck(settings.name))
@@ -328,6 +419,45 @@ class Dispatcher:
 
         if getattr(settings.checks, "ip_change", False):
             out.append(IpChangeCheck(settings.name, cfg=self.cfg.ipchange))
+
+        # Malware reputation check (VirusTotal passive lookup) — now with strict rate limiting
+        if getattr(settings.checks, "malware", False):
+            # Provider config
+            vt_key = None
+            try:
+                vt_key = getattr(self.cfg.malware, "vt_api_key", None)
+            except Exception:
+                vt_key = None
+            vt_cfg = _VTConfig(api_key=vt_key)
+
+            mcfg = getattr(self.cfg, "malware", object())
+            timeout_s = getattr(mcfg, "timeout_s", 10.0)
+            follow_redirects = getattr(mcfg, "follow_redirects", True)
+
+            # Rate limit snapshot (for metrics)
+            lim = getattr(mcfg, "vt_limits", None)
+            vt_limits_snapshot = {}
+            vt_max_wait_s = 0.0
+            if lim is not None:
+                vt_limits_snapshot = {
+                    "per_minute": int(getattr(lim, "per_minute", 4) or 4),
+                    "per_day": int(getattr(lim, "per_day", 500) or 500),
+                    "per_month": int(getattr(lim, "per_month", 15500) or 15500),
+                }
+                vt_max_wait_s = float(getattr(lim, "max_wait_s", 0.0) or 0.0)
+
+            out.append(
+                MalwareScanCheck(
+                    settings.name,
+                    client=self._client,
+                    vt_cfg=vt_cfg,
+                    timeout_s=float(timeout_s),
+                    follow_redirects=bool(follow_redirects),
+                    vt_limiter=self._vt_limiter,
+                    vt_max_wait_s=vt_max_wait_s,
+                    vt_limits_snapshot=vt_limits_snapshot,
+                )
+            )
 
         return out
 
@@ -361,6 +491,10 @@ class Dispatcher:
     ) -> Optional[CheckOutcome]:
         """
         Return cached CheckOutcome if fresh enough, otherwise None. (owner-aware)
+
+        Special rule: for 'whois' we *do not* serve cached UNKNOWN by default,
+        to avoid sticking on "no expiry info". Can be overridden via
+        schedules.whois.cache_unknown: true
         """
         ttl = ttl_fn(check_name)
         if ttl <= 0:
@@ -369,6 +503,27 @@ class Dispatcher:
         row = storage.last_history_for_check(owner_id, domain, check_name)
         if not row:
             return None
+
+        # For whois: skip caching UNKNOWN unless explicitly allowed by config
+        if check_name == "whois":
+            try:
+                status_str = str(row["status"]).upper()
+            except Exception:
+                status_str = "UNKNOWN"
+            sc = getattr(self.cfg.schedules, "whois", None)
+            cache_unknown = bool(getattr(sc, "cache_unknown", False)) if sc is not None else False
+            if status_str == "UNKNOWN" and not cache_unknown:
+                log.info(
+                    "check.cache_bypass",
+                    extra={
+                        "event": "check.cache_bypass",
+                        "owner_id": owner_id,
+                        "domain": domain,
+                        "check": check_name,
+                        "reason": "unknown_whois",
+                    },
+                )
+                return None
 
         mins = storage.minutes_since_last(owner_id, domain, check_name)
         if mins is None or mins > ttl:

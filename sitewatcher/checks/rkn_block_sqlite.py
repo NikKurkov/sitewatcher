@@ -2,331 +2,444 @@
 from __future__ import annotations
 
 import asyncio
-import io
-import logging
+import gzip
+import ipaddress
+import json
 import re
+import socket
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from pathlib import Path
-from typing import Any, Optional
+from typing import Iterable, Optional, Sequence, Set, Tuple
 
 import httpx
 
 from .base import BaseCheck, CheckOutcome, Status
 from ..config import RknConfig
-from ..utils.http_retry import get_with_retries
+from ..utils.http_retry import get_with_retries  # импорт оставлен как есть
 
-logger = logging.getLogger("sitewatcher.rkn")
+# ---- Constants & regexes (source of truth) ----
+_ZI_BASE_URL = "https://raw.githubusercontent.com/zapret-info/z-i/master/"
+_ZI_PARTS_COUNT = 20  # dump-00..19.csv
 
-# Single-writer guard for index refresh (process-wide)
-_REFRESH_LOCK = asyncio.Lock()
-
-# Default upstream: zapret-info/z-i public dataset
-_ZI_DEFAULT_URL = "https://raw.githubusercontent.com/zapret-info/z-i/master/dump.csv.gz"
+_DOMAIN_RE = re.compile(r"\b([a-z0-9-]+\.)+[a-z]{2,}\b", re.IGNORECASE)
+_IP_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 
 
 @dataclass
-class _DbMeta:
-    fetched_at: Optional[datetime] = None
+class _CacheMeta:
+    fetched_at: datetime
+    db_path: Path
 
 
 class RknBlockCheck(BaseCheck):
-    """Check presence of a domain (and optionally its IPs) in RKN (zapret-info) lists.
-
-    Design goals:
-      - Keep a tiny local SQLite index (domains + IPv4) for fast lookups.
-      - Refresh the index on demand by TTL.
-      - Treat source/network failures as UNKNOWN (not CRIT).
     """
+    RKN/Zapret-Info blocklist check using an on-disk SQLite index (domains + IPv4).
 
-    name = "rkn_block"
+    Strategy
+    --------
+    - Keep a small SQLite DB with 3 tables:
+        meta(key TEXT PRIMARY KEY, value TEXT)
+        domains(domain TEXT PRIMARY KEY)
+        ips(ip TEXT PRIMARY KEY)
+      plus appropriate indexes (PRIMARY KEY is enough).
+    - Refresh DB if stale (by cfg.cache_ttl_hours) using upstream dump:
+        1) try dump.csv.gz (or plain dump.csv),
+        2) fallback to segmented dump-00..19.csv,
+        3) fallback to mirrors.txt list.
+    - To decide listing:
+        * direct domain hit (optionally check parent labels when match_subdomains=True),
+        * resolve IPv4 A-records and check IP hits (if cfg.check_ip=True).
+    """
+    name = "rkn_block"  # keep the same logical name
 
-    def __init__(
-        self,
-        domain: str,
-        *,
-        client: httpx.AsyncClient,
-        rkn_cfg: RknConfig,
-    ) -> None:
+    # Process-wide refresh lock (avoid concurrent rebuilds)
+    _refresh_lock = asyncio.Lock()
+
+    def __init__(self, domain: str, client: httpx.AsyncClient, rkn_cfg: RknConfig) -> None:
         super().__init__(domain)
         self.client = client
         self.cfg = rkn_cfg
 
-        # Resolve DB path; default to package data directory.
+        # Default DB path unless overridden via config
         data_dir = Path(__file__).resolve().parent.parent / "data"
-        self.db_path = (
-            Path(self.cfg.index_db_path)
-            if self.cfg.index_db_path
-            else (data_dir / "z_i_index.db")
-        )
+        idx_from_cfg = getattr(rkn_cfg, "index_db_path", None)
+        self.db_path: Path = Path(idx_from_cfg) if idx_from_cfg else (data_dir / "z_i_index.db")
 
-        # Behavior toggles (explicit defaults come from RknConfig)
-        self._dump_url = self.cfg.z_i_url or _ZI_DEFAULT_URL
-        self._ttl_hours = int(self.cfg.cache_ttl_hours)
-        self._match_subdomains = bool(self.cfg.match_subdomains)
-        self._check_ip = bool(self.cfg.check_ip)
+        # Cache TTL (hours)
+        self._ttl_hours: int = int(getattr(rkn_cfg, "cache_ttl_hours", 12) or 12)
 
-    # ------------------------------- Public API -------------------------------
+        # Primary dump URL (can be overridden in config)
+        self._dump_url: str = getattr(rkn_cfg, "z_i_url", f"{_ZI_BASE_URL}dump.csv.gz")
+
+    # ------------------------------------------------------------------ #
+    # Public API
+    # ------------------------------------------------------------------ #
 
     async def run(self) -> CheckOutcome:
-        """Ensure index is fresh, then check domain/IP presence."""
+        """Return CRIT if listed, OK if not, UNKNOWN on source/IO errors."""
         try:
-            await self._ensure_index_up_to_date()
+            await self._ensure_index_fresh()
         except Exception as e:
-            logger.exception("RKN: index refresh failed for %s", self.domain)
-            return CheckOutcome(
-                self.name, Status.UNKNOWN, f"source error: {e.__class__.__name__}: {e}", {}
+            self.log.exception(
+                "rkn.index.refresh_failed",
+                extra={"event": "rkn.index.refresh_failed", "domain": self.domain},
             )
+            return CheckOutcome(self.name, Status.UNKNOWN, f"source error: {e.__class__.__name__}: {e}", {})
 
         dom = self.domain.lower().rstrip(".")
         try:
-            listed_by_domain = self._query_domain_match(dom, self._match_subdomains)
-        except Exception as e:
-            logger.exception("RKN: domain query failed for %s", dom)
-            return CheckOutcome(
-                self.name, Status.UNKNOWN, f"query error: {e.__class__.__name__}: {e}", {}
-            )
+            # 1) Domain match (with optional parent walk)
+            hit_domain = await asyncio.to_thread(self._query_domain_match, dom, self.cfg.match_subdomains)
+            if hit_domain:
+                return CheckOutcome(
+                    check=self.name,
+                    status=Status.CRIT,
+                    message=f"listed (domain match: {hit_domain})",
+                    metrics={"type": "domain", "matched": hit_domain, "source": "z-i", "db_path": str(self.db_path)},
+                )
 
-        ips: list[str] = []
-        listed_by_ip = False
-        if self._check_ip and not listed_by_domain:
-            try:
-                ips = await self._resolve_ips(dom)
+            # 2) IP matches (IPv4 only)
+            if self.cfg.check_ip:
+                ips = await self._resolve_ipv4(dom)
                 if ips:
-                    listed_by_ip = self._query_ip_match(ips)
-            except Exception:
-                # DNS/OS issues are not fatal for this check
-                ips = []
-                listed_by_ip = False
-
-        meta = self._get_meta()
-        fetched_iso = meta.fetched_at.isoformat() if meta.fetched_at else None
-
-        if listed_by_domain or listed_by_ip:
-            msg = "listed" + (" (by IP)" if listed_by_ip and not listed_by_domain else "")
-            # If the domain itself is listed → CRIT; if only IP is listed → keep WARN.
-            severity = Status.CRIT if listed_by_domain else Status.WARN
-            return CheckOutcome(
-                self.name,
-                severity,
-                msg,
-                {
-                    "source": "z-i",
-                    "fetched_at": fetched_iso,
-                    "domain": dom,
-                    "ips": ips,
-                    "matched_domain": bool(listed_by_domain),
-                    "matched_ip": bool(listed_by_ip),
-                },
+                    hits = await asyncio.to_thread(self._query_ip_matches, ips)
+                    if hits:
+                        return CheckOutcome(
+                            check=self.name,
+                            status=Status.CRIT,
+                            message=f"listed (ip match: {', '.join(hits)})",
+                            metrics={"type": "ip", "matched": hits, "source": "z-i", "db_path": str(self.db_path)},
+                        )
+        except Exception as e:
+            self.log.exception(
+                "rkn.domain.query_failed",
+                extra={"event": "rkn.domain.query_failed", "domain": dom},
             )
+            return CheckOutcome(self.name, Status.UNKNOWN, f"query error: {e.__class__.__name__}: {e}", {})
 
-        return CheckOutcome(
-            self.name,
-            Status.OK,
-            "not listed",
-            {"source": "z-i", "fetched_at": fetched_iso, "domain": dom, "ips": ips},
-        )
+        return CheckOutcome(self.name, Status.OK, "not listed", {"source": "z-i", "db_path": str(self.db_path)})
 
-    # ------------------------------ Index refresh -----------------------------
+    # ------------------------------------------------------------------ #
+    # Index lifecycle
+    # ------------------------------------------------------------------ #
 
-    async def _ensure_index_up_to_date(self) -> None:
-        """Create DB if missing and refresh content if stale by TTL (single-writer)."""
-        self._init_schema_if_needed()
-        meta = self._get_meta()
-        now = datetime.now(timezone.utc)
-
-        # Fast path: already fresh
-        if meta.fetched_at is not None and (now - meta.fetched_at) < timedelta(hours=self._ttl_hours):
-            return
-
-        # Only one task may rebuild the index at a time
-        async with _REFRESH_LOCK:
-            # Re-check freshness after acquiring the lock (herd protection)
-            meta2 = self._get_meta()
-            now2 = datetime.now(timezone.utc)
-            if meta2.fetched_at is not None and (now2 - meta2.fetched_at) < timedelta(hours=self._ttl_hours):
+    async def _ensure_index_fresh(self) -> None:
+        """Ensure SQLite index exists and is within TTL; rebuild if stale/missing."""
+        async with self._refresh_lock:
+            # If no DB — build from scratch
+            if not self.db_path.exists():
+                self.log.info(
+                    "rkn.index.bootstrap",
+                    extra={"event": "rkn.index.bootstrap", "db_path": str(self.db_path)},
+                )
+                csv_text = await self._download_dump_with_fallbacks()
+                await asyncio.to_thread(self._rebuild_index, csv_text, datetime.now(timezone.utc))
                 return
 
-            logger.info("RKN: refreshing index (TTL %dh)", self._ttl_hours)
-            csv_text = await self._download_dump(self._dump_url)
-            self._rebuild_index(csv_text, fetched_at=now2)
+            # If DB exists — check TTL from meta
+            try:
+                fetched_at = await asyncio.to_thread(self._read_meta_fetched_at)
+            except Exception:
+                fetched_at = None
 
-    async def _download_dump(self, url: str) -> str:
-        """Download upstream dump (CSV or gzipped CSV) and return UTF-8 text."""
-        resp = await get_with_retries(
-            self.client,
-            url,
-            timeout_s=30.0,
-            retries=2,
-            backoff_s=0.3,
-            follow_redirects=True,
-            headers={"User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"},
-        )
-        resp.raise_for_status()
-        content = resp.content
+            if fetched_at is None or datetime.now(timezone.utc) - fetched_at >= timedelta(hours=self._ttl_hours):
+                self.log.info(
+                    "rkn.index.refresh_start",
+                    extra={
+                        "event": "rkn.index.refresh_start",
+                        "db_path": str(self.db_path),
+                        "ttl_h": self._ttl_hours,
+                        "url": self._dump_url,
+                    },
+                )
+                try:
+                    csv_text = await self._download_dump_with_fallbacks()
+                    await asyncio.to_thread(self._rebuild_index, csv_text, datetime.now(timezone.utc))
+                except Exception as e:
+                    # Soft-fail: keep existing DB for queries, only log the refresh error.
+                    self.log.exception(
+                        "rkn.index.refresh_error",
+                        extra={"event": "rkn.index.refresh_error", "error": f"{e.__class__.__name__}: {e}"},
+                    )
 
-        # GZIP magic header 1F 8B
-        if len(content) >= 2 and content[0] == 0x1F and content[1] == 0x8B:
-            import gzip
+    # ------------------------------------------------------------------ #
+    # Download & parse
+    # ------------------------------------------------------------------ #
 
-            with gzip.GzipFile(fileobj=io.BytesIO(content)) as gz:
-                return gz.read().decode("utf-8", "ignore")
-        return content.decode("utf-8", "ignore")
-
-    # ------------------------------- SQLite layer -----------------------------
-
-    def _connect(self) -> sqlite3.Connection:
-        """Open SQLite with WAL + timeouts to play well with concurrency."""
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(self.db_path), timeout=5.0)
-        # Performance/robustness pragmas
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA synchronous=NORMAL;")
-        conn.execute("PRAGMA temp_store=MEMORY;")
-        conn.execute("PRAGMA busy_timeout=3000;")
-        return conn
-
-    def _init_schema_if_needed(self) -> None:
-        """Create a clean schema (no legacy columns)."""
-        conn = self._connect()
+    async def _download_dump_with_fallbacks(self) -> str:
+        """
+        Primary: dump.csv.gz (or plain csv).
+        Fallbacks: dump-00..19.csv concatenated, then mirrors.txt (gz/plain).
+        """
+        # 1) Direct gz/plain
         try:
-            conn.executescript(
+            r = await get_with_retries(self.client, self._dump_url, timeout_s=45.0, retries=2, follow_redirects=True)
+            r.raise_for_status()
+            content = r.content
+            if self._looks_like_gzip(content):
+                with gzip.GzipFile(fileobj=BytesIO(content)) as gz:
+                    raw = gz.read()
+                return self._decode_bytes(raw)
+            try:
+                return r.text
+            except UnicodeDecodeError:
+                return content.decode("cp1251", errors="ignore")
+        except Exception:
+            pass
+
+        # 2) Parts
+        parts: list[str] = []
+        for i in range(_ZI_PARTS_COUNT):
+            try:
+                u = f"{_ZI_BASE_URL}dump-{i:02d}.csv"
+                rr = await get_with_retries(self.client, u, timeout_s=30.0, retries=1, follow_redirects=True)
+                if rr.status_code == 200 and rr.content:
+                    try:
+                        parts.append(rr.text)
+                    except UnicodeDecodeError:
+                        parts.append(rr.content.decode("cp1251", errors="ignore"))
+            except Exception:
+                continue
+        if parts:
+            return "\n".join(parts)
+
+        # 3) Mirrors
+        try:
+            mirrors_txt = await get_with_retries(
+                self.client, f"{_ZI_BASE_URL}mirrors.txt", timeout_s=15.0, retries=1, follow_redirects=True
+            )
+            if mirrors_txt.status_code == 200:
+                mirrors = [
+                    ln.strip()
+                    for ln in mirrors_txt.text.splitlines()
+                    if ln.strip() and not ln.strip().startswith("#")
+                ]
+                for m in mirrors:
+                    for cand in (f"{m.rstrip('/')}/dump.csv.gz", f"{m.rstrip('/')}/dump.csv"):
+                        try:
+                            mr = await get_with_retries(self.client, cand, timeout_s=30.0, retries=1, follow_redirects=True)
+                            if mr.status_code == 200 and mr.content:
+                                data = mr.content
+                                if self._looks_like_gzip(data):
+                                    with gzip.GzipFile(fileobj=BytesIO(data)) as gz:
+                                        raw = gz.read()
+                                    return self._decode_bytes(raw)
+                                try:
+                                    return mr.text
+                                except UnicodeDecodeError:
+                                    return data.decode("cp1251", errors="ignore")
+                        except Exception:
+                            continue
+        except Exception:
+            pass
+
+        raise RuntimeError("z-i dump not available via primary or mirrors")
+
+    @staticmethod
+    def _looks_like_gzip(content: bytes) -> bool:
+        return len(content) >= 2 and content[0] == 0x1F and content[1] == 0x8B
+
+    @staticmethod
+    def _decode_bytes(data: bytes) -> str:
+        """Try UTF-8, then CP1251 as a fallback (z-i mirrors often use CP1251)."""
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            return data.decode("cp1251", errors="ignore")
+
+    @staticmethod
+    def _parse_dump(text: str) -> Tuple[Set[str], Set[str]]:
+        """Extract domains and IPv4s from CSV text using regexes with simple validation."""
+        doms: Set[str] = set()
+        ips: Set[str] = set()
+        for line in text.splitlines():
+            # domains
+            for m in _DOMAIN_RE.finditer(line.lower()):
+                d = m.group(0).rstrip(".")
+                if RknBlockCheck._looks_like_domain(d):
+                    doms.add(d)
+            # IPv4
+            for m in _IP_RE.finditer(line):
+                ip = m.group(0)
+                if RknBlockCheck._valid_ipv4(ip):
+                    ips.add(ip)
+        return doms, ips
+
+    @staticmethod
+    def _looks_like_domain(d: str) -> bool:
+        """Reject IP-like tokens; require at least 2 labels and TLD length >= 2."""
+        try:
+            ipaddress.ip_address(d)
+            return False
+        except Exception:
+            pass
+        parts = d.split(".")
+        return len(parts) >= 2 and all(parts) and len(parts[-1]) >= 2
+
+    @staticmethod
+    def _valid_ipv4(ip: str) -> bool:
+        try:
+            ipaddress.IPv4Address(ip)
+            return True
+        except Exception:
+            return False
+
+    # ------------------------------------------------------------------ #
+    # SQLite index
+    # ------------------------------------------------------------------ #
+
+    def _read_meta_fetched_at(self) -> Optional[datetime]:
+        if not self.db_path.exists():
+            return None
+        con = sqlite3.connect(self.db_path.as_posix())
+        try:
+            cur = con.cursor()
+            cur.execute("SELECT value FROM meta WHERE key='fetched_at'")
+            row = cur.fetchone()
+            if not row:
+                return None
+            try:
+                return datetime.fromisoformat(row[0])
+            except Exception:
+                return None
+        finally:
+            con.close()
+
+    def _rebuild_index(self, csv_text: str, fetched_at: datetime) -> None:
+        """Create/replace SQLite DB from parsed dump text."""
+        dom_seen, ip_seen = self._parse_dump(csv_text)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        con = sqlite3.connect(self.db_path.as_posix())
+        try:
+            cur = con.cursor()
+            # Schema
+            cur.executescript(
                 """
-                CREATE TABLE IF NOT EXISTS meta (
+                PRAGMA journal_mode=WAL;
+                PRAGMA synchronous=NORMAL;
+
+                DROP TABLE IF EXISTS meta;
+                DROP TABLE IF EXISTS domains;
+                DROP TABLE IF EXISTS ips;
+
+                CREATE TABLE meta (
                     key   TEXT PRIMARY KEY,
-                    value TEXT
+                    value TEXT NOT NULL
                 );
 
-                CREATE TABLE IF NOT EXISTS domains (
+                CREATE TABLE domains (
                     domain TEXT PRIMARY KEY
                 );
 
-                CREATE TABLE IF NOT EXISTS ips (
+                CREATE TABLE ips (
                     ip TEXT PRIMARY KEY
                 );
                 """
             )
-            conn.commit()
-        finally:
-            conn.close()
 
-    def _get_meta(self) -> _DbMeta:
-        conn = self._connect()
+            # Bulk insert
+            if dom_seen:
+                cur.executemany("INSERT OR IGNORE INTO domains(domain) VALUES (?)", ((d,) for d in dom_seen))
+            if ip_seen:
+                cur.executemany("INSERT OR IGNORE INTO ips(ip) VALUES (?)", ((ip,) for ip in ip_seen))
+
+            # Meta
+            cur.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('fetched_at', ?)", (fetched_at.isoformat(),))
+            con.commit()
+        finally:
+            con.close()
+
+        self.log.info(
+            "rkn.index.refresh_done",
+            extra={
+                "event": "rkn.index.refresh_done",
+                "domains": len(dom_seen),
+                "ips": len(ip_seen),
+                "fetched_at": fetched_at.isoformat(),
+                "db_path": str(self.db_path),
+            },
+        )
+
+    # ------------------------------------------------------------------ #
+    # Queries (domain/IP)
+    # ------------------------------------------------------------------ #
+
+    def _query_domain_match(self, domain: str, match_parents: bool) -> Optional[str]:
+        """
+        Return exact or parent match from domains table if present.
+        """
+        con = sqlite3.connect(self.db_path.as_posix())
         try:
-            row = conn.execute("SELECT value FROM meta WHERE key='fetched_at'").fetchone()
-            if not row or not row[0]:
-                return _DbMeta(None)
-            try:
-                dt = datetime.fromisoformat(row[0])
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-            except Exception:
-                dt = None
-            return _DbMeta(dt)
+            cur = con.cursor()
+            # Exact
+            cur.execute("SELECT 1 FROM domains WHERE domain = ? LIMIT 1", (domain,))
+            if cur.fetchone():
+                return domain
+            # Parents
+            if match_parents:
+                labels = domain.split(".")
+                for i in range(1, len(labels)):
+                    parent = ".".join(labels[i:])
+                    cur.execute("SELECT 1 FROM domains WHERE domain = ? LIMIT 1", (parent,))
+                    if cur.fetchone():
+                        return parent
+            return None
         finally:
-            conn.close()
+            con.close()
 
-    def _rebuild_index(self, csv_text: str, *, fetched_at: datetime) -> None:
-        """Parse upstream dump and rebuild the local index in a single transaction."""
-        domain_rx = re.compile(r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b", re.I)
-        ipv4_rx = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
-
-        conn = self._connect()
-        try:
-            cur = conn.cursor()
-            cur.execute("BEGIN IMMEDIATE")  # exclusive writer
-            cur.execute("DELETE FROM domains")
-            cur.execute("DELETE FROM ips")
-
-            dom_seen: set[str] = set()
-            ip_seen: set[str] = set()
-
-            for line in csv_text.splitlines():
-                if not line:
-                    continue
-                for d in domain_rx.findall(line):
-                    d = d.lower().rstrip(".")
-                    if d not in dom_seen:
-                        dom_seen.add(d)
-                        cur.execute("INSERT OR IGNORE INTO domains(domain) VALUES(?)", (d,))
-                for ip in ipv4_rx.findall(line):
-                    if ip not in ip_seen:
-                        ip_seen.add(ip)
-                        cur.execute("INSERT OR IGNORE INTO ips(ip) VALUES(?)", (ip,))
-
-            # Write meta in the same transaction/connection (avoids cross-connection lock)
-            cur.execute(
-                "INSERT INTO meta(key,value) VALUES('fetched_at', ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (fetched_at.isoformat(),),
-            )
-
-            conn.commit()
-            logger.info("RKN: index rebuilt: %d domains, %d ips", len(dom_seen), len(ip_seen))
-        finally:
-            conn.close()
-
-    # ---------------------------- Query primitives ----------------------------
-
-    def _query_domain_match(self, domain: str, match_subdomains: bool) -> bool:
-        """Return True if the domain (or its parent suffix) is listed."""
-        conn = self._connect()
-        try:
-            # Exact match first
-            row = conn.execute(
-                "SELECT 1 FROM domains WHERE domain = ? LIMIT 1", (domain,)
-            ).fetchone()
-            if row:
-                return True
-
-            if not match_subdomains:
-                return False
-
-            # Walk up suffixes: a.b.c -> b.c -> c
-            parts = domain.split(".")
-            for i in range(1, len(parts) - 1):
-                suffix = ".".join(parts[i:])
-                row = conn.execute(
-                    "SELECT 1 FROM domains WHERE domain = ? LIMIT 1", (suffix,)
-                ).fetchone()
-                if row:
-                    return True
-            return False
-        finally:
-            conn.close()
-
-    def _query_ip_match(self, ips: list[str]) -> bool:
-        """Return True if any of the IPv4 addresses is listed."""
+    def _query_ip_matches(self, ips: Sequence[str]) -> list[str]:
+        """
+        Return list of IPs that are present in the index.
+        Use batched IN-queries to avoid too long parameter lists.
+        """
         if not ips:
-            return False
-        conn = self._connect()
+            return []
+        con = sqlite3.connect(self.db_path.as_posix())
         try:
-            q = "SELECT 1 FROM ips WHERE ip = ? LIMIT 1"
-            for ip in ips:
-                row = conn.execute(q, (ip,)).fetchone()
-                if row:
-                    return True
-            return False
+            cur = con.cursor()
+            hits: list[str] = []
+            batch_size = 500
+            for i in range(0, len(ips), batch_size):
+                chunk = ips[i : i + batch_size]
+                qmarks = ",".join("?" for _ in chunk)
+                cur.execute(f"SELECT ip FROM ips WHERE ip IN ({qmarks})", chunk)
+                hits.extend([row[0] for row in cur.fetchall()])
+            # Preserve input order, unique
+            hit_set = set(hits)
+            return [ip for ip in ips if ip in hit_set]
         finally:
-            conn.close()
+            con.close()
 
-    async def _resolve_ips(self, domain: str) -> list[str]:
-        """Resolve A-records for the domain (best-effort)."""
+    # ------------------------------------------------------------------ #
+    # DNS (IPv4 only)
+    # ------------------------------------------------------------------ #
+
+    async def _resolve_ipv4(self, domain: str) -> list[str]:
+        """
+        Resolve A-records (IPv4) for domain; preserve order & deduplicate.
+        """
         loop = asyncio.get_running_loop()
         try:
-            infos = await loop.getaddrinfo(domain, None, family=0, type=0, proto=0, flags=0)
+            infos = await loop.getaddrinfo(
+                domain,
+                80,
+                family=socket.AF_INET,            # IPv4 only: our index stores IPv4
+                type=socket.SOCK_STREAM,
+                proto=socket.IPPROTO_TCP,
+                flags=socket.AI_ADDRCONFIG,       # skip unsupported families on this host
+            )
         except Exception:
             return []
         out: list[str] = []
         for _, _, _, _, sockaddr in infos:
             if isinstance(sockaddr, tuple) and len(sockaddr) >= 1:
-                ip = sockaddr[0]
-                # Keep IPv4 only (schema stores IPv4)
-                if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", ip):
-                    out.append(ip)
+                out.append(sockaddr[0])
         # Deduplicate preserving order
-        seen: set[str] = set()
+        seen: Set[str] = set()
         uniq: list[str] = []
         for ip in out:
             if ip not in seen:

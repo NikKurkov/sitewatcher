@@ -8,7 +8,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import NamedTuple, Optional
+from typing import NamedTuple, Optional, Mapping, Any
 
 from telegram.error import NetworkError, RetryAfter, TimedOut
 from telegram.ext import ContextTypes  # noqa: F401
@@ -17,7 +17,8 @@ from .. import storage
 from ..config import AppConfig, resolve_settings
 from .utils import _resolve_alert_chat_id
 
-logger = logging.getLogger("sitewatcher.bot")
+# Module-level logger (use consistently as 'log')
+log = logging.getLogger(__name__)
 
 
 class _AlertKey(NamedTuple):
@@ -303,7 +304,32 @@ async def safe_send_message(
         attempt += 1
 
 
-async def maybe_send_alert(update, context, owner_id: int, domain: str, results) -> None:
+def _log_alert_skipped(
+    reason: str,
+    *,
+    owner_id: int,
+    domain: str,
+    level: str,
+    run_id: Optional[str] = None,
+    extra: Optional[Mapping[str, Any]] = None,
+) -> None:
+    """Helper to log a skipped alert with a consistent schema."""
+    xtra = dict(extra or {})
+    xtra.update({"event": "alert.skipped", "reason": reason, "owner_id": owner_id, "domain": domain, "level": level})
+    if run_id:
+        xtra["run_id"] = run_id
+    log.info("alert.skipped", extra=xtra)
+
+
+async def maybe_send_alert(
+    update,
+    context,
+    owner_id: int,
+    domain: str,
+    results,
+    *,
+    run_id: Optional[str] = None,
+) -> None:
     """Send problem alerts (WARN/CRIT) and a recovery alert when status returns to OK.
 
     Rules:
@@ -316,10 +342,12 @@ async def maybe_send_alert(update, context, owner_id: int, domain: str, results)
     """
     cfg: AppConfig = context.application.bot_data["cfg"]
     if not getattr(cfg.alerts, "enabled", True):
+        _log_alert_skipped("alerts_disabled", owner_id=owner_id, domain=domain, level="-", run_id=run_id)
         return
 
     # Per-user switch: skip all alert sends for this owner if disabled
     if not storage.is_user_alerts_enabled(owner_id):
+        _log_alert_skipped("user_alerts_disabled", owner_id=owner_id, domain=domain, level="-", run_id=run_id)
         return
 
     now = datetime.now(timezone.utc)
@@ -342,20 +370,21 @@ async def maybe_send_alert(update, context, owner_id: int, domain: str, results)
     # First observation: just persist baseline without sending
     if prev_overall is None:
         storage.upsert_alert_state(owner_id, domain, overall_txt, None)
+        _log_alert_skipped("baseline", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
         return
 
     # Recovery path: previous was bad and now OK -> notify only if ALL enabled checks are confirmed OK
     if overall_txt == "OK" and prev_overall_txt in {"WARN", "CRIT"}:
         enabled = _enabled_checks_for(cfg, owner_id, domain)
         if not _is_fresh_ok_for_all(cfg, owner_id, domain, enabled, results):
-            logger.debug("alert: suppress recovery OK for %s (not all enabled checks are fresh/OK)", domain)
+            _log_alert_skipped("recovery_not_confirmed", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
             return
 
         # Guard against repeated recovery spam: reuse cooldown_sec unless recovery_guard_sec is provided
         guard_sec = int(getattr(cfg.alerts, "recovery_guard_sec", getattr(cfg.alerts, "cooldown_sec", 0)) or 0)
         if guard_sec > 0 and last_sent_at_dt is not None and (now - last_sent_at_dt) < timedelta(seconds=guard_sec):
-            # State stays as-is; just persist overall to OK if needed
             storage.upsert_alert_state(owner_id, domain, overall_txt, last_sent_iso)
+            _log_alert_skipped("recovery_guard", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
             return
 
         text = _compose_message(domain, overall_txt, prev_overall_txt, results)
@@ -379,22 +408,32 @@ async def maybe_send_alert(update, context, owner_id: int, domain: str, results)
         chat_id = _resolve_alert_chat_id(context, update, cfg, owner_id)
         if not chat_id:
             storage.upsert_alert_state(owner_id, domain, overall_txt, None)
+            _log_alert_skipped("no_chat_id", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
             return
         try:
             await safe_send_message(
                 context.bot,
-                chat_id=chat_id,  # <- use unified variable name
+                chat_id=chat_id,
                 text=text,
                 parse_mode="HTML",
                 disable_web_page_preview=True,
             )
             storage.upsert_alert_state(owner_id, domain, overall_txt, now.isoformat())
-        except Exception:
+            log.info(
+                "alert.sent",
+                extra={"event": "alert.sent", "owner_id": owner_id, "domain": domain, "level": overall_txt, "run_id": run_id, "type": "recovery"},
+            )
+        except Exception as e:
             storage.upsert_alert_state(
                 owner_id,
                 domain,
                 overall_txt,
                 last_sent_at_dt.isoformat() if last_sent_at_dt else None,
+            )
+            log.error(
+                "alert.error",
+                exc_info=e,
+                extra={"event": "alert.error", "owner_id": owner_id, "domain": domain, "level": overall_txt, "run_id": run_id, "type": "recovery"},
             )
             raise
         return
@@ -405,28 +444,33 @@ async def maybe_send_alert(update, context, owner_id: int, domain: str, results)
         # Only notify when the overall severity increases
         if _status_weight(overall_txt) <= _status_weight(prev_overall_txt or "OK"):
             storage.upsert_alert_state(owner_id, domain, overall_txt, last_sent_iso)
+            _log_alert_skipped("not_worsened", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
             return
     elif policy == "overall_change":
         if overall_txt == prev_overall_txt:
             # Nothing changed
+            _log_alert_skipped("no_change", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
             return
     elif policy == "all":
         pass
     else:
         # Default to change-only if policy is unknown
         if overall_txt == prev_overall_txt:
+            _log_alert_skipped("unknown_policy_no_change", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id, extra={"policy": policy})
             return
 
     # Cooldown for repeating alerts (applies to problem states)
     cooldown = int(getattr(cfg.alerts, "cooldown_sec", getattr(cfg.alerts, "debounce_sec", 0)) or 0)
     if last_sent_at_dt is not None and (now - last_sent_at_dt) < timedelta(seconds=cooldown):
         storage.upsert_alert_state(owner_id, domain, overall_txt, last_sent_iso)
+        _log_alert_skipped("cooldown_active", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
         return
 
     # Resolve destination chat
     chat_id = _resolve_alert_chat_id(context, update, cfg, owner_id)
     if not chat_id:
         storage.upsert_alert_state(owner_id, domain, overall_txt, None)
+        _log_alert_skipped("no_chat_id", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
         return
 
     # Build message body
@@ -439,6 +483,7 @@ async def maybe_send_alert(update, context, owner_id: int, domain: str, results)
         send_now, maybe_text = deduper.should_send_now(key, text)
         if not send_now:
             storage.upsert_alert_state(owner_id, domain, overall_txt, last_sent_iso)
+            _log_alert_skipped("suppressed_by_deduper", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
             return
         if maybe_text:
             text = maybe_text
@@ -453,12 +498,19 @@ async def maybe_send_alert(update, context, owner_id: int, domain: str, results)
             disable_web_page_preview=True,
         )
         storage.upsert_alert_state(owner_id, domain, overall_txt, now.isoformat())
+        log.info(
+            "alert.sent",
+            extra={"event": "alert.sent", "owner_id": owner_id, "domain": domain, "level": overall_txt, "run_id": run_id, "type": "problem"},
+        )
     except Exception as e:
-        logger.exception("alert send failed for %s: %s", domain, e)
         # Preserve previous timestamp on failure
         storage.upsert_alert_state(
             owner_id,
             domain,
             overall_txt,
             last_sent_at_dt.isoformat() if last_sent_at_dt else None,
+        )
+        log.exception(
+            "alert send failed for %s: %s", domain, e,
+            extra={"event": "alert.error", "owner_id": owner_id, "domain": domain, "level": overall_txt, "run_id": run_id, "type": "problem"},
         )

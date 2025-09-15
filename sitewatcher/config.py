@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Literal, Union
 
@@ -24,6 +24,7 @@ class ChecksModel(BaseModel):
     whois: bool = True
     ip_blacklist: bool = False
     ip_change: bool = True
+    malware: bool = False
 
 
 class CheckSchedule(BaseModel):
@@ -32,23 +33,27 @@ class CheckSchedule(BaseModel):
 
     interval_minutes: how often background runner should execute the check
     cache_ttl_minutes: how long manual runs (/check) may serve cached results (0 = disabled)
+    cache_unknown: optional, when True cached UNKNOWN may be served (default False)
     """
     interval_minutes: int
     cache_ttl_minutes: int = 0
+    cache_unknown: bool = False
 
 
 class SchedulesConfig(BaseModel):
     # Default intervals (tweak in YAML if needed)
-    http_basic:   CheckSchedule = CheckSchedule(interval_minutes=5,  cache_ttl_minutes=2)
-    tls_cert:     CheckSchedule = CheckSchedule(interval_minutes=60, cache_ttl_minutes=30)
-    keywords:     CheckSchedule = CheckSchedule(interval_minutes=10, cache_ttl_minutes=5)
-    deface:       CheckSchedule = CheckSchedule(interval_minutes=15, cache_ttl_minutes=5)
-    ping:         CheckSchedule = CheckSchedule(interval_minutes=5,  cache_ttl_minutes=0)
-    rkn_block:    CheckSchedule = CheckSchedule(interval_minutes=30, cache_ttl_minutes=10)
-    ports:        CheckSchedule = CheckSchedule(interval_minutes=15, cache_ttl_minutes=0)
-    whois:        CheckSchedule = CheckSchedule(interval_minutes=360, cache_ttl_minutes=60)
-    ip_blacklist: CheckSchedule = CheckSchedule(interval_minutes=60, cache_ttl_minutes=30)
-    ip_change:    CheckSchedule = CheckSchedule(interval_minutes=60, cache_ttl_minutes=30)
+    http_basic:   CheckSchedule = CheckSchedule(interval_minutes=5,   cache_ttl_minutes=2)
+    tls_cert:     CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
+    keywords:     CheckSchedule = CheckSchedule(interval_minutes=10,  cache_ttl_minutes=5)
+    deface:       CheckSchedule = CheckSchedule(interval_minutes=15,  cache_ttl_minutes=5)
+    ping:         CheckSchedule = CheckSchedule(interval_minutes=5,   cache_ttl_minutes=0)
+    rkn_block:    CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
+    ports:        CheckSchedule = CheckSchedule(interval_minutes=60,  cache_ttl_minutes=0)
+    # For whois we explicitly keep cache_unknown=False to avoid sticking on "no expiry info"
+    whois:        CheckSchedule = CheckSchedule(interval_minutes=1440, cache_ttl_minutes=1440, cache_unknown=False)
+    ip_blacklist: CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
+    ip_change:    CheckSchedule = CheckSchedule(interval_minutes=120,  cache_ttl_minutes=120)
+    malware:      CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
 
 
 class SchedulerConfig(BaseModel):
@@ -81,6 +86,7 @@ class IpChangeConfig(BaseModel):
     """IP change tracking options used by checks/ip_change.py."""
     refresh_hours: int = 24          # how long to keep last IPs before considering change
     include_ipv6: bool = False       # also track IPv6 addresses
+    db_path: Optional[str] = None    # optional custom sqlite path (default inside check)
 
 
 class PortSpec(BaseModel):
@@ -124,10 +130,17 @@ class WhoisConfig(BaseModel):
     rdap_endpoint: str = "https://rdap.org/domain/{domain}"
     timeout_s: float = 30.0
     refresh_hours: int = 24
+    # New field used by checks/whois_info: primary threshold for WARN
+    warn_days: int = 30
+    # Backward-compat: keep old fields; not required by the new check but validated below
     expiry_warn_days: int = 30
     expiry_crit_days: int = 7
     # Raw WHOIS overrides for specific TLDs (e.g., {"ru": {"method": "whois", "host": "whois.tcinet.ru"}})
     tld_overrides: Dict[str, Dict[str, str]] = Field(default_factory=dict)
+    # Optional sqlite cache path (used by the check if provided)
+    db_path: Optional[str] = None
+    # If RDAP lacks expiry (common for .RU/.SU/.РФ), fallback to WHOIS tcinet.ru
+    fallback_whois_if_missing_expiry: bool = True
 
 
 class HttpClientConfig(BaseModel):
@@ -175,6 +188,68 @@ class IpBlConfig(BaseModel):
     check_ipv6: bool = False
 
 
+@dataclass
+class LoggingFileConfig:
+    path: str = "./logs/sitewatcher.log"
+    rotate: str = "size"         # "size" | "time"
+    max_bytes: int = 10_000_000
+    backup_count: int = 5
+    when: str = "midnight"       # for time-based rotation
+    interval: int = 1            # for time-based rotation
+    utc: bool = True
+
+
+@dataclass
+class LoggingPrettyConfig:
+    use_rich: bool = False
+    show_path: bool = False
+    show_time: bool = True
+
+
+@dataclass
+class LoggingJsonConfig:
+    ensure_ascii: bool = False
+    include_fields: List[str] = field(default_factory=lambda: [
+        "timestamp", "level", "logger", "message",
+        "module", "line", "pid", "thread",
+        "owner", "domain", "check", "run_id", "status",
+    ])
+
+
+@dataclass
+class LoggingConfig:
+    enabled: bool = True
+    level: str = "INFO"             # DEBUG|INFO|WARNING|ERROR
+    destination: str = "console"    # console|file
+    format: str = "pretty"          # pretty|json
+    file: LoggingFileConfig = field(default_factory=LoggingFileConfig)
+    pretty: LoggingPrettyConfig = field(default_factory=LoggingPrettyConfig)
+    json: LoggingJsonConfig = field(default_factory=LoggingJsonConfig)
+    third_party_levels: Dict[str, str] = field(default_factory=lambda: {
+        "httpx": "WARNING",
+        "apscheduler": "INFO",
+        "telegram": "WARNING",
+    })
+
+
+class VTLimits(BaseModel):
+    """Rate limits for VirusTotal Free tier."""
+    per_minute: int = 4
+    per_day: int = 500
+    per_month: int = 15500
+    # How long we can wait in-place for the nearest window to free a slot.
+    # If > 0, the checker may sleep briefly; if 0 -> return UNKNOWN immediately.
+    max_wait_s: float = 2.0
+
+
+class MalwareConfig(BaseModel):
+    """Malware reputation check (MVP: VirusTotal passive lookup)."""
+    vt_api_key: Optional[str] = None  # VirusTotal API key (if unset -> provider unavailable)
+    timeout_s: float = 10.0           # per-provider timeout
+    follow_redirects: bool = True     # reserved for future URL resolution step
+    vt_limits: VTLimits = VTLimits()  # strict rate limits for VT Free
+
+
 class AppConfig(BaseModel):
     """Top-level application configuration."""
     defaults: Defaults = Defaults()
@@ -187,9 +262,10 @@ class AppConfig(BaseModel):
     whois: WhoisConfig = WhoisConfig()
     rkn: RknConfig = RknConfig()
     http: Optional[HttpClientConfig] = None
-    # simple container for deface config
     deface: "DefaceConfig" = Field(default_factory=lambda: DefaceConfig())
     domains: List[DomainConfig] = Field(default_factory=list)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
+    malware: MalwareConfig = Field(default_factory=MalwareConfig)
 
 
 class DefaceConfig(BaseModel):
@@ -301,6 +377,7 @@ def validate_config(cfg: AppConfig) -> None:
             errors.append(f"schedules.{name}.interval_minutes must be > 0")
         if ttl < 0:
             errors.append(f"schedules.{name}.cache_ttl_minutes must be >= 0")
+        # cache_unknown is optional bool; no strict validation needed
 
     # Ports defaults and targets
     if cfg.ports.connect_timeout_s <= 0:
@@ -330,6 +407,9 @@ def validate_config(cfg: AppConfig) -> None:
     # Whois
     if cfg.whois.refresh_hours <= 0:
         errors.append("whois.refresh_hours must be > 0")
+    if cfg.whois.warn_days < 0:
+        errors.append("whois.warn_days must be >= 0")
+    # Back-compat validation (kept harmless even if unused by the check)
     if cfg.whois.expiry_warn_days < 0:
         errors.append("whois.expiry_warn_days must be >= 0")
     if cfg.whois.expiry_crit_days < 0:
@@ -351,6 +431,22 @@ def validate_config(cfg: AppConfig) -> None:
             errors.append("http.max_connections must be >= 1")
         if cfg.http.max_keepalive_connections < 0:
             errors.append("http.max_keepalive_connections must be >= 0")
+
+    # Malware / VT limits sanity
+    try:
+        lim = cfg.malware.vt_limits
+        if lim.per_minute <= 0:
+            errors.append("malware.vt_limits.per_minute must be > 0")
+        if lim.per_day <= 0:
+            errors.append("malware.vt_limits.per_day must be > 0")
+        if lim.per_month <= 0:
+            errors.append("malware.vt_limits.per_month must be > 0")
+        if lim.per_month < lim.per_day:
+            errors.append("malware.vt_limits.per_month must be >= per_day")
+        if lim.max_wait_s < 0:
+            errors.append("malware.vt_limits.max_wait_s must be >= 0")
+    except Exception:
+        errors.append("malware.vt_limits is invalid or missing")
 
     # Deface markers file (optional)
     if getattr(cfg.deface, "phrases_path", None):
