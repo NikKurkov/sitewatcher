@@ -553,3 +553,53 @@ def iter_history(
     finally:
         conn.close()
 
+
+# ---------- Maintenance: history retention & DB care ----------
+
+def cleanup_history(retention_days: int, batch_size: int = 10_000) -> int:
+    """
+    Delete history rows older than 'retention_days' days, in batches.
+    Returns total deleted rows. Uses TEXT DATETIME format: created_at < datetime('now', ?).
+    """
+    _ensure_initialized()
+    retention_days = max(0, int(retention_days))
+    cutoff = f"-{retention_days} days"
+    total_deleted = 0
+
+    with _connect() as conn:
+        while True:
+            # Batched delete by rowid to avoid long-running write locks
+            cur = conn.execute(
+                """
+                DELETE FROM history
+                WHERE rowid IN (
+                    SELECT rowid FROM history
+                    WHERE created_at < datetime('now', ?)
+                    LIMIT ?
+                )
+                """,
+                (cutoff, int(batch_size)),
+            )
+            deleted = cur.rowcount or 0
+            total_deleted += deleted
+            if deleted < batch_size:
+                break
+
+    log.info(
+        "history.cleanup",
+        extra={"event": "history.cleanup", "retention_days": retention_days, "deleted": total_deleted},
+    )
+    return total_deleted
+
+
+def vacuum_and_optimize() -> None:
+    """
+    Run VACUUM and PRAGMA optimize to reclaim space and refresh stats.
+    Safe to call occasionally (e.g., weekly). Autocommit is enabled.
+    """
+    _ensure_initialized()
+    with _connect() as conn:
+        # VACUUM cannot run inside a transaction; isolation_level=None ensures autocommit.
+        conn.execute("VACUUM")
+        conn.execute("PRAGMA optimize")
+    log.info("db.vacuum.optimize", extra={"event": "db.vacuum.optimize"})
