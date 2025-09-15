@@ -1,0 +1,172 @@
+# sitewatcher: sample configuration
+version: 1
+
+# -------- Global defaults (overridable per-domain) --------
+defaults:
+  # HTTP client
+  http_timeout_s: 5                  # per-request timeout (seconds)
+  latency_warn_ms: 3000              # WARN threshold for latency (ms)
+  latency_crit_ms: 5000              # CRIT threshold for latency (ms)
+  tls_warn_days: 14                  # days before TLS expiry to raise WARN
+  proxy: null                        # global proxy (http://user:pass@host:port or socks5://...)
+  keywords: []                       # global keywords (can be overridden per domain)
+  checks:
+    # Toggle individual checks globally (can be overridden per domain)
+    http_basic: true                 # HTTP status and latency
+    tls_cert: true                   # TLS certificate expiry
+    keywords: false                  # HTML keywords presence
+    deface: true                     # Check site homepage for deface words
+    ping: true                       # ICMP if available, TCP fallback
+    rkn_block: true                  # RKN blocklist check
+    ports: false                     # Basic TCP port checks
+    whois: true                      # WHOIS/RDAP changes
+    ip_blacklist: true               # DNSBL spam/abuse lists
+    ip_change: true                  # DNS A/AAAA change detection
+
+# -------- Scheduler settings --------
+scheduler:
+  enabled: true
+  interval_minutes: 1                 # how often background checks run
+  jitter_seconds: 30                  # random delay at startup to avoid herd thundering
+  run_on_startup: false               # run a warmup pass on startup
+  domains_concurrency: 5
+  per_domain_concurrency: 4
+  domain_timeout_s: 120              # hard time budget for all checks of a single domain
+
+# -------- Per-check schedules (1440 minutes = 1 day) --------
+schedules:
+  http_basic:   { interval_minutes: 5,    cache_ttl_minutes: 0    }
+  tls_cert:     { interval_minutes: 1440, cache_ttl_minutes: 1440 }
+  keywords:     { interval_minutes: 60,   cache_ttl_minutes: 0    }  # added explicit schedule
+  ping:         { interval_minutes: 5,    cache_ttl_minutes: 0    }
+  rkn_block:    { interval_minutes: 1440, cache_ttl_minutes: 1440 }
+  ports:        { interval_minutes: 1440, cache_ttl_minutes: 1440 }
+  whois:        { interval_minutes: 1440, cache_ttl_minutes: 1440 }
+  ip_blacklist: { interval_minutes: 1440, cache_ttl_minutes: 1440 }
+  ip_change:    { interval_minutes: 1440, cache_ttl_minutes: 0    }
+  deface:       { interval_minutes: 60,   cache_ttl_minutes: 0    }
+
+# -------- Alerting --------
+alerts:
+  enabled: true
+  policy: worsen_only                  # one of: all | overall_change | worsen_only
+  cooldown_sec: 1440                   # anti-spam: minimum seconds between alerts for the same domain (1440 - once a day)
+  # debounce_sec can be left for backward-compat setups; code supports both.
+  # debounce_sec: 120
+  chat_id: null                        # if set, alerts always go here; otherwise to the invoking chat
+
+# -------- DNS IP change check --------
+ipchange:
+  refresh_hours: 6
+  include_ipv6: true
+
+# -------- DNSBL / IP blacklist check --------
+ipbl:
+  zones: ["zen.spamhaus.org","dnsbl.dronebl.org","rbl.efnetrbl.org"]
+  dns_servers: null                   # e.g. ["1.1.1.1","8.8.8.8"]
+  timeout_s: 3
+  concurrency: 8
+  check_ipv6: false
+
+# -------- WHOIS / RDAP check --------
+whois:
+  rdap_endpoint: "https://rdap.org/domain/{domain}"
+  refresh_hours: 12
+  expiry_warn_days: 30
+  expiry_crit_days: 0
+  track_fields: ["registrar","registrant","nameservers","status"]
+  tld_overrides:
+    ru:       { method: "whois", host: "whois.tcinet.ru" }
+    xn--p1ai: { method: "whois", host: "whois.tcinet.ru" }
+    su:       { method: "whois", host: "whois.tcinet.ru" }
+
+# -------- RKN blocklist check --------
+rkn:
+  z_i_url: "https://raw.githubusercontent.com/zapret-info/z-i/master/dump.csv.gz"
+  cache_ttl_hours: 12
+  index_db_path: null                 # default: sitewatcher/data/z_i_index.db
+  match_subdomains: true
+  check_ip: false
+
+# -------- Port checks (global defaults) --------
+ports:
+  connect_timeout_s: 3
+  read_timeout_s: 2
+  read_bytes: 128
+  targets:
+    - { port: 80 }
+    - { port: 443, tls: true }
+    - { port: 22 }
+    # - { port: 25, send: "EHLO example.com\r\n", expect: "^250[ -]" }
+
+# -------- Deface check --------
+deface:
+  phrases_path: "sitewatcher/data/deface_markers.txt"
+
+# -------- Per-domain overrides --------
+domains:
+  - name: example.com
+    checks:
+      keywords: true
+      ping: true
+    keywords: ["yandex.metrika", "gtm.js"]
+    latency_warn_ms: 1500
+    latency_crit_ms: 4000
+
+  - name: example.org
+    proxy: "http://proxy.local:3128"
+    checks:
+      http_basic: true
+      tls_cert: true
+      keywords: false
+      ping: false
+
+  - name: fast-site.dev
+    checks:
+      http_basic: true
+      tls_cert: false
+      keywords: false
+      ping: true
+      
+# -------- Logging settings --------
+logging:
+  enabled: true
+  level: INFO            # DEBUG/INFO/WARNING/ERROR
+  destination: console   # console | file
+  format: pretty         # pretty | json
+
+  file:
+    path: ./logs/sitewatcher.log
+    rotate: size         # size | time
+    max_bytes: 10000000
+    backup_count: 5
+    when: midnight
+    interval: 1
+    utc: true
+
+  pretty:
+    use_rich: true
+    show_path: false
+    show_time: true
+
+  json:
+    ensure_ascii: false
+    include_fields:
+      - timestamp
+      - level
+      - logger
+      - message
+      - module
+      - line
+      - pid
+      - thread
+      - owner
+      - domain
+      - check
+      - run_id
+      - status
+
+  third_party_levels:
+    httpx: WARNING
+    apscheduler: INFO
+    telegram: WARNING

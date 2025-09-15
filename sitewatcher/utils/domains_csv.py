@@ -151,7 +151,10 @@ def _flatten_for_export(override: Dict) -> Dict[str, str]:
         "checks.whois": b(checks.get("whois")),
         "checks.ip_blacklist": b(checks.get("ip_blacklist")),
         "checks.ip_change": b(checks.get("ip_change")),
+<<<<<<< HEAD
         "checks.malware": b(checks.get("malware")),
+=======
+>>>>>>> fbb85f0e808f8e62eb1ab2a505f698bb82d7d2ca
         "checks.ports": b(checks.get("ports")),
         "keywords": join(override.get("keywords")),
         "ports": join(override.get("ports")),
