@@ -37,8 +37,12 @@ def _new_run_id() -> str:
 # Optional RKN plugin (kept soft to avoid import-time failures)
 try:  # pragma: no cover
     from .checks.rkn_block_sqlite import RknBlockCheck  # type: ignore
-except Exception:  # pragma: no cover
+    log.debug("RKN plugin loaded: rkn_block_sqlite")
+except Exception as e:  # pragma: no cover
     RknBlockCheck = None  # type: ignore
+    # We deliberately do not fail at import time to keep core functionality running.
+    log.warning("RKN plugin unavailable: %s", e.__class__.__name__, extra={"event": "rkn.import_failed"})
+
 
 
 class Dispatcher:
@@ -75,39 +79,36 @@ class Dispatcher:
         limits = httpx.Limits(max_connections=max_conn, max_keepalive_connections=max_keep)
 
         # Respect proxies from config (if any) and environment (trust_env=True)
-        proxy_kw: dict[str, object] = {}
+        proxies: Optional[dict[str, str] | str] = None
         if http_cfg:
             proxy_val = getattr(http_cfg, "proxy", None) or getattr(http_cfg, "proxies", None)
             if isinstance(proxy_val, str):
-                proxy_kw = {"proxy": proxy_val}
+                proxies = proxy_val
             elif isinstance(proxy_val, dict):
-                # Map scheme => transport using AsyncHTTPTransport
-                mounts: dict[str, httpx.AsyncHTTPTransport] = {}
-                for scheme, url in proxy_val.items():
-                    key = scheme if scheme.endswith("://") else f"{scheme}://"
-                    mounts[key] = httpx.AsyncHTTPTransport(proxy=url)
-                proxy_kw = {"mounts": mounts}
+                # httpx expects mapping like {"http://": "...", "https://": "..."}
+                proxies = {
+                    (k if k.endswith("://") else f"{k}://"): v
+                    for k, v in proxy_val.items()
+                }
+
+        client_kwargs = dict(
+            timeout=timeout,
+            limits=limits,
+            trust_env=True,
+            headers={"User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"},
+        )
+        if proxies:
+            client_kwargs["proxies"] = proxies
 
         try:
-            self._client = httpx.AsyncClient(
-                http2=True,
-                timeout=timeout,
-                limits=limits,
-                trust_env=True,
-                headers={"User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"},
-                **proxy_kw,
-            )
-        except Exception:
-            self._client = httpx.AsyncClient(
-                http2=False,
-                timeout=timeout,
-                limits=limits,
-                trust_env=True,
-                headers={"User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"},
-                **proxy_kw,
-            )
+            self._client = httpx.AsyncClient(http2=True, **client_kwargs)
+        except Exception as e:
+            # Fallback to HTTP/1.1 if HTTP/2 negotiation fails in environment
+            log.debug("Falling back to HTTP/1.1 for AsyncClient: %s", e.__class__.__name__)
+            self._client = httpx.AsyncClient(http2=False, **client_kwargs)
 
-        # NEW: build a shared VT limiter from config (Free tier defaults)
+
+        # Build a shared VT limiter from config (Free tier defaults), with visibility in logs
         try:
             vt_limits = getattr(getattr(self.cfg, "malware", object()), "vt_limits", None)
             if vt_limits:
@@ -124,9 +125,18 @@ class Dispatcher:
                     windows.append(Window(30 * 24 * 3600, per_mon))
                 if windows:
                     self._vt_limiter = MultiWindowRateLimiter(windows)
-        except Exception:
+                    log.info(
+                        "vt.limiter.init",
+                        extra={"event": "vt.limiter.init", "windows": [{"sec": w.window_s, "cap": w.capacity} for w in windows]},
+                    )
+                else:
+                    self._vt_limiter = None
+                    log.debug("vt.limiter.disabled (no positive windows)")
+        except Exception as e:
             # If limiter fails to init, proceed without it (check will degrade to UNKNOWN on congestion)
             self._vt_limiter = None
+            log.warning("vt.limiter.failed: %s", e.__class__.__name__, extra={"event": "vt.limiter.failed"})
+
 
         return self
 
@@ -147,15 +157,31 @@ class Dispatcher:
         """
         Run checks for a single domain (owner-aware).
         """
+        started = asyncio.get_running_loop().time()
+
         assert self._client is not None, "Use 'async with Dispatcher(cfg) as d:'"
 
         settings = self._resolve(owner_id, domain)
         all_checks = self._build_checks(settings)
         checks = self._filter_checks(all_checks, only_checks)
 
+        if not checks:
+            log.info(
+                "dispatcher.no_checks",
+                extra={
+                    "event": "dispatcher.no_checks",
+                    "run_id": run_id,
+                    "owner_id": owner_id,
+                    "domain": settings.name,
+                },
+            )
+            return []
+
         run_id = _new_run_id()
         per_domain_limit = self._get_scheduler_value("per_domain_concurrency", self._default_per_domain_concurrency)
         domain_timeout = self._get_scheduler_value("domain_timeout_s", None)
+        
+        elapsed_ms_total = int((asyncio.get_running_loop().time() - started) * 1000)
 
         log.info(
             "dispatcher.run",
@@ -168,6 +194,7 @@ class Dispatcher:
                 "use_cache": bool(use_cache),
                 "per_domain_concurrency": per_domain_limit,
                 "domain_timeout_s": float(domain_timeout) if isinstance(domain_timeout, (int, float)) else None,
+                "elapsed_ms_total": elapsed_ms_total,
             },
         )
 
@@ -186,12 +213,34 @@ class Dispatcher:
 
         async def _run_one(idx: int, chk) -> Tuple[int, CheckOutcome]:
             async with sem:
+                name = getattr(chk, "name", "")
+                start = asyncio.get_running_loop().time()
                 try:
                     res = await chk.run()
+                    elapsed_ms = int((asyncio.get_running_loop().time() - start) * 1000)
+                    # Enrich metrics with elapsed time (non-invasive)
+                    try:
+                        if isinstance(res.metrics, dict):
+                            res.metrics.setdefault("elapsed_ms", elapsed_ms)
+                    except Exception:
+                        pass
+                    return idx, res
                 except Exception as e:
-                    name = getattr(chk, "name", "")
-                    res = CheckOutcome(name, Status.UNKNOWN, f"error: {e.__class__.__name__}: {e}", {})
-                return idx, res
+                    elapsed_ms = int((asyncio.get_running_loop().time() - start) * 1000)
+                    # We log with full traceback and structured fields
+                    log.exception(
+                        "check.error",
+                        extra={
+                            "event": "check.error",
+                            "owner_id": owner_id,
+                            "domain": domain,
+                            "check": name,
+                            "elapsed_ms": elapsed_ms,
+                        },
+                    )
+                    res = CheckOutcome(name, Status.UNKNOWN, f"error: {e.__class__.__name__}: {e}", {"elapsed_ms": elapsed_ms})
+                    return idx, res
+
 
         # Prepare tasks, honoring cache if enabled
         for i, chk in enumerate(checks):
@@ -220,6 +269,17 @@ class Dispatcher:
                     for idx, res in done_results:
                         results_ordered[idx] = res
                 except asyncio.TimeoutError:
+                    # Domain-level timeout: cancel remaining tasks and mark them as timed out
+                    log.warning(
+                        "dispatcher.timeout",
+                        extra={
+                            "event": "dispatcher.timeout",
+                            "run_id": run_id,
+                            "owner_id": owner_id,
+                            "domain": domain,
+                            "timeout_s": float(domain_timeout),
+                        },
+                    )
                     for t in tasks:
                         if not t.done():
                             t.cancel()
@@ -238,7 +298,9 @@ class Dispatcher:
                                 name, Status.UNKNOWN, f"error: {outcome.__class__.__name__}: {outcome}", {}
                             )
                         else:
+                            # Should not happen, but keep a sane fallback
                             results_ordered[chk_idx] = CheckOutcome(name, Status.UNKNOWN, "unknown", {})
+
             else:
                 done_results = await asyncio.gather(*tasks, return_exceptions=False)
                 for idx, res in done_results:
@@ -310,7 +372,16 @@ class Dispatcher:
         base = resolve_settings(self.cfg, domain)
         try:
             patch = storage.get_domain_override(owner_id, domain)
-        except Exception:
+        except Exception as e:
+            log.warning(
+                "override.fetch_failed",
+                extra={
+                    "event": "override.fetch_failed",
+                    "owner_id": owner_id,
+                    "domain": domain,
+                    "error_type": e.__class__.__name__,
+                },
+            )
             patch = {}
 
         if not patch:
