@@ -24,6 +24,7 @@ class ChecksModel(BaseModel):
     whois: bool = True
     ip_blacklist: bool = False
     ip_change: bool = True
+    malware: bool = False
 
 
 class CheckSchedule(BaseModel):
@@ -42,16 +43,17 @@ class CheckSchedule(BaseModel):
 class SchedulesConfig(BaseModel):
     # Default intervals (tweak in YAML if needed)
     http_basic:   CheckSchedule = CheckSchedule(interval_minutes=5,   cache_ttl_minutes=2)
-    tls_cert:     CheckSchedule = CheckSchedule(interval_minutes=60,  cache_ttl_minutes=30)
+    tls_cert:     CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
     keywords:     CheckSchedule = CheckSchedule(interval_minutes=10,  cache_ttl_minutes=5)
     deface:       CheckSchedule = CheckSchedule(interval_minutes=15,  cache_ttl_minutes=5)
     ping:         CheckSchedule = CheckSchedule(interval_minutes=5,   cache_ttl_minutes=0)
-    rkn_block:    CheckSchedule = CheckSchedule(interval_minutes=30,  cache_ttl_minutes=10)
-    ports:        CheckSchedule = CheckSchedule(interval_minutes=15,  cache_ttl_minutes=0)
+    rkn_block:    CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
+    ports:        CheckSchedule = CheckSchedule(interval_minutes=60,  cache_ttl_minutes=0)
     # For whois we explicitly keep cache_unknown=False to avoid sticking on "no expiry info"
-    whois:        CheckSchedule = CheckSchedule(interval_minutes=360, cache_ttl_minutes=60, cache_unknown=False)
-    ip_blacklist: CheckSchedule = CheckSchedule(interval_minutes=60,  cache_ttl_minutes=30)
-    ip_change:    CheckSchedule = CheckSchedule(interval_minutes=60,  cache_ttl_minutes=30)
+    whois:        CheckSchedule = CheckSchedule(interval_minutes=1440, cache_ttl_minutes=1440, cache_unknown=False)
+    ip_blacklist: CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
+    ip_change:    CheckSchedule = CheckSchedule(interval_minutes=120,  cache_ttl_minutes=120)
+    malware:      CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
 
 
 class SchedulerConfig(BaseModel):
@@ -230,6 +232,24 @@ class LoggingConfig:
     })
 
 
+class VTLimits(BaseModel):
+    """Rate limits for VirusTotal Free tier."""
+    per_minute: int = 4
+    per_day: int = 500
+    per_month: int = 15500
+    # How long we can wait in-place for the nearest window to free a slot.
+    # If > 0, the checker may sleep briefly; if 0 -> return UNKNOWN immediately.
+    max_wait_s: float = 2.0
+
+
+class MalwareConfig(BaseModel):
+    """Malware reputation check (MVP: VirusTotal passive lookup)."""
+    vt_api_key: Optional[str] = None  # VirusTotal API key (if unset -> provider unavailable)
+    timeout_s: float = 10.0           # per-provider timeout
+    follow_redirects: bool = True     # reserved for future URL resolution step
+    vt_limits: VTLimits = VTLimits()  # strict rate limits for VT Free
+
+
 class AppConfig(BaseModel):
     """Top-level application configuration."""
     defaults: Defaults = Defaults()
@@ -245,6 +265,7 @@ class AppConfig(BaseModel):
     deface: "DefaceConfig" = Field(default_factory=lambda: DefaceConfig())
     domains: List[DomainConfig] = Field(default_factory=list)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    malware: MalwareConfig = Field(default_factory=MalwareConfig)
 
 
 class DefaceConfig(BaseModel):
@@ -410,6 +431,22 @@ def validate_config(cfg: AppConfig) -> None:
             errors.append("http.max_connections must be >= 1")
         if cfg.http.max_keepalive_connections < 0:
             errors.append("http.max_keepalive_connections must be >= 0")
+
+    # Malware / VT limits sanity
+    try:
+        lim = cfg.malware.vt_limits
+        if lim.per_minute <= 0:
+            errors.append("malware.vt_limits.per_minute must be > 0")
+        if lim.per_day <= 0:
+            errors.append("malware.vt_limits.per_day must be > 0")
+        if lim.per_month <= 0:
+            errors.append("malware.vt_limits.per_month must be > 0")
+        if lim.per_month < lim.per_day:
+            errors.append("malware.vt_limits.per_month must be >= per_day")
+        if lim.max_wait_s < 0:
+            errors.append("malware.vt_limits.max_wait_s must be >= 0")
+    except Exception:
+        errors.append("malware.vt_limits is invalid or missing")
 
     # Deface markers file (optional)
     if getattr(cfg.deface, "phrases_path", None):

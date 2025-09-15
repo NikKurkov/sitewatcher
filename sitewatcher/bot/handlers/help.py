@@ -46,6 +46,10 @@ HELP_TEXT = (
     "• Use <code>--force</code> with /check* to bypass cache.\n"
     "• Unicode (IDN) domains are accepted and converted to punycode internally.\n"
     "• URL input like <code>https://example.com/path</code> is normalized to its host.\n"
+    "• <b>Malware check</b>: VirusTotal passive reputation; requires API key in server config; no active URL submission.\n"
+    "• VT Free limits are enforced: 4/min, 500/day, 15.5k/month; if quota is hit you'll see "
+    "<code>UNKNOWN: VT rate limited</code>. Limits are configurable in <code>malware.vt_limits</code>.\n"
+    "• Enable per-domain via <code>/cfg_set &lt;name&gt; checks.malware true</code> or via CSV column <code>checks.malware</code>.\n"
 )
 
 

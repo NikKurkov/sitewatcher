@@ -22,11 +22,12 @@ defaults:
     whois: true                      # WHOIS/RDAP changes
     ip_blacklist: true               # DNSBL spam/abuse lists
     ip_change: true                  # DNS A/AAAA change detection
+    malware: false                    # Malware check
 
 # -------- Scheduler settings --------
 scheduler:
   enabled: true
-  interval_minutes: 1                 # how often background checks run
+  interval_minutes: 5                 # how often background checks run
   jitter_seconds: 30                  # random delay at startup to avoid herd thundering
   run_on_startup: false               # run a warmup pass on startup
   domains_concurrency: 5
@@ -37,14 +38,15 @@ scheduler:
 schedules:
   http_basic:   { interval_minutes: 5,    cache_ttl_minutes: 0    }
   tls_cert:     { interval_minutes: 1440, cache_ttl_minutes: 1440 }
-  keywords:     { interval_minutes: 60,   cache_ttl_minutes: 0    }  # added explicit schedule
+  keywords:     { interval_minutes: 60,   cache_ttl_minutes: 0    }
   ping:         { interval_minutes: 5,    cache_ttl_minutes: 0    }
   rkn_block:    { interval_minutes: 1440, cache_ttl_minutes: 1440 }
   ports:        { interval_minutes: 1440, cache_ttl_minutes: 1440 }
   whois:        { interval_minutes: 1440, cache_ttl_minutes: 1440 }
   ip_blacklist: { interval_minutes: 1440, cache_ttl_minutes: 1440 }
-  ip_change:    { interval_minutes: 1440, cache_ttl_minutes: 0    }
+  ip_change:    { interval_minutes: 1440, cache_ttl_minutes: 120  }
   deface:       { interval_minutes: 60,   cache_ttl_minutes: 0    }
+  malware:      { interval_minutes: 1440, cache_ttl_minutes: 1440 }
 
 # -------- Alerting --------
 alerts:
@@ -54,6 +56,19 @@ alerts:
   # debounce_sec can be left for backward-compat setups; code supports both.
   # debounce_sec: 120
   chat_id: null                        # if set, alerts always go here; otherwise to the invoking chat
+
+# -------- Malware check --------
+malware:
+  vt_api_key: "ee1abc64e3dac1c51c634c9d581fae7a5216bbeeab6bc82d01267d2ede004308" # virustotal.com API key after free registration
+  timeout_s: 10
+  follow_redirects: true
+
+  # VirusTotal Free quotas (enforced process-wide by a sliding rate limiter)
+  vt_limits:
+    per_minute: 4      # VT Free: 4 lookups/min
+    per_day: 500       # VT Free: 500/day
+    per_month: 15500   # VT Free: ~15.5k/month
+    max_wait_s: 0.5    # optional soft wait near window edges (0..2s is recomended)
 
 # -------- DNS IP change check --------
 ipchange:
@@ -84,7 +99,7 @@ whois:
 rkn:
   z_i_url: "https://raw.githubusercontent.com/zapret-info/z-i/master/dump.csv.gz"
   cache_ttl_hours: 12
-  index_db_path: null                 # default: sitewatcher/data/z_i_index.db
+  index_db_path: ./data/z_i_index.json.gz # default: sitewatcher/data/z_i_index.db
   match_subdomains: true
   check_ip: false
 
@@ -131,9 +146,9 @@ domains:
 # -------- Logging settings --------
 logging:
   enabled: true
-  level: INFO            # DEBUG/INFO/WARNING/ERROR
-  destination: console   # console | file
-  format: pretty         # pretty | json
+  level: DEBUG            # DEBUG/INFO/WARNING/ERROR
+  destination: console    # console | file
+  format: pretty          # pretty | json
 
   file:
     path: ./logs/sitewatcher.log
