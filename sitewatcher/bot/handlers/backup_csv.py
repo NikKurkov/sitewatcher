@@ -56,11 +56,11 @@ async def cmd_export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         csv_bytes, count = await _export_owner_to_csv(owner_id)
     except Exception as e:
         log.exception("export_csv.failed user=%s: %s", owner_id, e, extra={"event": "export_csv.failed", "owner": owner_id})
-        await safe_reply_html(update, context, f"❌ Export failed: <code>{e}</code>")
+        await safe_reply_html(update.effective_message, f"❌ Export failed: <code>{e}</code>")
         return
 
     if not csv_bytes:
-        await safe_reply_html(update, context, "No data to export.")
+        await safe_reply_html(update.effective_message, "No data to export.")
         return
 
     filename = f"sitewatcher_{owner_id}_domains.csv".replace(" ", "_")
@@ -75,7 +75,7 @@ async def cmd_export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
     except Exception as e:
         log.exception("export_csv.send.failed user=%s: %s", owner_id, e, extra={"event": "export_csv.send.failed", "owner": owner_id})
-        await safe_reply_html(update, context, f"❌ Failed to send file: <code>{e}</code>")
+        await safe_reply_html(update.effective_message, f"❌ Failed to send file: <code>{e}</code>")
 
 
 async def _export_owner_to_csv(owner_id: int) -> Tuple[bytes, int]:
@@ -118,8 +118,7 @@ async def cmd_import_csv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     context.user_data[KEY_IMPORT_MODE] = mode
 
     await safe_reply_html(
-        update,
-        context,
+        msg,
         "Please upload a CSV file (semicolon-separated, UTF-8). "
         f"Mode: <b>{mode}</b>.\n"
         "The header must start with <code>domain</code>. "
@@ -149,7 +148,7 @@ async def _process_import_document(update: Update, context: ContextTypes.DEFAULT
     doc = getattr(msg, "document", None)
 
     if not doc:
-        await safe_reply_html(update, context, "❌ No document attached.")
+        await safe_reply_html(msg, "❌ No document attached.")
         return
 
     # Download the file contents
@@ -159,7 +158,7 @@ async def _process_import_document(update: Update, context: ContextTypes.DEFAULT
         data = bytes(blob)  # pass bytes to the importer
     except Exception as e:
         log.exception("import_csv.download.failed user=%s: %s", owner_id, e, extra={"event": "import_csv.download.failed", "owner": owner_id})
-        await safe_reply_html(update, context, f"❌ Failed to download file: <code>{e}</code>")
+        await safe_reply_html(msg, f"❌ Failed to download file: <code>{e}</code>")
         return
     finally:
         # Reset FSM regardless of outcome to avoid being stuck in busy state
@@ -171,7 +170,7 @@ async def _process_import_document(update: Update, context: ContextTypes.DEFAULT
         report = await _import_csv_bytes(owner_id, data, replace=(mode == "replace"))
     except Exception as e:
         log.exception("import_csv.failed user=%s: %s", owner_id, e, extra={"event": "import_csv.failed", "owner": owner_id})
-        await safe_reply_html(update, context, f"❌ Import failed: <code>{e}</code>")
+        await safe_reply_html(msg, f"❌ Import failed: <code>{e}</code>")
         return
 
     # Summarize result
@@ -190,7 +189,7 @@ async def _process_import_document(update: Update, context: ContextTypes.DEFAULT
         lines.append("\n<b>Errors (first 5):</b>")
         lines.extend(f"• {e}" for e in errors[:5])
 
-    await safe_reply_html(update, context, "\n".join(lines))
+    await safe_reply_html(msg, "\n".join(lines))
 
 
 async def _import_csv_bytes(owner_id: int, data: bytes, *, replace: bool) -> object:

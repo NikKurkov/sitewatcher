@@ -11,7 +11,7 @@ import re
 import time
 from typing import Any, Awaitable, Callable, Iterable, Optional, Set, TypeVar
 
-from telegram.error import NetworkError, RetryAfter, TimedOut
+from telegram.error import NetworkError, RetryAfter, TimedOut, BadRequest
 from telegram.ext import ContextTypes
 
 log = logging.getLogger(__name__)
@@ -101,18 +101,18 @@ def _parse_allowed_user_ids() -> Set[int]:
 
 
 def _parse_command_from_update(update) -> str:
-    """Extract '/command' (without @bot) from message text/caption."""
+    """Extract '/command' (without @bot) from message text/caption. Robust to newlines and extra spaces."""
     msg = getattr(update, "effective_message", None)
-    txt = (getattr(msg, "text", None) or getattr(msg, "caption", None) or "").strip()
-    if not txt:
+    txt = (getattr(msg, "text", None) or getattr(msg, "caption", None))
+    if not isinstance(txt, str):
         return ""
-    if not txt.startswith("/"):
+    s = txt.strip()
+    if not s.startswith("/"):
         return ""
-    # Strip bot mention if present: /cmd@MyBot -> /cmd
-    space = txt.find(" ")
-    cmd = txt[: space if space > 0 else len(txt)]
-    at = cmd.find("@")
-    return cmd[:at] if at > 0 else cmd
+    cmd_token = re.split(r"\s+", s, maxsplit=1)[0]
+    base = cmd_token.split("@", 1)[0]
+    return base
+
 
 
 def requires_auth(
@@ -157,16 +157,15 @@ def requires_auth(
 
             # Busy-guard
             if not allow_while_busy:
-                lock: asyncio.Lock = context.application.bot_data.get(BUSY_USERS_LOCK_KEY)  # type: ignore[assignment]
-                if lock is None:
-                    # Initialize lazily if app didn't set it up (defensive)
-                    lock = asyncio.Lock()
-                    context.application.bot_data[BUSY_USERS_LOCK_KEY] = lock
+                # Use setdefault to avoid a tiny race on first initialization
+                lock: asyncio.Lock = context.application.bot_data.setdefault(BUSY_USERS_LOCK_KEY, asyncio.Lock())  # type: ignore[assignment]
                 async with lock:
                     busy: dict[int, dict[str, Any]] = context.application.bot_data.setdefault(BUSY_USERS_KEY, {})
                     entry = busy.get(user_id)
                     if entry:
-                        elapsed = max(0, int(time.time() - float(entry.get("started_at", 0))))
+                        # Monotonic clock is robust against system time changes
+                        started_at = float(entry.get("started_at", 0.0))
+                        elapsed = max(0, int(time.monotonic() - started_at))
                         prev_cmd = entry.get("cmd") or ""
                         log.info(
                             "busy.reject.active",
@@ -180,7 +179,10 @@ def requires_auth(
                             )
                         return
                     # Mark as busy for this user
-                    busy[user_id] = {"started_at": time.time(), "cmd": _parse_command_from_update(update) or "<unknown>"}
+                    busy[user_id] = {
+                        "started_at": time.monotonic(),
+                        "cmd": _parse_command_from_update(update) or "<unknown>",
+                    }
 
             try:
                 return await func(update, context, *args, **kwargs)
@@ -188,10 +190,7 @@ def requires_auth(
                 # Release busy flag unless this step opted out
                 if not allow_while_busy:
                     try:
-                        lock: asyncio.Lock = context.application.bot_data.get(BUSY_USERS_LOCK_KEY)  # type: ignore[assignment]
-                        if lock is None:
-                            lock = asyncio.Lock()
-                            context.application.bot_data[BUSY_USERS_LOCK_KEY] = lock
+                        lock: asyncio.Lock = context.application.bot_data.setdefault(BUSY_USERS_LOCK_KEY, asyncio.Lock())  # type: ignore[assignment]
                         async with lock:
                             busy: dict[int, dict[str, Any]] = context.application.bot_data.setdefault(BUSY_USERS_KEY, {})
                             busy.pop(user_id, None)
@@ -219,23 +218,37 @@ async def safe_reply_html(
     disable_web_page_preview: bool = True,
     retries: int = 3,
 ) -> None:
-    """Send HTML message with a small retry policy (handles RetryAfter/TimedOut/NetworkError)."""
+    """Send HTML message with small retry/backoff. Avoids retrying on BadRequest (non-transient)."""
     delay = 1.0
     for attempt in range(1, retries + 1):
         try:
-            # By default we suppress URL previews to keep messages compact and consistent.
             await message.reply_html(text, disable_web_page_preview=disable_web_page_preview)
+            if attempt > 1:
+                log.debug("reply_html.ok_after_retry", extra={"event": "reply_html.ok", "attempt": attempt})
             return
         except RetryAfter as e:
-            # Respect Telegram backoff
             delay = max(delay, float(getattr(e, "retry_after", delay)))
-        except (TimedOut, NetworkError):
-            # Transient network failures
+            log.debug("reply_html.retry_after", extra={"event": "reply_html.retry_after", "attempt": attempt, "delay_s": delay})
+        except (TimedOut, NetworkError) as e:
             delay = max(delay, float(attempt))
+            log.debug("reply_html.net_retry", extra={"event": "reply_html.net_retry", "attempt": attempt, "delay_s": delay, "etype": e.__class__.__name__})
+        except BadRequest as e:
+            # Non-retriable: invalid HTML/entities, message too long, etc.
+            log.warning("reply_html.bad_request", extra={"event": "reply_html.bad_request", "error": str(e)})
+            return
+        except Exception as e:
+            # Unknown error: don't spin retries indefinitely
+            log.warning("reply_html.unexpected", extra={"event": "reply_html.unexpected", "etype": e.__class__.__name__, "attempt": attempt})
+            return
+
         try:
             await asyncio.sleep(delay)
         except Exception:
+            # Ignore sleep interruptions
             pass
+
+    # All retries exhausted
+    log.error("reply_html.failed", extra={"event": "reply_html.failed", "retries": retries})
 
 
 # -----------------------------------------------------------------------------
@@ -252,6 +265,20 @@ async def on_error(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = getattr(getattr(update, "effective_chat", None), "id", None)
     cmd = _parse_command_from_update(update)
 
+    if isinstance(err, (RetryAfter, TimedOut, NetworkError)):
+        # Transient Telegram/network noise — keep logs at WARNING
+        log.warning(
+            "bot.transient_error",
+            extra={
+                "event": "bot.transient_error",
+                "user_id": user_id,
+                "chat_id": chat_id,
+                "command": cmd,
+                "error_type": err.__class__.__name__,
+            },
+        )
+        return
+
     log.exception(
         "bot.unhandled_error",
         extra={
@@ -263,7 +290,6 @@ async def on_error(update, context: ContextTypes.DEFAULT_TYPE) -> None:
         },
     )
     # Optional: do NOT spam the user with tech details.
-    # You can enable a polite message here if desired.
 
 
 # -----------------------------------------------------------------------------
@@ -283,18 +309,20 @@ def _resolve_alert_chat_id(context: ContextTypes.DEFAULT_TYPE, update, cfg, owne
     try:
         chat_id = getattr(getattr(cfg, "alerts", None), "chat_id", None)
         if isinstance(chat_id, int) and chat_id != 0:
+            log.debug("alerts.chat.resolve", extra={"event": "alerts.chat.resolve", "source": "config", "chat_id": chat_id})
             return chat_id
     except Exception:
         pass
 
-    # 2) Per-user preference in storage (optional function)
+    # 2) Per-user preference in storage
     if owner_id is not None:
         try:
-            from .. import storage  # local import to avoid circular imports
+            from .. import storage
             getter = getattr(storage, "get_user_alert_chat_id", None)
             if callable(getter):
                 val = getter(owner_id)
                 if isinstance(val, int) and val != 0:
+                    log.debug("alerts.chat.resolve", extra={"event": "alerts.chat.resolve", "source": "user_pref", "chat_id": val, "owner_id": owner_id})
                     return val
         except Exception:
             pass
@@ -303,16 +331,21 @@ def _resolve_alert_chat_id(context: ContextTypes.DEFAULT_TYPE, update, cfg, owne
     env_val = os.getenv("TELEGRAM_ALERT_CHAT_ID", "").strip()
     if env_val:
         try:
-            return int(env_val)
+            cid = int(env_val)
+            log.debug("alerts.chat.resolve", extra={"event": "alerts.chat.resolve", "source": "env", "chat_id": cid})
+            return cid
         except Exception:
             pass
 
-    # 4) Use chat from the update if available
+    # 4) Use chat from the update
     try:
         chat = getattr(update, "effective_chat", None)
         if chat and getattr(chat, "id", None) is not None:
-            return int(chat.id)
+            cid = int(chat.id)
+            log.debug("alerts.chat.resolve", extra={"event": "alerts.chat.resolve", "source": "update_chat", "chat_id": cid})
+            return cid
     except Exception:
         pass
 
+    log.debug("alerts.chat.resolve", extra={"event": "alerts.chat.resolve", "source": "not_resolved"})
     return None
