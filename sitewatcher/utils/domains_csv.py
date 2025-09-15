@@ -23,6 +23,7 @@ HEADERS: Tuple[str, ...] = (
     "checks.whois",
     "checks.ip_blacklist",
     "checks.ip_change",
+    "checks.malware",
     "checks.ports",
     "keywords",
     "ports",
@@ -33,6 +34,7 @@ HEADERS: Tuple[str, ...] = (
     "proxy",
     "interval_minutes",
 )
+
 
 # Simple (permissive) domain pattern
 _DOMAIN_RE = re.compile(r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63})+$")
@@ -149,6 +151,10 @@ def _flatten_for_export(override: Dict) -> Dict[str, str]:
         "checks.whois": b(checks.get("whois")),
         "checks.ip_blacklist": b(checks.get("ip_blacklist")),
         "checks.ip_change": b(checks.get("ip_change")),
+<<<<<<< HEAD
+        "checks.malware": b(checks.get("malware")),
+=======
+>>>>>>> fbb85f0e808f8e62eb1ab2a505f698bb82d7d2ca
         "checks.ports": b(checks.get("ports")),
         "keywords": join(override.get("keywords")),
         "ports": join(override.get("ports")),
@@ -192,7 +198,9 @@ def _build_override_from_row(row: Dict[str, str], *, mode: str) -> Dict:
     for key in (
         "checks.http_basic", "checks.tls_cert", "checks.ping", "checks.keywords",
         "checks.deface",
-        "checks.rkn_block", "checks.whois", "checks.ip_blacklist", "checks.ip_change", "checks.ports"
+        "checks.rkn_block", "checks.whois", "checks.ip_blacklist", "checks.ip_change",
+        "checks.malware",
+        "checks.ports"
     ):
         val = pb(key)
         if val is not None:

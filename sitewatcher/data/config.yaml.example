@@ -5,8 +5,8 @@ version: 1
 defaults:
   # HTTP client
   http_timeout_s: 5                  # per-request timeout (seconds)
-  latency_warn_ms: 1200              # WARN threshold for latency (ms)
-  latency_crit_ms: 3000              # CRIT threshold for latency (ms)
+  latency_warn_ms: 3000              # WARN threshold for latency (ms)
+  latency_crit_ms: 5000              # CRIT threshold for latency (ms)
   tls_warn_days: 14                  # days before TLS expiry to raise WARN
   proxy: null                        # global proxy (http://user:pass@host:port or socks5://...)
   keywords: []                       # global keywords (can be overridden per domain)
@@ -15,19 +15,21 @@ defaults:
     http_basic: true                 # HTTP status and latency
     tls_cert: true                   # TLS certificate expiry
     keywords: false                  # HTML keywords presence
+    deface: true                     # Check site homepage for deface words
     ping: true                       # ICMP if available, TCP fallback
     rkn_block: true                  # RKN blocklist check
     ports: false                     # Basic TCP port checks
     whois: true                      # WHOIS/RDAP changes
     ip_blacklist: true               # DNSBL spam/abuse lists
     ip_change: true                  # DNS A/AAAA change detection
+    malware: false                    # Malware check
 
 # -------- Scheduler settings --------
 scheduler:
   enabled: true
-  interval_minutes: 10               # how often background checks run
-  jitter_seconds: 30                 # random delay at startup to avoid herd thundering
-  run_on_startup: true               # run a warmup pass on startup
+  interval_minutes: 5                 # how often background checks run
+  jitter_seconds: 30                  # random delay at startup to avoid herd thundering
+  run_on_startup: false               # run a warmup pass on startup
   domains_concurrency: 5
   per_domain_concurrency: 4
   domain_timeout_s: 120              # hard time budget for all checks of a single domain
@@ -36,13 +38,15 @@ scheduler:
 schedules:
   http_basic:   { interval_minutes: 5,    cache_ttl_minutes: 0    }
   tls_cert:     { interval_minutes: 1440, cache_ttl_minutes: 1440 }
-  keywords:     { interval_minutes: 60,   cache_ttl_minutes: 0    }  # added explicit schedule
+  keywords:     { interval_minutes: 60,   cache_ttl_minutes: 0    }
   ping:         { interval_minutes: 5,    cache_ttl_minutes: 0    }
   rkn_block:    { interval_minutes: 1440, cache_ttl_minutes: 1440 }
   ports:        { interval_minutes: 1440, cache_ttl_minutes: 1440 }
   whois:        { interval_minutes: 1440, cache_ttl_minutes: 1440 }
   ip_blacklist: { interval_minutes: 1440, cache_ttl_minutes: 1440 }
-  ip_change:    { interval_minutes: 1440, cache_ttl_minutes: 0    }
+  ip_change:    { interval_minutes: 1440, cache_ttl_minutes: 120  }
+  deface:       { interval_minutes: 60,   cache_ttl_minutes: 0    }
+  malware:      { interval_minutes: 1440, cache_ttl_minutes: 1440 }
 
 # -------- Alerting --------
 alerts:
@@ -52,6 +56,19 @@ alerts:
   # debounce_sec can be left for backward-compat setups; code supports both.
   # debounce_sec: 120
   chat_id: null                        # if set, alerts always go here; otherwise to the invoking chat
+
+# -------- Malware check --------
+malware:
+  vt_api_key: "" # virustotal.com API key after free registration
+  timeout_s: 10
+  follow_redirects: true
+
+  # VirusTotal Free quotas (enforced process-wide by a sliding rate limiter)
+  vt_limits:
+    per_minute: 4      # VT Free: 4 lookups/min
+    per_day: 500       # VT Free: 500/day
+    per_month: 15500   # VT Free: ~15.5k/month
+    max_wait_s: 0.5    # optional soft wait near window edges (0..2s is recomended)
 
 # -------- DNS IP change check --------
 ipchange:
@@ -82,9 +99,9 @@ whois:
 rkn:
   z_i_url: "https://raw.githubusercontent.com/zapret-info/z-i/master/dump.csv.gz"
   cache_ttl_hours: 12
-  index_db_path: null                 # default: sitewatcher/data/z_i_index.db
+  index_db_path: ./data/z_i_index.json.gz # default: sitewatcher/data/z_i_index.db
   match_subdomains: true
-  check_ip: true
+  check_ip: false
 
 # -------- Port checks (global defaults) --------
 ports:
@@ -96,6 +113,10 @@ ports:
     - { port: 443, tls: true }
     - { port: 22 }
     # - { port: 25, send: "EHLO example.com\r\n", expect: "^250[ -]" }
+
+# -------- Deface check --------
+deface:
+  phrases_path: "sitewatcher/data/deface_markers.txt"
 
 # -------- Per-domain overrides --------
 domains:
@@ -121,3 +142,46 @@ domains:
       tls_cert: false
       keywords: false
       ping: true
+      
+# -------- Logging settings --------
+logging:
+  enabled: true
+  level: DEBUG            # DEBUG/INFO/WARNING/ERROR
+  destination: console    # console | file
+  format: pretty          # pretty | json
+
+  file:
+    path: ./logs/sitewatcher.log
+    rotate: size         # size | time
+    max_bytes: 10000000
+    backup_count: 5
+    when: midnight
+    interval: 1
+    utc: true
+
+  pretty:
+    use_rich: true
+    show_path: false
+    show_time: true
+
+  json:
+    ensure_ascii: false
+    include_fields:
+      - timestamp
+      - level
+      - logger
+      - message
+      - module
+      - line
+      - pid
+      - thread
+      - owner
+      - domain
+      - check
+      - run_id
+      - status
+
+  third_party_levels:
+    httpx: WARNING
+    apscheduler: INFO
+    telegram: WARNING

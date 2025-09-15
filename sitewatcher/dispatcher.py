@@ -21,6 +21,11 @@ from .checks.ping import PingCheck
 from .checks.ports import PortsCheck
 from .checks.tls_cert import TlsCertCheck
 from .checks.whois_info import WhoisInfoCheck
+<<<<<<< HEAD
+from .checks.malware_scan import MalwareScanCheck, _VTConfig
+from .utils.rate_limit import MultiWindowRateLimiter, Window
+=======
+>>>>>>> fbb85f0e808f8e62eb1ab2a505f698bb82d7d2ca
 from .config import AppConfig, ResolvedSettings, resolve_settings
 
 log = logging.getLogger(__name__)
@@ -30,6 +35,16 @@ def _new_run_id() -> str:
     """Create a short, URL-safe correlation id."""
     return uuid.uuid4().hex
 
+<<<<<<< HEAD
+log = logging.getLogger(__name__)
+
+
+def _new_run_id() -> str:
+    """Create a short, URL-safe correlation id."""
+    return uuid.uuid4().hex
+
+=======
+>>>>>>> fbb85f0e808f8e62eb1ab2a505f698bb82d7d2ca
 
 # Optional RKN plugin (kept soft to avoid import-time failures)
 try:  # pragma: no cover
@@ -53,6 +68,8 @@ class Dispatcher:
         self.cfg = cfg
         self._client: Optional[httpx.AsyncClient] = None
         self._default_per_domain_concurrency = max(1, int(max_concurrency))
+        # Shared VT rate limiter (process-local for this Dispatcher lifetime)
+        self._vt_limiter: Optional[MultiWindowRateLimiter] = None  # NEW
 
     # ---------- lifecycle ----------
 
@@ -101,6 +118,27 @@ class Dispatcher:
                 headers={"User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"},
                 **proxy_kw,
             )
+
+        # NEW: build a shared VT limiter from config (Free tier defaults)
+        try:
+            vt_limits = getattr(getattr(self.cfg, "malware", object()), "vt_limits", None)
+            if vt_limits:
+                per_min = int(getattr(vt_limits, "per_minute", 4) or 4)
+                per_day = int(getattr(vt_limits, "per_day", 500) or 500)
+                per_mon = int(getattr(vt_limits, "per_month", 15500) or 15500)
+                windows: list[Window] = []
+                if per_min > 0:
+                    windows.append(Window(60, per_min))
+                if per_day > 0:
+                    windows.append(Window(24 * 3600, per_day))
+                if per_mon > 0:
+                    # month approximated as 30 days for sliding window
+                    windows.append(Window(30 * 24 * 3600, per_mon))
+                if windows:
+                    self._vt_limiter = MultiWindowRateLimiter(windows)
+        except Exception:
+            # If limiter fails to init, proceed without it (check will degrade to UNKNOWN on congestion)
+            self._vt_limiter = None
 
         return self
 
@@ -393,6 +431,45 @@ class Dispatcher:
 
         if getattr(settings.checks, "ip_change", False):
             out.append(IpChangeCheck(settings.name, cfg=self.cfg.ipchange))
+
+        # Malware reputation check (VirusTotal passive lookup) — now with strict rate limiting
+        if getattr(settings.checks, "malware", False):
+            # Provider config
+            vt_key = None
+            try:
+                vt_key = getattr(self.cfg.malware, "vt_api_key", None)
+            except Exception:
+                vt_key = None
+            vt_cfg = _VTConfig(api_key=vt_key)
+
+            mcfg = getattr(self.cfg, "malware", object())
+            timeout_s = getattr(mcfg, "timeout_s", 10.0)
+            follow_redirects = getattr(mcfg, "follow_redirects", True)
+
+            # Rate limit snapshot (for metrics)
+            lim = getattr(mcfg, "vt_limits", None)
+            vt_limits_snapshot = {}
+            vt_max_wait_s = 0.0
+            if lim is not None:
+                vt_limits_snapshot = {
+                    "per_minute": int(getattr(lim, "per_minute", 4) or 4),
+                    "per_day": int(getattr(lim, "per_day", 500) or 500),
+                    "per_month": int(getattr(lim, "per_month", 15500) or 15500),
+                }
+                vt_max_wait_s = float(getattr(lim, "max_wait_s", 0.0) or 0.0)
+
+            out.append(
+                MalwareScanCheck(
+                    settings.name,
+                    client=self._client,
+                    vt_cfg=vt_cfg,
+                    timeout_s=float(timeout_s),
+                    follow_redirects=bool(follow_redirects),
+                    vt_limiter=self._vt_limiter,
+                    vt_max_wait_s=vt_max_wait_s,
+                    vt_limits_snapshot=vt_limits_snapshot,
+                )
+            )
 
         return out
 

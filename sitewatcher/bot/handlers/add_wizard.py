@@ -24,13 +24,19 @@ def _default_checks(keywords_enabled: bool) -> dict:
         "ping": True,
         "rkn_block": True,
         "whois": True,
-        "ip_blacklist": True,
-        "ip_change": True,
+        "ip_blacklist": False,
+        "ip_change": False,
         "keywords": bool(keywords_enabled),
+<<<<<<< HEAD
+        "malware": False,
+        "ports": False,
+        "deface": True,
+=======
         # Disable ports by default in quick wizard
         "ports": False,
         # Optional checks you may want to enable later:
         # "deface": True,
+>>>>>>> fbb85f0e808f8e62eb1ab2a505f698bb82d7d2ca
     }
 
 

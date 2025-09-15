@@ -11,7 +11,8 @@ sitewatcher/pyvenv.cfg
 # Secrets & local env
 .env
 .env.*.local
-data/config.yaml
+sitewatcher/data/config.yaml
+sitewatcher/data/*.yaml
 
 # Databases & local caches
 *.db
