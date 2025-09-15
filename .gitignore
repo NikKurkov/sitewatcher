@@ -12,6 +12,7 @@ sitewatcher/pyvenv.cfg
 .env
 .env.*.local
 sitewatcher/data/config.yaml
+sitewatcher/data/*.yaml
 
 # Databases & local caches
 *.db
