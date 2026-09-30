@@ -84,6 +84,8 @@ class PortsCheck(BaseCheck):
 
         for it in items:
             try:
+                if hasattr(it, "model_dump"):
+                    it = it.model_dump(exclude_none=True)
                 if isinstance(it, PortSpec):
                     out.append(it)
                     continue
@@ -133,7 +135,7 @@ class PortsCheck(BaseCheck):
 
         # Normalize exceptions into failed _PortResult
         flat: List[_PortResult] = []
-        for spec, res in zip(self.targets, results):
+        for spec, res in zip(self.targets, results, strict=True):
             host = spec.host or self.domain
             if isinstance(res, Exception):
                 # Defensive default on unexpected crash per probe

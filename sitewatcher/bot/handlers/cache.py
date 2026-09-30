@@ -10,6 +10,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 
 from ... import storage
 from ...config import AppConfig
+from ...checks.rkn_block_sqlite import rkn_index_path
 from ..utils import requires_auth, safe_reply_html
 
 log = logging.getLogger(__name__)
@@ -39,13 +40,7 @@ async def cmd_clear_cache(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
 
     # ---- RKN index (SQLite file) ----
-    rkn_cfg = getattr(cfg, "rkn", None)
-    idx_path = getattr(rkn_cfg, "index_db_path", None) if rkn_cfg is not None else None
-
-    # Choose a sensible default ./data directory if package data/ is missing
-    base_dir = Path(__file__).resolve().parents[2]  # .../sitewatcher
-    data_dir = (base_dir / "data") if (base_dir / "data").exists() else (Path.cwd() / "data")
-    rkn_db_path = Path(idx_path) if idx_path else (data_dir / "z_i_index.db")
+    rkn_db_path = rkn_index_path(cfg.rkn)
 
     existed_before = rkn_db_path.exists()
     rkn_removed = False

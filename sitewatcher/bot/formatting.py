@@ -7,6 +7,7 @@ import re
 from typing import Iterable, List, Any
 
 from .. import storage
+from ..checks.base import CheckOutcome
 
 log = logging.getLogger(__name__)
 
@@ -54,38 +55,22 @@ def _status_bullet(s: str) -> str:
 
 def _overall_from_results(results: Iterable) -> str:
     """Compute overall status from individual check results."""
-    worst = 0
+    worst = -1
     for r in results:
         st = _status_text(getattr(r, "status", "UNKNOWN"))
         worst = max(worst, _status_weight(st))
-    return {2: "CRIT", 1: "WARN", 0: "OK"}[worst]
+    return {2: "CRIT", 1: "WARN", 0: "OK", -1: "UNKNOWN"}[worst]
 
 
 def _persist_results(owner_id: int, domain: str, results: Iterable, persist: bool) -> None:
     """Persist results to storage if requested; strip '[cached Xm]' before saving."""
     if not persist:
         return
-    for r in results:
-        try:
-            storage.save_history(
-                owner_id,
-                domain,
-                getattr(r, "check", ""),
-                getattr(r, "status", "UNKNOWN"),
-                _strip_cached_suffix(getattr(r, "message", "")),
-                getattr(r, "metrics", {}) or {},
-            )
-        except Exception as e:  # defensive: never break formatting on persistence errors
-            log.warning(
-                "format.persist_failed",
-                extra={
-                    "event": "format.persist_failed",
-                    "owner_id": owner_id,
-                    "domain": domain,
-                    "check": getattr(r, "check", ""),
-                    "error": e.__class__.__name__,
-                },
-            )
+    cleaned = [
+        CheckOutcome(r.check, r.status, _strip_cached_suffix(r.message), r.metrics, r.cached)
+        for r in results
+    ]
+    storage.save_histories(owner_id, domain, cleaned)
 
 
 # ------------------------------- public API -------------------------------

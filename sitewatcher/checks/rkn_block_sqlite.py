@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import gzip
 import ipaddress
-import json
 import re
 import socket
 import sqlite3
@@ -12,11 +11,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
-from typing import Iterable, Optional, Sequence, Set, Tuple
+from typing import Optional, Sequence, Set, Tuple
 
 import httpx
 
 from .base import BaseCheck, CheckOutcome, Status
+from .. import storage
 from ..config import RknConfig
 from ..utils.http_retry import get_with_retries  # импорт оставлен как есть
 
@@ -26,6 +26,10 @@ _ZI_PARTS_COUNT = 20  # dump-00..19.csv
 
 _DOMAIN_RE = re.compile(r"\b([a-z0-9-]+\.)+[a-z]{2,}\b", re.IGNORECASE)
 _IP_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+
+
+def rkn_index_path(cfg: RknConfig) -> Path:
+    return Path(cfg.index_db_path) if cfg.index_db_path else storage.DEFAULT_DB.with_name("z_i_index.db")
 
 
 @dataclass
@@ -64,9 +68,7 @@ class RknBlockCheck(BaseCheck):
         self.cfg = rkn_cfg
 
         # Default DB path unless overridden via config
-        data_dir = Path(__file__).resolve().parent.parent / "data"
-        idx_from_cfg = getattr(rkn_cfg, "index_db_path", None)
-        self.db_path: Path = Path(idx_from_cfg) if idx_from_cfg else (data_dir / "z_i_index.db")
+        self.db_path = rkn_index_path(rkn_cfg)
 
         # Cache TTL (hours)
         self._ttl_hours: int = int(getattr(rkn_cfg, "cache_ttl_hours", 12) or 12)

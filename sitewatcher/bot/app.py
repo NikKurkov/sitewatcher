@@ -12,7 +12,7 @@ from ..config import AppConfig, get_bot_token_from_env
 from .alerts import AlertDeduper
 from .router import register_handlers
 from .jobs import register_jobs
-from .utils import _parse_allowed_user_ids, BUSY_USERS_KEY, BUSY_USERS_LOCK_KEY, on_error
+from .utils import _parse_allowed_user_ids, BUSY_USERS_KEY, BUSY_USERS_LOCK_KEY
 
 # Use module-level logger; global logging is configured in main.setup_logging(...)
 log = logging.getLogger(__name__)

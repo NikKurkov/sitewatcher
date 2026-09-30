@@ -36,6 +36,7 @@ class CheckOutcome:
     status: Status
     message: str
     metrics: Metrics = field(default_factory=dict)
+    cached: bool = False
 
     def __post_init__(self) -> None:
         # Be tolerant: allow status to be passed as a plain string (e.g. when loading from DB).

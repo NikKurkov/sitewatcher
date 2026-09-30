@@ -319,7 +319,7 @@ class WhoisInfoCheck(BaseCheck):
             backoff_s=0.3,
             follow_redirects=True,
             headers={
-                "User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"
+                "User-Agent": "sitewatcher/0.2 (+https://github.com/NikKurkov/sitewatcher)"
             },
         )
         elapsed_ms = int((time.perf_counter() - start) * 1000)
@@ -464,6 +464,7 @@ class WhoisInfoCheck(BaseCheck):
     # --------------------------------- SQLite IO --------------------------------
     def _connect(self) -> sqlite3.Connection:
         """Open a connection to the snapshot DB."""
+        storage._ensure_initialized(self.db_path)
         return sqlite3.connect(str(self.db_path))
 
     def _db_get(self) -> Optional[_WhoisRow]:

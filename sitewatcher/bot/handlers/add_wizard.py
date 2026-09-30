@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import html
 import logging
-from typing import List, Optional
+from typing import List
 
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler

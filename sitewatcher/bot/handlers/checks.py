@@ -1,7 +1,6 @@
 # sitewatcher/bot/handlers/checks.py
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Iterable, List
 
@@ -9,11 +8,12 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from ... import storage
-from ...config import AppConfig, resolve_settings
+from ...config import AppConfig
 from ...dispatcher import Dispatcher
 from ..formatting import _format_results, _format_results_summary
 from ..utils import safe_reply_html
 from ..alerts import maybe_send_alert
+from ..validators import DOMAIN_RE, normalize_domain
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +57,10 @@ async def cmd_check_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     raw = context.args[0].strip().lower()
     force = raw in ("--force", "-f", "force")
-    name = (context.args[1] if force and len(context.args) > 1 else raw).strip().lower()
+    name = normalize_domain(context.args[1] if force and len(context.args) > 1 else raw)
+    if not name or not DOMAIN_RE.fullmatch(name):
+        await update.message.reply_text("Enter a valid domain, for example /check example.com")
+        return
 
     log.info(
         "cmd.check.start",
@@ -87,13 +90,8 @@ async def cmd_check_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         extra={"event": "cmd.check.mode", "owner_id": owner_id, "domain": name, "mode": "ephemeral"},
     )
     async with Dispatcher(cfg) as d:
-        settings = resolve_settings(cfg, name)
-        try:
-            settings.checks.keywords = False
-        except Exception:
-            pass
-        checks = d._build_checks(settings)
-        results = await asyncio.gather(*(chk.run() for chk in checks))
+        allowed = [check for check in type(cfg.defaults.checks).model_fields if check != "keywords"]
+        results = await d.run_for(owner_id, name, only_checks=allowed, use_cache=False, ephemeral=True)
 
     text = await _format_results(owner_id, name, results, persist=False)
     await safe_reply_html(update.message, text)

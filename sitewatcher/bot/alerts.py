@@ -14,6 +14,7 @@ from telegram.error import NetworkError, RetryAfter, TimedOut
 from telegram.ext import ContextTypes  # noqa: F401
 
 from .. import storage
+from ..checks.base import CheckOutcome
 from ..config import AppConfig, resolve_settings
 from .utils import _resolve_alert_chat_id
 
@@ -134,6 +135,8 @@ def _status_bullet(s) -> str:
 
 def _overall_from_results(results) -> str:
     """Compute overall status from individual check results."""
+    if not results:
+        return "UNKNOWN"
     worst = 0
     for r in results:
         worst = max(worst, _status_weight(getattr(r.status, "value", str(r.status))))
@@ -180,28 +183,20 @@ def _compose_message(domain: str, overall: str, prev_overall: Optional[str], res
 
 def _enabled_checks_for(cfg: AppConfig, owner_id: int, domain: str) -> list[str]:
     """Return names of enabled checks (respecting per-domain overrides from storage)."""
-    settings = resolve_settings(cfg, domain)
-    try:
-        patch = storage.get_domain_override(owner_id, domain) or {}
-    except Exception:
-        patch = {}
+    settings = resolve_settings(cfg, domain, storage.get_domain_override(owner_id, domain))
+    return [name for name, enabled in settings.checks.model_dump().items() if enabled]
 
-    if isinstance(patch.get("checks"), dict):
-        for k, v in patch["checks"].items():
-            if hasattr(settings.checks, k):
-                setattr(settings.checks, k, bool(v))
 
-    enabled: list[str] = []
-    for name in dir(settings.checks):
-        if name.startswith("_"):
-            continue
-        try:
-            val = getattr(settings.checks, name)
-        except Exception:
-            continue
-        if isinstance(val, bool) and val:
-            enabled.append(name)
-    return enabled
+def _complete_results(cfg: AppConfig, owner_id: int, domain: str, current: list) -> list:
+    """Include earlier results for checks not due in this tick."""
+    by_check = {result.check: result for result in current}
+    enabled = set(_enabled_checks_for(cfg, owner_id, domain))
+    for name, row in storage.latest_check_results(owner_id, domain).items():
+        if name not in by_check and name in enabled:
+            by_check[name] = CheckOutcome(name, row["status"], row["message"], {})
+    for name in enabled - by_check.keys():
+        by_check[name] = CheckOutcome(name, "UNKNOWN", "not checked yet", {})
+    return list(by_check.values())
 
 
 def _is_fresh_ok_for_all(
@@ -341,6 +336,8 @@ async def maybe_send_alert(
       - If chat_id cannot be resolved, just persist state without sending.
     """
     cfg: AppConfig = context.application.bot_data["cfg"]
+    if not results:
+        return
     if not getattr(cfg.alerts, "enabled", True):
         _log_alert_skipped("alerts_disabled", owner_id=owner_id, domain=domain, level="-", run_id=run_id)
         return
@@ -350,6 +347,8 @@ async def maybe_send_alert(
         _log_alert_skipped("user_alerts_disabled", owner_id=owner_id, domain=domain, level="-", run_id=run_id)
         return
 
+    current_results = results
+    results = _complete_results(cfg, owner_id, domain, results)
     now = datetime.now(timezone.utc)
     overall = _overall_from_results(results)
     overall_txt = _status_text(overall)
@@ -376,7 +375,7 @@ async def maybe_send_alert(
     # Recovery path: previous was bad and now OK -> notify only if ALL enabled checks are confirmed OK
     if overall_txt == "OK" and prev_overall_txt in {"WARN", "CRIT"}:
         enabled = _enabled_checks_for(cfg, owner_id, domain)
-        if not _is_fresh_ok_for_all(cfg, owner_id, domain, enabled, results):
+        if not _is_fresh_ok_for_all(cfg, owner_id, domain, enabled, current_results):
             _log_alert_skipped("recovery_not_confirmed", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
             return
 
