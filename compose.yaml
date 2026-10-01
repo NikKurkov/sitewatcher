@@ -1,0 +1,12 @@
+services:
+  sitewatcher:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_PATH: /data/sitewatcher.db
+    volumes:
+      - sitewatcher-data:/data
+    restart: unless-stopped
+
+volumes:
+  sitewatcher-data:

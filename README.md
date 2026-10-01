@@ -4,7 +4,32 @@ SiteWatcher monitors domains and reports problems through a Telegram bot. It run
 
 Checks: HTTP status and latency, TLS certificate, ping, page keywords, defacement markers, RKN listing, IP changes, IP blocklists, TCP ports, WHOIS/RDAP, and passive VirusTotal reputation. Expensive checks are off by default or run less often. Each Telegram user owns their own domain list and overrides.
 
-## Quick start
+## Quick start with Docker
+
+Install Docker with the Compose plugin, then run:
+
+```bash
+cp .env.example .env
+# Set TELEGRAM_TOKEN in .env. Set TELEGRAM_ALLOWED_USER_IDS for a private bot.
+docker compose up -d --build
+docker compose logs -f sitewatcher
+```
+
+The bot runs as a single container. Its SQLite database and RKN index live in the `sitewatcher-data` volume and survive container restarts and rebuilds. Stop it with `docker compose down` (keep the volume). To test a site without starting the bot, run `docker compose run --rm sitewatcher sitewatcher scan example.com --only http_basic,tls_cert`. Docker uses `/data/sitewatcher.db` even if `.env` sets a different `DATABASE_PATH`.
+
+To run the image directly without Compose, build it locally and mount a named volume for the database:
+
+```bash
+docker build -t sitewatcher:local .
+docker run -d --name sitewatcher --restart unless-stopped \
+  --env-file .env -e DATABASE_PATH=/data/sitewatcher.db \
+  -v sitewatcher-data:/data sitewatcher:local
+docker logs -f sitewatcher
+```
+
+Stop and remove that container with `docker stop sitewatcher && docker rm sitewatcher`; the volume remains available for the next run. Choose one launch method for a single bot instance: Compose gives its volume a project-specific name, so the two methods do not share a database automatically.
+
+## Quick start with Python
 
 Python 3.12 or newer is required.
 
