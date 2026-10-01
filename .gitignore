@@ -4,7 +4,8 @@ __pycache__/
 *$py.class
 
 # Virtual environments
-.venv/
+.venv*/
+.worktrees/
 venv/
 sitewatcher/pyvenv.cfg
 
@@ -27,6 +28,8 @@ sitewatcher/data/*.gz
 
 # Package metadata
 *.egg-info/
+build/
+dist/
 
 # Tool caches
 .ruff_cache/

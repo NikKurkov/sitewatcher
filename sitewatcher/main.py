@@ -5,19 +5,20 @@ import argparse
 import asyncio
 import logging
 import uuid
+from pathlib import Path
 from typing import Iterable, Optional
 
 from dotenv import load_dotenv
 
+# Storage reads DATABASE_PATH at import time.
+load_dotenv(Path.cwd() / ".env")
+
 from . import storage
 from .bot import run_bot
-from .config import AppConfig, load_config, validate_config
+from .config import AppConfig, ChecksModel, load_config, validate_config
 from .dispatcher import Dispatcher
 from .logging_setup import setup_logging
-
-# Load .env once at process start (affects config/env overrides and logging early)
-load_dotenv()
-
+from .bot.validators import DOMAIN_RE, normalize_domain
 
 # ---------- CLI parsing ----------
 
@@ -69,11 +70,11 @@ def _overall_from(results: Iterable[object]) -> str:
             return 1
         return 0
 
-    worst = 0
+    worst = -1
     for r in results:
         st = _status_str(getattr(r, "status", "UNKNOWN")).upper()
         worst = max(worst, weight(st))
-    return {2: "CRIT", 1: "WARN", 0: "OK"}[worst]
+    return {2: "CRIT", 1: "WARN", 0: "OK", -1: "UNKNOWN"}[worst]
 
 
 async def _run_and_persist(
@@ -94,8 +95,7 @@ async def _run_and_persist(
             use_cache=use_cache,
             run_id=run_id,
         )
-    for r in results:
-        storage.save_history(owner_id, domain, r.check, r.status, r.message, r.metrics)
+    storage.save_histories(owner_id, domain, results)
     return results
 
 
@@ -103,7 +103,11 @@ def _parse_only(arg: Optional[str]) -> Optional[list[str]]:
     """Split comma-separated checks string into a list."""
     if not arg:
         return None
-    return [x.strip() for x in arg.split(",") if x.strip()]
+    checks = [x.strip() for x in arg.split(",") if x.strip()]
+    unknown = set(checks) - ChecksModel.model_fields.keys()
+    if unknown:
+        raise SystemExit(f"Unknown check: {', '.join(sorted(unknown))}")
+    return checks
 
 
 # ---------- Commands ----------
@@ -153,7 +157,7 @@ async def _cmd_scan_one(
     """Run checks for a single domain WITHOUT persisting results."""
     log = logging.getLogger("sitewatcher.main")
     async with Dispatcher(cfg) as d:
-        results = await d.run_for(owner_id, name, only_checks=only, use_cache=use_cache)
+        results = await d.run_for(owner_id, name, only_checks=only, use_cache=use_cache, ephemeral=True, run_id=run_id)
     overall = _overall_from(results)
     checks_summary = ", ".join(f"{r.check}:{_status_str(r.status)}" for r in results)
     print(f"{_status_emoji(overall)} {name} — {overall} -> {checks_summary}")
@@ -189,6 +193,10 @@ async def _cmd_check_one(
 def main() -> None:
     """Entrypoint for `python -m sitewatcher.main`."""
     args = _parse_args()
+    if args.name:
+        args.name = normalize_domain(args.name)
+        if not args.name or not DOMAIN_RE.fullmatch(args.name):
+            raise SystemExit("Invalid domain")
     cfg = load_config(args.config)
 
     # Initialize logging ASAP so validation and later steps are captured
@@ -200,7 +208,7 @@ def main() -> None:
     except ValueError as e:
         # Use logging to emit the failure as well
         logging.getLogger("sitewatcher.main").error("config.invalid: %s", e, extra={"event": "config.invalid"})
-        raise SystemExit(str(e))
+        raise SystemExit(str(e)) from e
 
     log = logging.getLogger("sitewatcher.main")
     log.info(
@@ -247,11 +255,6 @@ def main() -> None:
             "  sitewatcher check_domain example.com --owner 123456789 --only http_basic,tls_cert"
         )
     asyncio.run(_cmd_check_one(cfg, args.owner, args.name, only=only, use_cache=use_cache, run_id=run_id))
-
-
-def cli() -> None:
-    """Entry-point function for the console script."""
-    main()
 
 
 if __name__ == "__main__":

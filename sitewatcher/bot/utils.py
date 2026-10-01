@@ -9,7 +9,7 @@ import logging
 import os
 import re
 import time
-from typing import Any, Awaitable, Callable, Iterable, Optional, Set, TypeVar
+from typing import Any, Awaitable, Callable, Optional, Set, TypeVar
 
 from telegram.error import NetworkError, RetryAfter, TimedOut, BadRequest
 from telegram.ext import ContextTypes

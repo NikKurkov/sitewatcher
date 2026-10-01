@@ -12,7 +12,7 @@ from telegram.ext import ContextTypes
 
 from ... import storage
 from ..utils import safe_reply_html, _strip_cached_suffix
-from ..alerts import _status_emoji, _status_weight
+from ..alerts import _status_emoji
 from ..validators import DOMAIN_RE
 
 log = logging.getLogger(__name__)

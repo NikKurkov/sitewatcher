@@ -6,7 +6,8 @@ import json
 import logging
 import re
 import uuid
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from functools import lru_cache
+from typing import Iterable, List, Optional, Tuple
 
 import httpx
 
@@ -27,6 +28,16 @@ from .config import AppConfig, ResolvedSettings, resolve_settings
 
 
 log = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=8)
+def _vt_rate_limiter(per_minute: int, per_day: int, per_month: int) -> MultiWindowRateLimiter:
+    """Keep VirusTotal quotas across dispatcher instances in this process."""
+    return MultiWindowRateLimiter([
+        Window(60, per_minute),
+        Window(24 * 3600, per_day),
+        Window(30 * 24 * 3600, per_month),
+    ])
 
 
 def _new_run_id() -> str:
@@ -78,14 +89,13 @@ class Dispatcher:
         timeout = httpx.Timeout(connect=connect, read=read, write=write, pool=pool)
         limits = httpx.Limits(max_connections=max_conn, max_keepalive_connections=max_keep)
 
-        # Respect proxies from config (if any) and environment (trust_env=True)
+        # httpx 0.28 configures proxies on the client, never on a request.
         proxies: Optional[dict[str, str] | str] = None
         if http_cfg:
             proxy_val = getattr(http_cfg, "proxy", None) or getattr(http_cfg, "proxies", None)
             if isinstance(proxy_val, str):
                 proxies = proxy_val
             elif isinstance(proxy_val, dict):
-                # httpx expects mapping like {"http://": "...", "https://": "..."}
                 proxies = {
                     (k if k.endswith("://") else f"{k}://"): v
                     for k, v in proxy_val.items()
@@ -95,48 +105,20 @@ class Dispatcher:
             timeout=timeout,
             limits=limits,
             trust_env=True,
-            headers={"User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"},
+            headers={"User-Agent": "sitewatcher/0.2 (+https://github.com/NikKurkov/sitewatcher)"},
         )
         if proxies:
-            client_kwargs["proxies"] = proxies
+            if isinstance(proxies, str):
+                client_kwargs["proxy"] = proxies
+            else:
+                client_kwargs["mounts"] = {
+                    scheme: httpx.AsyncHTTPTransport(proxy=url) for scheme, url in proxies.items()
+                }
 
-        try:
-            self._client = httpx.AsyncClient(http2=True, **client_kwargs)
-        except Exception as e:
-            # Fallback to HTTP/1.1 if HTTP/2 negotiation fails in environment
-            log.debug("Falling back to HTTP/1.1 for AsyncClient: %s", e.__class__.__name__)
-            self._client = httpx.AsyncClient(http2=False, **client_kwargs)
+        self._client = httpx.AsyncClient(http2=True, **client_kwargs)
 
-
-        # Build a shared VT limiter from config (Free tier defaults), with visibility in logs
-        try:
-            vt_limits = getattr(getattr(self.cfg, "malware", object()), "vt_limits", None)
-            if vt_limits:
-                per_min = int(getattr(vt_limits, "per_minute", 4) or 4)
-                per_day = int(getattr(vt_limits, "per_day", 500) or 500)
-                per_mon = int(getattr(vt_limits, "per_month", 15500) or 15500)
-                windows: list[Window] = []
-                if per_min > 0:
-                    windows.append(Window(60, per_min))
-                if per_day > 0:
-                    windows.append(Window(24 * 3600, per_day))
-                if per_mon > 0:
-                    # month approximated as 30 days for sliding window
-                    windows.append(Window(30 * 24 * 3600, per_mon))
-                if windows:
-                    self._vt_limiter = MultiWindowRateLimiter(windows)
-                    log.info(
-                        "vt.limiter.init",
-                        extra={"event": "vt.limiter.init", "windows": [{"sec": w.window_s, "cap": w.capacity} for w in windows]},
-                    )
-                else:
-                    self._vt_limiter = None
-                    log.debug("vt.limiter.disabled (no positive windows)")
-        except Exception as e:
-            # If limiter fails to init, proceed without it (check will degrade to UNKNOWN on congestion)
-            self._vt_limiter = None
-            log.warning("vt.limiter.failed: %s", e.__class__.__name__, extra={"event": "vt.limiter.failed"})
-
+        limits = self.cfg.malware.vt_limits
+        self._vt_limiter = _vt_rate_limiter(limits.per_minute, limits.per_day, limits.per_month)
 
         return self
 
@@ -153,15 +135,19 @@ class Dispatcher:
         domain: str,
         only_checks: Optional[Iterable[str]] = None,
         use_cache: bool = False,
+        run_id: Optional[str] = None,
+        ephemeral: bool = False,
     ) -> List[CheckOutcome]:
         """
         Run checks for a single domain (owner-aware).
         """
         started = asyncio.get_running_loop().time()
+        run_id = run_id or _new_run_id()
 
         assert self._client is not None, "Use 'async with Dispatcher(cfg) as d:'"
 
-        settings = self._resolve(owner_id, domain)
+        settings = resolve_settings(self.cfg, domain) if ephemeral else self._resolve(owner_id, domain)
+        use_cache = use_cache and not ephemeral
         all_checks = self._build_checks(settings)
         checks = self._filter_checks(all_checks, only_checks)
 
@@ -177,7 +163,6 @@ class Dispatcher:
             )
             return []
 
-        run_id = _new_run_id()
         per_domain_limit = self._get_scheduler_value("per_domain_concurrency", self._default_per_domain_concurrency)
         domain_timeout = self._get_scheduler_value("domain_timeout_s", None)
         
@@ -344,32 +329,12 @@ class Dispatcher:
 
         return results
 
-    async def run_many(self, owner_id: int, domains: Sequence[str]) -> Dict[str, List[CheckOutcome]]:
-        """
-        Convenience helper: run checks for multiple domains (same owner).
-        """
-        assert self._client is not None, "Use 'async with Dispatcher(cfg) as d:'"
-
-        domains_concurrency = self._get_scheduler_value("domains_concurrency", 5)
-        sem = asyncio.Semaphore(domains_concurrency)
-
-        async def _run(name: str) -> Tuple[str, List[CheckOutcome]]:
-            return name, await self.run_for(owner_id, name)
-
-        async def _guarded(name: str) -> Tuple[str, List[CheckOutcome]]:
-            async with sem:
-                return await _run(name)
-
-        pairs = await asyncio.gather(*(_guarded(d) for d in domains))
-        return {name: outcomes for name, outcomes in pairs}
-
     # ---------- internals ----------
 
     def _resolve(self, owner_id: int, domain: str) -> ResolvedSettings:
         """
         Resolve base settings and apply per-domain overrides from storage (owner-aware).
         """
-        base = resolve_settings(self.cfg, domain)
         try:
             patch = storage.get_domain_override(owner_id, domain)
         except Exception as e:
@@ -384,28 +349,7 @@ class Dispatcher:
             )
             patch = {}
 
-        if not patch:
-            return base
-
-        checks_patch = patch.get("checks")
-        if isinstance(checks_patch, dict) and getattr(base, "checks", None) is not None:
-            for k, v in checks_patch.items():
-                if hasattr(base.checks, k):
-                    setattr(base.checks, k, bool(v))
-
-        for f in (
-            "http_timeout_s",
-            "latency_warn_ms",
-            "latency_crit_ms",
-            "tls_warn_days",
-            "proxy",
-            "keywords",
-            "ports",
-        ):
-            if f in patch:
-                setattr(base, f, patch[f])
-
-        return base
+        return resolve_settings(self.cfg, domain, patch)
 
     def _build_checks(self, settings: ResolvedSettings) -> List:
         """Instantiate enabled checks based on resolved settings."""
@@ -532,16 +476,6 @@ class Dispatcher:
 
         return out
 
-    @staticmethod
-    def _normalize_results(results: Iterable[object]) -> List[CheckOutcome]:
-        out: List[CheckOutcome] = []
-        for r in results:
-            if isinstance(r, Exception):
-                out.append(CheckOutcome(check="internal", status=Status.CRIT, message=f"{r.__class__.__name__}: {r}", metrics={}))
-            else:
-                out.append(r)  # type: ignore[arg-type]
-        return out
-
     # ---------- small helpers ----------
 
     def _get_scheduler_value(self, name: str, default):
@@ -611,6 +545,7 @@ class Dispatcher:
             status=row["status"],
             message=f"{base_msg} [cached {mins}m]",
             metrics=metrics,
+            cached=True,
         )
 
     @staticmethod

@@ -8,7 +8,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from ... import storage
-from ...config import AppConfig, resolve_settings
+from ...config import AppConfig, ChecksModel, resolve_settings
 from ..utils import _parse_bool, _parse_scalar_or_list, _format_preview_dict, safe_reply_html
 
 log = logging.getLogger(__name__)
@@ -26,7 +26,8 @@ async def cmd_cfg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     owner_id = update.effective_user.id
     cfg: AppConfig = context.application.bot_data["cfg"]
 
-    settings = resolve_settings(cfg, domain)
+    override = storage.get_domain_override(owner_id, domain) or {}
+    settings = resolve_settings(cfg, domain, override)
     effective = {
         "checks": {
             k: getattr(settings.checks, k)
@@ -42,8 +43,6 @@ async def cmd_cfg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "keywords": getattr(settings, "keywords", None),
         "ports": getattr(settings, "ports", None),
     }
-
-    override = storage.get_domain_override(owner_id, domain) or {}
 
     text = (
         f"<b>{html.escape(domain)}</b>\n\n"
@@ -89,17 +88,21 @@ async def cmd_cfg_set(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     log.info(
         "cfg.set.start",
-        extra={"event": "cfg.set.start", "owner_id": owner_id, "domain": domain, "key": key, "value": val},
+        extra={"event": "cfg.set.start", "owner_id": owner_id, "domain": domain, "key": key},
     )
 
     # Build patch based on key type
     if key.startswith("checks."):
         check_name = key.split(".", 1)[1]
+        if check_name not in ChecksModel.model_fields:
+            if msg:
+                await msg.reply_text(f"Unknown check: {check_name}")
+            return
         b = _parse_bool(val)
         if b is None:
             if msg:
                 await msg.reply_text("For checks.* use true/false")
-            log.warning("cfg.set.invalid_bool", extra={"event": "cfg.set.invalid_bool", "key": key, "value": val})
+            log.warning("cfg.set.invalid_bool", extra={"event": "cfg.set.invalid_bool", "key": key})
             return
         patch = {"checks": {check_name: b}}
 
@@ -109,7 +112,7 @@ async def cmd_cfg_set(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         except ValueError:
             if msg:
                 await msg.reply_text(f"{key} must be an integer")
-            log.warning("cfg.set.invalid_int", extra={"event": "cfg.set.invalid_int", "key": key, "value": val})
+            log.warning("cfg.set.invalid_int", extra={"event": "cfg.set.invalid_int", "key": key})
             return
         patch = {key: iv}
 
@@ -137,7 +140,7 @@ async def cmd_cfg_set(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         except ValueError:
             if msg:
                 await msg.reply_text("interval_minutes must be integer (0 disables auto checks)")
-            log.warning("cfg.set.invalid_int", extra={"event": "cfg.set.invalid_int", "key": key, "value": val})
+            log.warning("cfg.set.invalid_int", extra={"event": "cfg.set.invalid_int", "key": key})
             return
         patch = {"interval_minutes": iv}
 

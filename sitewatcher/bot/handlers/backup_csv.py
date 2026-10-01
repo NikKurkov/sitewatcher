@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
-from typing import Optional, Tuple
+from typing import Tuple
 
 from telegram import Update, InputFile
 from telegram.ext import Application, ContextTypes, CommandHandler, MessageHandler, filters

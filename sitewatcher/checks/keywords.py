@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Iterable, List, Tuple
+from typing import Any, List
 
 import httpx
 
@@ -105,7 +105,7 @@ class KeywordsCheck(BaseCheck):
                 retries=2,
                 backoff_s=0.3,
                 follow_redirects=True,
-                headers={"User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"},
+                headers={"User-Agent": "sitewatcher/0.2 (+https://github.com/NikKurkov/sitewatcher)"},
                 log_extra={"domain": self.domain, "check": self.name},
             )
             elapsed_ms = int((time.perf_counter() - start) * 1000)

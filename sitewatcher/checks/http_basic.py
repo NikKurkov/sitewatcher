@@ -43,10 +43,15 @@ class HttpBasicCheck(BaseCheck):
         self.timeout_s = timeout_s
         self.latency_warn_ms = latency_warn_ms
         self.latency_crit_ms = latency_crit_ms
-        # Optional per-domain proxy (httpx supports per-request proxies)
         self.proxy = proxy
 
     async def run(self) -> CheckOutcome:
+        if self.proxy:
+            async with httpx.AsyncClient(proxy=self.proxy) as client:
+                return await self._run(client)
+        return await self._run(self.client)
+
+    async def _run(self, client: httpx.AsyncClient) -> CheckOutcome:
         origin_url = f"https://{self.domain}/"
 
         # Emit a start event (useful in DEBUG traces)
@@ -64,16 +69,14 @@ class HttpBasicCheck(BaseCheck):
         # --- 1) First hop (no redirects) ---
         start1 = time.perf_counter()
         try:
-            kw = {"proxies": self.proxy} if self.proxy else {}
             r1 = await get_with_retries(
-                self.client,
+                client,
                 origin_url,
                 timeout_s=self.timeout_s,
                 retries=2,
                 backoff_s=0.3,
                 follow_redirects=False,
-                headers={"User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"},
-                **kw,
+                headers={"User-Agent": "sitewatcher/0.2 (+https://github.com/NikKurkov/sitewatcher)"},
             )
         except httpx.RequestError as e:
             elapsed_ms = int((time.perf_counter() - start1) * 1000)
@@ -125,14 +128,13 @@ class HttpBasicCheck(BaseCheck):
                 base = httpx.URL(str(r1.url))
                 target = str(base.join(loc))
                 r2 = await get_with_retries(
-                    self.client,
+                    client,
                     target,
                     timeout_s=self.timeout_s,
                     retries=2,
                     backoff_s=0.3,
                     follow_redirects=True,
-                    headers={"User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"},
-                    **kw,
+                    headers={"User-Agent": "sitewatcher/0.2 (+https://github.com/NikKurkov/sitewatcher)"},
                 )
                 elapsed2_ms = int((time.perf_counter() - start2) * 1000)
                 redirects = len(r2.history) or 1  # at least one redirect happened

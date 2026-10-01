@@ -64,7 +64,7 @@ class SchedulerConfig(BaseModel):
     - domain_timeout_s: optional overall timeout per domain execution
     """
     enabled: bool = True
-    interval_minutes: int = 10
+    interval_minutes: int = 1
     jitter_seconds: int = 30
     run_on_startup: bool = True
     domains_concurrency: int = 5
@@ -92,7 +92,10 @@ class IpChangeConfig(BaseModel):
 class PortSpec(BaseModel):
     """A single TCP port target entry."""
     port: int
+    host: Optional[str] = None
     tls: bool = False
+    send: Optional[str] = None
+    expect: Optional[str] = None
     timeout_s: Optional[float] = None
     read_bytes: Optional[int] = None
 
@@ -288,9 +291,11 @@ DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "data" / "config.yaml"
 def load_config(path: Optional[Union[str, os.PathLike, Path]] = None) -> AppConfig:
     """
     Load YAML config from a given path or the package default.
-    Raises FileNotFoundError if the file does not exist.
+    An absent default file means built-in defaults. An explicit path must exist.
     """
     cfg_path = Path(path) if path is not None else DEFAULT_CONFIG_PATH
+    if not cfg_path.exists() and path is None:
+        return AppConfig()
     if not cfg_path.exists():
         raise FileNotFoundError(f"Config not found: {cfg_path}")
     with open(cfg_path, "r", encoding="utf-8") as f:
@@ -314,15 +319,19 @@ class ResolvedSettings:
     ports: Optional[List[PortSpec]]
 
 
-def resolve_settings(cfg: AppConfig, domain: str) -> ResolvedSettings:
+def resolve_settings(cfg: AppConfig, domain: str, override: Optional[dict] = None) -> ResolvedSettings:
     """
     Merge global defaults with per-domain overrides for a given domain.
     Only the fields used by checks are resolved here.
     """
     dom = next((d for d in cfg.domains if d.name.lower() == domain.lower()), None)
     defaults = cfg.defaults
+    checks = defaults.checks.model_copy(deep=True)
+    if dom and dom.checks is not None:
+        for name in dom.checks.model_fields_set:
+            setattr(checks, name, getattr(dom.checks, name))
 
-    return ResolvedSettings(
+    settings = ResolvedSettings(
         name=domain,
         http_timeout_s=defaults.http_timeout_s,
         latency_warn_ms=dom.latency_warn_ms if dom and dom.latency_warn_ms is not None else defaults.latency_warn_ms,
@@ -330,9 +339,17 @@ def resolve_settings(cfg: AppConfig, domain: str) -> ResolvedSettings:
         tls_warn_days=dom.tls_warn_days if dom and dom.tls_warn_days is not None else defaults.tls_warn_days,
         proxy=(dom.proxy if dom and dom.proxy is not None else defaults.proxy),
         keywords=(dom.keywords if dom and dom.keywords is not None else defaults.keywords),
-        checks=(dom.checks if dom and dom.checks is not None else defaults.checks),
+        checks=checks,
         ports=(dom.ports if dom and dom.ports is not None else None),
     )
+    for key, value in (override or {}).items():
+        if key == "checks" and isinstance(value, dict):
+            for check, enabled in value.items():
+                if check in type(settings.checks).model_fields and isinstance(enabled, bool):
+                    setattr(settings.checks, check, enabled)
+        elif key in {"http_timeout_s", "latency_warn_ms", "latency_crit_ms", "tls_warn_days", "proxy", "keywords", "ports"}:
+            setattr(settings, key, value)
+    return settings
 
 
 def get_bot_token_from_env() -> Optional[str]:

@@ -73,7 +73,7 @@ class DefaceCheck(BaseCheck):
                     retries=2,
                     backoff_s=0.25,
                     follow_redirects=True,
-                    headers={"User-Agent": "sitewatcher/0.1 (+https://github.com/NikKurkov/sitewatcher)"},
+                    headers={"User-Agent": "sitewatcher/0.2 (+https://github.com/NikKurkov/sitewatcher)"},
                     log_extra={"domain": self.domain, "check": self.name},  # pass context for retry logs
                 )
                 elapsed_ms = int((time.perf_counter() - start) * 1000)

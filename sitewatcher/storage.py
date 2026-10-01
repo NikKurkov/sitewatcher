@@ -5,6 +5,7 @@ import json
 import os
 import sqlite3
 import logging
+from contextlib import closing
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
@@ -83,15 +84,15 @@ CREATE INDEX IF NOT EXISTS hx_owner_created ON history(owner_id, created_at DESC
 CREATE INDEX IF NOT EXISTS hx_owner_domain_created ON history(owner_id, domain, created_at DESC);
 """
 
-_INITIALIZED = False
+_INITIALIZED_PATHS: set[Path] = set()
 
 log = logging.getLogger(__name__)
 
 
-def _connect(db_path: Path = DEFAULT_DB) -> sqlite3.Connection:
+def _connect(db_path: Path | None = None) -> sqlite3.Connection:
     # Use WAL for better concurrency with jobs + handlers, and longer busy timeout.
     conn = sqlite3.connect(
-        db_path,
+        db_path or DEFAULT_DB,
         isolation_level=None,          # autocommit; explicit transactions via 'with conn'
         timeout=30.0,                  # 30s busy timeout at driver-level
         check_same_thread=False,       # safer when used across async contexts/threads
@@ -104,13 +105,13 @@ def _connect(db_path: Path = DEFAULT_DB) -> sqlite3.Connection:
     return conn
 
 
-def _ensure_initialized(db_path: Path = DEFAULT_DB) -> None:
-    global _INITIALIZED
-    if _INITIALIZED:
+def _ensure_initialized(db_path: Path | None = None) -> None:
+    db_path = db_path or DEFAULT_DB
+    if db_path in _INITIALIZED_PATHS and db_path.exists():
         return
-    with _connect(db_path) as conn:
+    with closing(_connect(db_path)) as conn:
         conn.executescript(SCHEMA_SQL)
-    _INITIALIZED = True
+    _INITIALIZED_PATHS.add(db_path)
 
 
 # ---------- users ----------
@@ -123,7 +124,7 @@ def ensure_user(
     alert_chat_id: int | None = None
 ) -> None:
     _ensure_initialized()
-    with _connect() as conn, conn:
+    with closing(_connect()) as conn, conn:
         conn.execute(
             """
             INSERT INTO users(telegram_id, username, first_name, last_name, alert_chat_id)
@@ -141,14 +142,14 @@ def ensure_user(
 
 def list_users() -> List[int]:
     _ensure_initialized()
-    with _connect() as conn:
+    with closing(_connect()) as conn:
         rows = conn.execute("SELECT telegram_id FROM users ORDER BY telegram_id").fetchall()
         return [int(r[0]) for r in rows]
 
 
 def set_user_alert_chat_id(owner_id: int, chat_id: int) -> None:
     _ensure_initialized()
-    with _connect() as conn, conn:
+    with closing(_connect()) as conn, conn:
         conn.execute(
             "UPDATE users SET alert_chat_id=?, updated_at=datetime('now') WHERE telegram_id=?",
             (int(chat_id), int(owner_id)),
@@ -157,14 +158,14 @@ def set_user_alert_chat_id(owner_id: int, chat_id: int) -> None:
 
 def get_user_alert_chat_id(owner_id: int) -> Optional[int]:
     _ensure_initialized()
-    with _connect() as conn:
+    with closing(_connect()) as conn:
         row = conn.execute("SELECT alert_chat_id FROM users WHERE telegram_id=?", (int(owner_id),)).fetchone()
         return int(row[0]) if row and row[0] is not None else None
 
 
 def is_user_alerts_enabled(owner_id: int) -> bool:
     _ensure_initialized()
-    with _connect() as conn:
+    with closing(_connect()) as conn:
         row = conn.execute(
             "SELECT alerts_enabled FROM users WHERE telegram_id=?",
             (int(owner_id),)
@@ -176,33 +177,12 @@ def is_user_alerts_enabled(owner_id: int) -> bool:
 
 def set_user_alerts_enabled(owner_id: int, enabled: bool) -> None:
     _ensure_initialized()
-    with _connect() as conn, conn:
+    with closing(_connect()) as conn, conn:
         # ensure user row exists
         conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES(?)", (int(owner_id),))
         conn.execute(
             "UPDATE users SET alerts_enabled=?, updated_at=datetime('now') WHERE telegram_id=?",
             (1 if enabled else 0, int(owner_id))
-        )
-
-
-# ---------- helpers: ensure domain row exists (and user) ----------
-
-def ensure_domain(owner_id: int, name: str) -> None:
-    """
-    Гарантирует наличие пользователя и пары (owner_id, domain) в таблицах users/domains.
-    Это устраняет ошибки FK при работе команд с «чужими» доменами (например /check без /add).
-    """
-    _ensure_initialized()
-    name = (name or "").strip().lower()
-    if not name:
-        return
-    with _connect() as conn, conn:
-        # сначала — пользователь (для FK)
-        conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES (?)", (int(owner_id),))
-        # затем — сам домен для этого пользователя
-        conn.execute(
-            "INSERT OR IGNORE INTO domains(owner_id, name) VALUES(?,?)",
-            (int(owner_id), name),
         )
 
 
@@ -213,7 +193,7 @@ def add_domain(owner_id: int, name: str) -> None:
     name = (name or "").strip().lower()
     if not name:
         return
-    with _connect() as conn, conn:
+    with closing(_connect()) as conn, conn:
         # страховка от FK: создаём пользователя, если его ещё нет
         conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES (?)", (int(owner_id),))
         conn.execute(
@@ -227,14 +207,14 @@ def remove_domain(owner_id: int, name: str) -> bool:
     name = (name or "").strip().lower()
     if not name:
         return False
-    with _connect() as conn, conn:
+    with closing(_connect()) as conn, conn:
         cur = conn.execute("DELETE FROM domains WHERE owner_id=? AND name=?", (int(owner_id), name))
         return cur.rowcount > 0
 
 
 def list_domains(owner_id: int) -> List[str]:
     _ensure_initialized()
-    with _connect() as conn:
+    with closing(_connect()) as conn:
         rows = conn.execute(
             "SELECT name FROM domains WHERE owner_id=? ORDER BY name",
             (int(owner_id),),
@@ -247,7 +227,7 @@ def domain_exists(owner_id: int, name: str) -> bool:
     name = (name or "").strip().lower()
     if not name:
         return False
-    with _connect() as conn:
+    with closing(_connect()) as conn:
         row = conn.execute(
             "SELECT 1 FROM domains WHERE owner_id=? AND name=? LIMIT 1",
             (int(owner_id), name),
@@ -264,52 +244,41 @@ def save_history(
     message: str,
     metrics: Dict[str, Any]
 ) -> None:
+    _save_history_rows(owner_id, domain, [(check_name, status, message, metrics)])
+
+
+def save_histories(owner_id: int, domain: str, results: list) -> None:
+    """Persist a domain run in one SQLite transaction."""
+    _save_history_rows(owner_id, domain, [
+        (result.check, result.status, result.message, result.metrics)
+        for result in results if not getattr(result, "cached", False)
+    ])
+
+
+def _save_history_rows(owner_id: int, domain: str, results: list) -> None:
     _ensure_initialized()
     domain = (domain or "").strip().lower()
-    if not domain:
+    if not domain or not results:
         return
-    status_str = getattr(status, "value", str(status))
-    # Safely serialize metrics to JSON
-    try:
-        metrics_json = json.dumps(metrics, ensure_ascii=False)
-    except Exception as e:
-        log.warning(
-            "history.metrics_json.serialize_failed",
-            extra={"event": "history.metrics_json.serialize_failed", "owner_id": int(owner_id), "domain": domain, "check": check_name, "error": e.__class__.__name__}
-        )
-        # Fallback: keep minimal payload as string
-        try:
-            metrics_json = json.dumps({"_raw_str": str(metrics)}, ensure_ascii=False)
-        except Exception:
-            metrics_json = "{}"
-
-    with _connect() as conn, conn:
-        # страховка от FK: гарантируем домен (и пользователя)
+    rows = [
+        (int(owner_id), domain, check, getattr(status, "value", str(status)), message,
+         json.dumps(metrics, ensure_ascii=False, default=str))
+        for check, status, message, metrics in results
+    ]
+    with closing(_connect()) as conn, conn:
         conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES (?)", (int(owner_id),))
         conn.execute("INSERT OR IGNORE INTO domains(owner_id, name) VALUES(?,?)", (int(owner_id), domain))
-        conn.execute(
-            """
-            INSERT INTO history(owner_id, domain, check_name, status, message, metrics_json, created_at)
-            VALUES (?,?,?,?,?, ?, datetime('now'))
-            """,
-            (int(owner_id), domain, check_name, status_str, message, metrics_json),
+        conn.executemany(
+            "INSERT INTO history(owner_id, domain, check_name, status, message, metrics_json, created_at) "
+            "VALUES (?,?,?,?,?,?,datetime('now'))",
+            rows,
         )
-
-    log.info(
-        "history.save",
-        extra={
-            "event": "history.save",
-            "owner_id": int(owner_id),
-            "domain": domain,
-            "check": check_name,
-            "status": status_str,
-        },
-    )
+    log.debug("history.saved", extra={"owner_id": owner_id, "domain": domain, "count": len(rows)})
 
 
 def last_results(owner_id: int, domain: str, limit: int = 10) -> List[sqlite3.Row]:
     _ensure_initialized()
-    with _connect() as conn:
+    with closing(_connect()) as conn:
         rows = conn.execute(
             "SELECT * FROM history WHERE owner_id=? AND domain=? ORDER BY id DESC LIMIT ?",
             (int(owner_id), (domain or "").lower(), int(limit)),
@@ -319,7 +288,7 @@ def last_results(owner_id: int, domain: str, limit: int = 10) -> List[sqlite3.Ro
 
 def last_history_for_check(owner_id: int, domain: str, check_name: str) -> Optional[sqlite3.Row]:
     _ensure_initialized()
-    with _connect() as conn:
+    with closing(_connect()) as conn:
         row = conn.execute(
             "SELECT * FROM history WHERE owner_id=? AND domain=? AND check_name=? ORDER BY id DESC LIMIT 1",
             (int(owner_id), (domain or "").lower(), check_name),
@@ -382,11 +351,49 @@ def minutes_since_last(owner_id: int, domain: str, check_name: str) -> Optional[
     return age_min
 
 
+def last_check_ages(owner_id: int, domain: str) -> dict[str, float]:
+    """Minutes since each check's latest result, from a single owner-scoped query."""
+    _ensure_initialized()
+    with closing(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT check_name, MAX(created_at) FROM history WHERE owner_id=? AND domain=? "
+            "GROUP BY check_name",
+            (int(owner_id), domain.lower()),
+        ).fetchall()
+    now = datetime.now(timezone.utc)
+    ages = {}
+    for name, timestamp in rows:
+        if not name or not timestamp:
+            continue
+        try:
+            observed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            if observed.tzinfo is None:
+                observed = observed.replace(tzinfo=timezone.utc)
+            ages[name] = max(0.0, (now - observed).total_seconds() / 60)
+        except ValueError:
+            continue
+    return ages
+
+
+def latest_check_results(owner_id: int, domain: str) -> dict[str, sqlite3.Row]:
+    """Latest recorded result per check for one owner's domain."""
+    _ensure_initialized()
+    with closing(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT h.* FROM history h JOIN ("
+            "SELECT check_name, MAX(id) AS latest_id FROM history "
+            "WHERE owner_id=? AND domain=? GROUP BY check_name"
+            ") latest ON h.id=latest.latest_id",
+            (int(owner_id), domain.lower()),
+        ).fetchall()
+    return {row["check_name"]: row for row in rows}
+
+
 # ---------- WHOIS cache (shared) ----------
 
 def clear_whois_cache(db_path: Path = DEFAULT_DB) -> int:
     _ensure_initialized(db_path)
-    with _connect(db_path) as conn:
+    with closing(_connect(db_path)) as conn:
         try:
             cur = conn.execute("SELECT COUNT(*) FROM whois_state")
             count = int(cur.fetchone()[0])
@@ -401,7 +408,7 @@ def clear_whois_cache(db_path: Path = DEFAULT_DB) -> int:
 
 def get_alert_state(owner_id: int, domain: str) -> Optional[sqlite3.Row]:
     _ensure_initialized()
-    with _connect() as conn:
+    with closing(_connect()) as conn:
         row = conn.execute(
             "SELECT last_overall, last_sent_at FROM alert_state WHERE owner_id=? AND domain=?",
             (int(owner_id), (domain or "").lower()),
@@ -414,7 +421,7 @@ def upsert_alert_state(owner_id: int, domain: str, last_overall: str, last_sent_
     domain = (domain or "").strip().lower()
     if not domain:
         return
-    with _connect() as conn, conn:
+    with closing(_connect()) as conn, conn:
         # страховка от FK: гарантируем домен (и пользователя)
         conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES (?)", (int(owner_id),))
         conn.execute("INSERT OR IGNORE INTO domains(owner_id, name) VALUES(?,?)", (int(owner_id), domain))
@@ -435,7 +442,7 @@ def upsert_alert_state(owner_id: int, domain: str, last_overall: str, last_sent_
 def get_domain_override(owner_id: int, domain: str) -> Optional[dict]:
     _ensure_initialized()
     domain = (domain or "").strip().lower()
-    with _connect() as conn:
+    with closing(_connect()) as conn:
         row = conn.execute(
             "SELECT data_json FROM domain_overrides WHERE owner_id=? AND domain=?",
             (int(owner_id), domain),
@@ -464,7 +471,7 @@ def set_domain_override(owner_id: int, domain: str, patch: dict) -> dict:
 
     _merge(current, patch)
 
-    with _connect() as conn, conn:
+    with closing(_connect()) as conn, conn:
         # страховка от FK: гарантируем домен (и пользователя)
         conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES (?)", (int(owner_id),))
         conn.execute("INSERT OR IGNORE INTO domains(owner_id, name) VALUES(?,?)", (int(owner_id), domain))
@@ -487,7 +494,7 @@ def unset_domain_override(owner_id: int, domain: str, key: str | None) -> None:
     if not domain:
         return
     if key is None:
-        with _connect() as conn, conn:
+        with closing(_connect()) as conn, conn:
             conn.execute("DELETE FROM domain_overrides WHERE owner_id=? AND domain=?", (int(owner_id), domain))
         return
 
@@ -566,7 +573,7 @@ def cleanup_history(retention_days: int, batch_size: int = 10_000) -> int:
     cutoff = f"-{retention_days} days"
     total_deleted = 0
 
-    with _connect() as conn:
+    with closing(_connect()) as conn:
         while True:
             # Batched delete by rowid to avoid long-running write locks
             cur = conn.execute(
@@ -598,7 +605,7 @@ def vacuum_and_optimize() -> None:
     Safe to call occasionally (e.g., weekly). Autocommit is enabled.
     """
     _ensure_initialized()
-    with _connect() as conn:
+    with closing(_connect()) as conn:
         # VACUUM cannot run inside a transaction; isolation_level=None ensures autocommit.
         conn.execute("VACUUM")
         conn.execute("PRAGMA optimize")

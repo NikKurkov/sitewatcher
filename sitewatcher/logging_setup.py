@@ -111,13 +111,13 @@ class StructExtraFilter(logging.Filter):
                      "thread", "threadName", "processName", "process"}:
                 continue
             extras[k] = v
-        setattr(record, "_extra_dict", extras)
+        record._extra_dict = extras
         if self.pretty_mode and self._json:
             tail = (" " + self._json.dumps(extras, ensure_ascii=False, separators=(",", ":"))) if extras else ""
         else:
             tail = ""
         # Always set attribute to avoid KeyError in format strings
-        setattr(record, "extra_tail", tail)
+        record.extra_tail = tail
         return True
 
 

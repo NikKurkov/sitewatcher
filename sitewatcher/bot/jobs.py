@@ -5,18 +5,37 @@ import asyncio
 import logging
 import uuid
 import random
-from typing import Optional, Sequence, List, Tuple
+from typing import Optional, Sequence, List
 
 from telegram.ext import Application, ContextTypes
 
 from .. import storage
-from ..config import AppConfig
+from ..config import AppConfig, resolve_settings
 from ..dispatcher import Dispatcher
-from .alerts import AlertDeduper, maybe_send_alert, safe_send_message
+from .alerts import AlertDeduper, _complete_results, _overall_from_results, maybe_send_alert, safe_send_message
 from .utils import _resolve_alert_chat_id
 
 # Module-level logger
 log = logging.getLogger(__name__)
+
+
+def due_checks(cfg: AppConfig, owner_id: int, domain: str, *, warmup: bool = False) -> list[str]:
+    """Select enabled checks whose most recent run is older than their interval."""
+    if not cfg.scheduler.enabled:
+        return []
+    override = storage.get_domain_override(owner_id, domain) or {}
+    domain_interval = override.get("interval_minutes")
+    if domain_interval is not None and int(domain_interval) <= 0:
+        return []
+    checks = resolve_settings(cfg, domain, override).checks.model_dump()
+    ages = storage.last_check_ages(owner_id, domain)
+    return [
+        name for name, enabled in checks.items()
+        if enabled and (name not in ages or ages[name] >= (
+            int(domain_interval) if domain_interval is not None
+            else getattr(cfg.schedules, name).interval_minutes
+        ))
+    ]
 
 
 def _new_run_id() -> str:
@@ -32,21 +51,21 @@ def register_jobs(app: Application, cooldown: int) -> None:
         cooldown: Alerts cooldown (seconds) for the in-process deduper.
     """
     cfg: AppConfig = app.bot_data["cfg"]
+    if not cfg.scheduler.enabled:
+        log.info("Scheduler disabled")
+        return
 
     # Create a process-local deduper if missing
     if app.bot_data.get("alert_deduper") is None:
         app.bot_data["alert_deduper"] = AlertDeduper(cooldown_sec=cooldown)
 
     jq = app.job_queue
-    interval_min = int(getattr(cfg.scheduler, "interval_minutes", 1) or 1)
+    interval_min = cfg.scheduler.interval_minutes
     first_delay = random.randint(10, 30)  # small jitter to avoid thundering herd
 
     # One-time warmup job (baseline without alerts)
-    jq.run_once(
-        job_warmup,
-        when=first_delay // 2 or 5,
-        name="sitewatcher:job_warmup",
-    )
+    if cfg.scheduler.run_on_startup:
+        jq.run_once(job_warmup, when=first_delay // 2 or 5, name="sitewatcher:job_warmup")
 
     # Main periodic checks
     jq.run_repeating(
@@ -138,7 +157,10 @@ async def _run_checks_for_all_domains(
         async def _run_one(owner_id: int, domain: str) -> None:
             async with sem:
                 try:
-                    results = await d.run_for(owner_id, domain, use_cache=False)
+                    selected = due_checks(cfg, owner_id, domain, warmup=warmup)
+                    if not selected:
+                        return
+                    results = await d.run_for(owner_id, domain, only_checks=selected, use_cache=False, run_id=run_id)
                 except Exception as e:
                     log.exception(
                         "Checks failed for owner=%s domain=%s: %s", owner_id, domain, e,
@@ -147,11 +169,13 @@ async def _run_checks_for_all_domains(
                     return
 
                 # Persist each check result to history
-                for r in results:
-                    storage.save_history(owner_id, domain, r.check, r.status, r.message, r.metrics)
+                storage.save_histories(owner_id, domain, results)
 
                 # Send alerts (unless warmup)
-                if not warmup:
+                if warmup and storage.get_alert_state(owner_id, domain) is None:
+                    baseline = _overall_from_results(_complete_results(cfg, owner_id, domain, results))
+                    storage.upsert_alert_state(owner_id, domain, baseline, None)
+                elif not warmup:
                     try:
                         await maybe_send_alert(update=None, context=context, owner_id=owner_id, domain=domain, results=results)
                     except Exception as e:
