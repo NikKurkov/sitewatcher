@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add a Docker image and Compose setup for one-command startup with persistent SQLite data.
+
 ## 0.2.0 — 2026-09-30
 
 - Start with built-in defaults when no YAML file is present.

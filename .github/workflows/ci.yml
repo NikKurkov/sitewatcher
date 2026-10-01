@@ -25,3 +25,12 @@ jobs:
       - run: ruff check sitewatcher tests
       - run: pytest
       - run: python -m sitewatcher.main --help
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: cp .env.example .env
+      - run: docker compose config --quiet
+      - run: docker compose build sitewatcher
+      - run: docker compose run --rm sitewatcher sitewatcher check_all
