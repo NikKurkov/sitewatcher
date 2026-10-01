@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add an optional owner-only web panel with a shared SQLite database and global YAML editor.
+- Add a Docker Compose web profile bound to localhost and document HTTPS reverse proxy setup.
 - Add a Docker image and Compose setup for one-command startup with persistent SQLite data.
 
 ## 0.2.0 — 2026-09-30

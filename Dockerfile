@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 COPY . .
-RUN pip install --no-cache-dir . \
+RUN pip install --no-cache-dir '.[web]' \
     && useradd --uid 10001 --create-home --shell /usr/sbin/nologin sitewatcher \
     && mkdir -p /data \
     && chown sitewatcher:sitewatcher /data

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Overview{% endblock %}
+{% block body_attrs %}data-auto-refresh="45"{% endblock %}
+{% block content %}
+<div class="page-heading"><div><span class="eyebrow">At a glance</span><h1>Overview</h1><p class="muted">Your monitored domains and latest check results.</p></div><div class="heading-actions"><a class="button button-secondary" href="/domains">Manage domains</a><form method="post" action="/check-all"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="button button-primary" type="submit">Run all checks</button></form></div></div>
+<div class="stats-grid" aria-label="Domain status totals">
+  <div class="stat-card"><span class="stat-label">Monitored</span><strong>{{ summary.total|default(0) }}</strong><span class="stat-note">domains</span></div>
+  <div class="stat-card status-ok"><span class="stat-label">Healthy</span><strong>{{ summary.ok|default(0) }}</strong><span class="stat-note">all checks passing</span></div>
+  <div class="stat-card status-warn"><span class="stat-label">Warning</span><strong>{{ summary.warn|default(0) }}</strong><span class="stat-note">needs attention</span></div>
+  <div class="stat-card status-crit"><span class="stat-label">Critical</span><strong>{{ summary.crit|default(0) }}</strong><span class="stat-note">take action</span></div>
+  <div class="stat-card status-unknown"><span class="stat-label">Unknown</span><strong>{{ summary.unknown|default(0) }}</strong><span class="stat-note">awaiting results</span></div>
+</div>
+<div class="section-grid">
+  <section class="panel panel-wide" aria-labelledby="domains-heading"><div class="panel-heading"><div><h2 id="domains-heading">Domain status</h2><p>Problems are shown first.</p></div><a href="/domains" class="subtle-link">View all <span aria-hidden="true">→</span></a></div>
+    {% if domains %}<div class="table-scroll"><table><thead><tr><th scope="col">Domain</th><th scope="col">Status</th><th scope="col">Latest check</th><th scope="col">Message</th></tr></thead><tbody>{% for item in domains %}<tr><td><a class="domain-link" href="/domains/{{ item.name|urlencode }}">{{ item.name }}</a></td><td><span class="badge badge-{{ item.status|default('unknown')|lower }}">{{ item.status|default('unknown')|title }}</span></td><td class="nowrap">{{ item.checked_at|default('Never', true) }}</td><td class="message-cell">{{ item.message|default('No results yet', true) }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty-state"><span aria-hidden="true">◎</span><h3>No domains yet</h3><p>Add a domain to start monitoring.</p><a class="button button-primary" href="/domains">Add a domain</a></div>{% endif %}
+  </section>
+  <aside class="panel quick-panel" aria-labelledby="quick-heading"><div class="panel-heading"><div><h2 id="quick-heading">Quick actions</h2><p>Keep your panel up to date.</p></div></div><div class="quick-links"><a href="/domains">Add or manage a domain <span aria-hidden="true">→</span></a><a href="/history">Browse check history <span aria-hidden="true">→</span></a><a href="/import">Import a CSV <span aria-hidden="true">→</span></a><a href="/settings">Manage alerts <span aria-hidden="true">→</span></a></div><div class="refresh-note"><span class="pulse" aria-hidden="true"></span> Refreshes every 45 seconds while this page is visible.</div></aside>
+</div>
+{% endblock %}

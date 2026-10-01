@@ -33,6 +33,13 @@ Issues = "https://github.com/NikKurkov/sitewatcher/issues"
 # Developer tools
 [project.optional-dependencies]
 rich = ["rich>=14,<16"]
+web = [
+  "fastapi>=0.115,<1",
+  "uvicorn>=0.30,<1",
+  "jinja2>=3.1,<4",
+  "python-multipart>=0.0.9,<1",
+  "itsdangerous>=2.2,<3",
+]
 dev = [
   "ruff>=0.16,<1",
   "pytest>=8,<10",
@@ -44,6 +51,7 @@ include = ["sitewatcher*"]
 
 [tool.setuptools.package-data]
 sitewatcher = ["data/deface_markers.txt", "data/config.yaml.example"]
+"sitewatcher.web" = ["templates/*.html", "static/*.css", "static/*.js"]
 
 [tool.ruff]
 line-length = 100

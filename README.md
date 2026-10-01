@@ -1,6 +1,6 @@
 # SiteWatcher
 
-SiteWatcher monitors domains and reports problems through a Telegram bot. It runs as one Python process on Linux, stores users, domains, results, and settings in SQLite, and needs no external database or deployment service.
+SiteWatcher monitors domains and reports problems through a Telegram bot, with an optional web control panel. The bot runs as one Python process on Linux; the panel runs as a separate optional process. They share users, domains, results, and settings in SQLite and need no external database or deployment service.
 
 Checks: HTTP status and latency, TLS certificate, ping, page keywords, defacement markers, RKN listing, IP changes, IP blocklists, TCP ports, WHOIS/RDAP, and passive VirusTotal reputation. Expensive checks are off by default or run less often. Each Telegram user owns their own domain list and overrides.
 
@@ -15,7 +15,24 @@ docker compose up -d --build
 docker compose logs -f sitewatcher
 ```
 
-The bot runs as a single container. Its SQLite database and RKN index live in the `sitewatcher-data` volume and survive container restarts and rebuilds. Stop it with `docker compose down` (keep the volume). To test a site without starting the bot, run `docker compose run --rm sitewatcher sitewatcher scan example.com --only http_basic,tls_cert`. Docker uses `/data/sitewatcher.db` even if `.env` sets a different `DATABASE_PATH`.
+The bot runs as a single container. Its SQLite database, optional YAML configuration, and RKN index live in the `sitewatcher-data` volume and survive container restarts and rebuilds. Stop it with `docker compose down` (keep the volume). To test a site without starting the bot, run `docker compose run --rm sitewatcher sitewatcher scan example.com --only http_basic,tls_cert`. Docker uses `/data/sitewatcher.db` even if `.env` sets a different `DATABASE_PATH`.
+
+## Optional web panel
+
+The web panel serves one owner. Set `WEB_OWNER_ID` to that owner's Telegram user ID and add `WEB_PASSWORD_HASH` and `WEB_SESSION_SECRET` to `.env`:
+
+```bash
+docker compose run --rm sitewatcher sitewatcher hash-password
+openssl rand -hex 32
+```
+
+The first command prompts for a password and prints a scrypt hash; put that hash in `WEB_PASSWORD_HASH`. Put the second command's output in `WEB_SESSION_SECRET`. Then start both services:
+
+```bash
+docker compose --profile web up -d --build
+```
+
+Open `http://127.0.0.1:8000` locally. For remote access, put an HTTPS reverse proxy in front of `127.0.0.1:8000` and set `WEB_COOKIE_SECURE=true` in `.env`; keep port 8000 bound to loopback. For example, a Caddy site can use `reverse_proxy 127.0.0.1:8000` under your HTTPS hostname. Keep `.env` private, and back up the shared volume. The panel and bot share SQLite and `/data/config.yaml`; the file is optional until you save global settings. Domain overrides take effect immediately, while changes to global YAML settings require `docker compose restart sitewatcher` to update the bot. Starting Compose without `--profile web` runs only the bot.
 
 To run the image directly without Compose, build it locally and mount a named volume for the database:
 
@@ -42,7 +59,7 @@ cp .env.example .env
 sitewatcher bot
 ```
 
-The bot starts with built-in settings. An optional YAML file can be supplied with `--config config.yaml`; copy [the example](sitewatcher/data/config.yaml.example) and edit it. An explicitly specified but missing file causes an error. The `DATABASE_PATH` environment variable defaults to `./sitewatcher.db`. Its parent directory must exist. The process needs write access there and, when RKN is enabled, to the nearby `z_i_index.db` index.
+The bot starts with built-in settings. An optional YAML file can be supplied with `--config config.yaml` or `SITEWATCHER_CONFIG`; copy [the example](sitewatcher/data/config.yaml.example) and edit it. A missing environment-selected file uses built-in defaults, while an explicitly specified but missing `--config` file causes an error. The `DATABASE_PATH` environment variable defaults to `./sitewatcher.db`. Its parent directory must exist. The process needs write access there and, when RKN is enabled, to the nearby `z_i_index.db` index.
 
 Set `TELEGRAM_PROXY` for the bot connection. Set `http.proxy` in YAML for HTTP requests made by the checks. Set `TELEGRAM_ALERT_CHAT_ID` to send alerts to a fixed chat, otherwise they go to the user's most recent chat. VirusTotal needs `malware.vt_api_key` in YAML and the malware check enabled; its free-tier request limits are configurable. Protect that YAML file as a secret.
 
@@ -74,6 +91,8 @@ sitewatcher check_all --owner 123456789
 ```
 
 `scan` does not add a domain, save monitoring history, or send alerts. Some checks maintain their own local caches. `check_domain` and `check_all` save results. Use `--config path/to/config.yaml` with any command.
+
+For a Python installation of the web panel, install `pip install -e '.[web]'`, set the three `WEB_*` credentials above, and run `uvicorn sitewatcher.web.app:create_app --factory --host 127.0.0.1 --port 8000`. Point the bot and web process at the same `DATABASE_PATH` and `SITEWATCHER_CONFIG`.
 
 ## Run as a service
 

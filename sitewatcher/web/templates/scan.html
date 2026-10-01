@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Quick scan{% endblock %}
+{% block content %}
+<div class="page-heading"><div><span class="eyebrow">One-time check</span><h1>Quick scan</h1><p class="muted">Check a domain without adding it to monitoring or sending alerts.</p></div></div>
+<section class="panel" aria-labelledby="scan-heading">
+  <div class="panel-heading"><div><h2 id="scan-heading">Scan a domain</h2><p>Results are not saved to history.</p></div></div>
+  <form method="post" action="/scan" class="filter-bar"><input type="hidden" name="csrf" value="{{ csrf }}"><div class="field grow"><label for="scan-name">Domain</label><input id="scan-name" name="name" type="text" placeholder="example.com" value="{{ scan_domain or '' }}" required></div><button class="button button-primary" type="submit">Run scan</button></form>
+</section>
+{% if scan_results is not none %}
+<section class="panel" aria-labelledby="scan-results-heading"><div class="panel-heading"><div><h2 id="scan-results-heading">Results for {{ scan_domain }}</h2><p>Live results; nothing was added to monitoring.</p></div></div>
+{% if scan_results %}<div class="table-scroll"><table><thead><tr><th scope="col">Check</th><th scope="col">Status</th><th scope="col">Result</th></tr></thead><tbody>{% for item in scan_results %}<tr><td>{{ item.check|replace('_',' ')|title }}</td><td><span class="badge badge-{{ item.status|lower }}">{{ item.status|title }}</span></td><td class="message-cell">{{ item.message }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="empty-state compact">No checks are enabled for this domain.</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}
