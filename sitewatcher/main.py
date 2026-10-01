@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import logging
 import uuid
+import getpass
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -25,7 +26,7 @@ from .bot.validators import DOMAIN_RE, normalize_domain
 def _parse_args() -> argparse.Namespace:
     """Parse CLI arguments for bot/one-shot checks."""
     p = argparse.ArgumentParser(description="sitewatcher CLI")
-    p.add_argument("mode", choices=["bot", "check_all", "check_domain", "scan"], help="Run mode")
+    p.add_argument("mode", choices=["bot", "check_all", "check_domain", "scan", "hash-password"], help="Run mode")
     p.add_argument("name", nargs="?", help="Domain for 'check_domain' or 'scan'")
     p.add_argument("--config", default=None, help="Path to config.yaml")
     p.add_argument("--force", action="store_true", help="Ignore cache and run all checks live")
@@ -193,6 +194,14 @@ async def _cmd_check_one(
 def main() -> None:
     """Entrypoint for `python -m sitewatcher.main`."""
     args = _parse_args()
+    if args.mode == "hash-password":
+        from .web.auth import hash_password
+
+        password = getpass.getpass("Web password: ")
+        if len(password) < 12 or password != getpass.getpass("Repeat web password: "):
+            raise SystemExit("Password must be at least 12 characters and both entries must match")
+        print(f"WEB_PASSWORD_HASH={hash_password(password)}")
+        return
     if args.name:
         args.name = normalize_domain(args.name)
         if not args.name or not DOMAIN_RE.fullmatch(args.name):

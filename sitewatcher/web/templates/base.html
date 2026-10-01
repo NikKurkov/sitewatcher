@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{% block title %}SiteWatcher{% endblock %} · SiteWatcher</title>
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem('sitewatcher-theme')||'light'}catch(e){}</script>
+  <link rel="stylesheet" href="/static/panel.css">
+  <script src="/static/panel.js" defer></script>
+</head>
+<body {% block body_attrs %}{% endblock %}>
+  <a class="skip-link" href="#main">Skip to content</a>
+  {% if active != 'login' %}
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <a class="brand" href="/" aria-label="SiteWatcher home"><span class="brand-mark" aria-hidden="true">◉</span><span>SiteWatcher<small>Control panel</small></span></a>
+      <nav class="nav-list">
+        <a href="/" {% if active == 'overview' %}aria-current="page"{% endif %}><span aria-hidden="true">▦</span> Overview</a>
+        <a href="/domains" {% if active == 'domains' or active == 'domain' %}aria-current="page"{% endif %}><span aria-hidden="true">◎</span> Domains</a>
+        <a href="/scan" {% if active == 'scan' %}aria-current="page"{% endif %}><span aria-hidden="true">⌕</span> Quick scan</a>
+        <a href="/history" {% if active == 'history' %}aria-current="page"{% endif %}><span aria-hidden="true">◷</span> History</a>
+        <a href="/settings" {% if active == 'settings' %}aria-current="page"{% endif %}><span aria-hidden="true">⚙</span> Settings</a>
+        <a href="/import" {% if active == 'import' %}aria-current="page"{% endif %}><span aria-hidden="true">⇅</span> Import / export</a>
+      </nav>
+      <div class="sidebar-foot"><span class="owner-dot" aria-hidden="true"></span> Owner panel</div>
+    </aside>
+    <div class="main-wrap">
+      <header class="topbar">
+        <button class="menu-button icon-button" type="button" data-menu-toggle aria-label="Open navigation" aria-expanded="false">☰</button>
+        <span class="topbar-label">Website monitoring</span>
+        <div class="topbar-actions">
+          <button class="icon-button theme-toggle" type="button" data-theme-toggle aria-label="Switch color theme" title="Switch color theme">◐</button>
+          <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="text-button" type="submit">Sign out</button></form>
+        </div>
+      </header>
+      <main id="main" class="content">
+        {% if flash %}<div class="notice {% if flash.kind is defined %}notice-{{ flash.kind }}{% endif %}" role="status">{{ flash.message if flash.message is defined else flash }}</div>{% endif %}
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+  {% else %}
+  <main id="main" class="login-shell">{% block login_content %}{% endblock %}</main>
+  {% endif %}
+</body>
+</html>

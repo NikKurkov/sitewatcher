@@ -389,6 +389,23 @@ def latest_check_results(owner_id: int, domain: str) -> dict[str, sqlite3.Row]:
     return {row["check_name"]: row for row in rows}
 
 
+def latest_results_for_owner(owner_id: int) -> dict[str, dict[str, sqlite3.Row]]:
+    """Latest result per check for all of an owner's domains in one query."""
+    _ensure_initialized()
+    with closing(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT h.* FROM history h JOIN ("
+            "SELECT domain, check_name, MAX(id) AS latest_id FROM history "
+            "WHERE owner_id=? GROUP BY domain, check_name"
+            ") latest ON h.id=latest.latest_id",
+            (int(owner_id),),
+        ).fetchall()
+    results: dict[str, dict[str, sqlite3.Row]] = {}
+    for row in rows:
+        results.setdefault(row["domain"], {})[row["check_name"]] = row
+    return results
+
+
 # ---------- WHOIS cache (shared) ----------
 
 def clear_whois_cache(db_path: Path = DEFAULT_DB) -> int:
@@ -515,12 +532,13 @@ def iter_history(
     statuses: set[str] | None = None,
     since: datetime | None = None,
     limit: int = 20,
+    offset: int = 0,
 ):
     """
     Yield last history rows for the owner with optional filters.
     Returned rows are sqlite3.Row with keys:
       domain, check, status, message, metrics_json, created_at
-    Ordered by created_at DESC, limited by 'limit'.
+    Ordered by created_at DESC, limited by 'limit' after 'offset' rows.
     """
     _ensure_initialized()
     conn = _connect()
@@ -543,16 +561,17 @@ def iter_history(
 
         if since:
             where.append("created_at >= ?")
-            args.append(since.isoformat() if hasattr(since, "isoformat") else str(since))
+            args.append(since.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"))
 
         sql = (
             'SELECT domain, check_name AS "check", status, message, metrics_json, created_at '
             "FROM history "
             f"WHERE {' AND '.join(where)} "
-            "ORDER BY created_at DESC "
-            "LIMIT ?"
+            "ORDER BY created_at DESC, id DESC "
+            "LIMIT ? OFFSET ?"
         )
         args.append(int(limit))
+        args.append(int(offset))
         cur = conn.execute(sql, tuple(args))
         rows = cur.fetchall()
         for row in rows:

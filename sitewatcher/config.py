@@ -290,10 +290,10 @@ DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "data" / "config.yaml"
 
 def load_config(path: Optional[Union[str, os.PathLike, Path]] = None) -> AppConfig:
     """
-    Load YAML config from a given path or the package default.
-    An absent default file means built-in defaults. An explicit path must exist.
+    Load YAML config from an explicit path, SITEWATCHER_CONFIG, or the package default.
+    An absent implicit file means built-in defaults. An explicit path must exist.
     """
-    cfg_path = Path(path) if path is not None else DEFAULT_CONFIG_PATH
+    cfg_path = Path(path) if path is not None else Path(os.getenv("SITEWATCHER_CONFIG") or DEFAULT_CONFIG_PATH)
     if not cfg_path.exists() and path is None:
         return AppConfig()
     if not cfg_path.exists():

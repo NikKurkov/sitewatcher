@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block login_content %}
+<div class="login-card">
+  <div class="login-brand"><span class="brand-mark" aria-hidden="true">◉</span><span>SiteWatcher<small>Control panel</small></span></div>
+  <h1>Welcome back</h1>
+  <p class="muted">Sign in to monitor your sites and manage checks.</p>
+  {% if flash %}<div class="notice notice-error" role="alert">{{ flash.message if flash.message is defined else flash }}</div>{% endif %}
+  <form method="post" action="/login" class="stack-lg">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label for="password">Password</label>
+    <input id="password" type="password" name="password" autocomplete="current-password" required autofocus>
+    <button class="button button-primary button-full" type="submit">Sign in</button>
+  </form>
+  <button class="text-button login-theme" type="button" data-theme-toggle>Switch color theme</button>
+</div>
+{% endblock %}
