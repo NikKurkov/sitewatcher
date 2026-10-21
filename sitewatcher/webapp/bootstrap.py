@@ -76,11 +76,32 @@ def migrate_web_database() -> None:
     call_command('migrate', interactive=False, verbosity=0)
 
 
-def run_asgi(cfg: AppConfig, *, port: int = 8080, read_only: bool = False) -> None:
-    """Serve a single loopback process; access logs must never record bearer URLs."""
+def run_asgi(cfg: AppConfig, *, port: int = 8080, read_only: bool = False,
+             owner_id: int | None = None) -> None:
+    """Serve one loopback process; --owner asserts a binding and never authenticates."""
+    import signal
+    import socket
+
     import uvicorn
     from django.core.asgi import get_asgi_application
 
+    if type(port) is not int or not 0 <= port <= 65535:
+        raise ValueError('Port must be an integer between 0 and 65535')
     configure_web(cfg, read_only=read_only)
     migrate_web_database()
-    uvicorn.run(get_asgi_application(), host='127.0.0.1', port=port, access_log=False)
+    if owner_id is not None:
+        from .models import Workspace
+        if (type(owner_id) is not int or not 0 < owner_id < 2**63
+                or not Workspace.objects.filter(owner_id=owner_id).exists()):
+            raise ValueError('Web owner does not match a configured workspace; run sitewatcher setup')
+    application = get_asgi_application()
+    previous_handler = signal.signal(signal.SIGTERM, signal.default_int_handler)
+    try:
+        with socket.create_server(('127.0.0.1', port)) as listener:
+            print(f'http://127.0.0.1:{listener.getsockname()[1]}', flush=True)
+            uvicorn.run(application, fd=listener.fileno(), access_log=False, lifespan='off',
+                        log_level='warning')
+    except KeyboardInterrupt:
+        pass
+    finally:
+        signal.signal(signal.SIGTERM, previous_handler)

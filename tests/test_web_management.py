@@ -3,49 +3,63 @@ import re
 import sqlite3
 import threading
 from contextlib import closing
-from http.client import HTTPConnection
 from urllib.parse import urlencode
 
 import pytest
 
 from sitewatcher import storage
-from sitewatcher.config import AppConfig
-from sitewatcher.web import create_server
+from django.contrib.auth import get_user_model
+from django.test import Client
 
 
 @pytest.fixture
-def management_server():
+def management_server(web_database):
+    from sitewatcher.webapp.models import Workspace
     storage.add_domain(1, 'one.example')
     storage.add_domain(2, 'private.example')
-    httpd = create_server(AppConfig(), 1, port=0)
-    thread = threading.Thread(target=httpd.serve_forever, kwargs={'poll_interval': 0.01})
-    thread.start()
-    yield httpd
-    httpd.shutdown()
-    thread.join(timeout=3)
-    httpd.server_close()
-    assert not thread.is_alive()
+    user = get_user_model().objects.create_user(username='owner')
+    Workspace.objects.create(user=user, owner_id=1)
+    client = Client(enforce_csrf_checks=True)
+    client.force_login(user)
+    return client
 
 
 def request(server, path='/', *, method='GET', fields=None, headers=None, body=None):
     if fields is not None:
+        fields = {('csrfmiddlewaretoken' if key == 'csrf_token' else key): value
+                  for key, value in fields.items()}
         body = urlencode(fields)
-    all_headers = {'Content-Type': 'application/x-www-form-urlencoded',
-                   'Origin': f'http://127.0.0.1:{server.server_port}'}
+    if body is not None:
+        if isinstance(body, bytes):
+            body = body.replace(b'name="csrf_token"', b'name="csrfmiddlewaretoken"')
+        else:
+            body = body.replace('csrf_token=', 'csrfmiddlewaretoken=')
+    all_headers = {'Content-Type': 'application/x-www-form-urlencoded', 'Origin': 'http://localhost'}
     all_headers.update(headers or {})
-    client = HTTPConnection(*server.server_address, timeout=5)
-    try:
-        client.request(method, path, body=body, headers=all_headers)
-        response = client.getresponse()
-        return response.status, dict(response.getheaders()), response.read()
-    finally:
-        client.close()
+    params = {'HTTP_HOST': 'localhost'}
+    for key, value in all_headers.items():
+        if key.lower() == 'cookie':
+            continue
+        params[('CONTENT_TYPE' if key.lower() == 'content-type' else 'CONTENT_LENGTH'
+                if key.lower() == 'content-length' else 'HTTP_' + key.upper().replace('-', '_'))] = value
+    # Separate request clients permit real concurrent checks without sharing mutable cookie jars.
+    client = Client(enforce_csrf_checks=True)
+    client.cookies.update(server.cookies)
+    if 'Cookie' in all_headers:
+        client.cookies.load(all_headers['Cookie'])
+    response = client.generic(method, path, data=body or b'', **params)
+    if 'csrftoken' in response.cookies:
+        server.cookies['csrftoken'] = response.cookies['csrftoken'].value
+    result_headers = dict(response.headers)
+    if response.cookies:
+        result_headers['Set-Cookie'] = response.cookies.output(header='').strip()
+    return response.status_code, result_headers, response.content
 
 
 def token(server):
     code, _, body = request(server, '/domains/new')
     assert code == 200
-    return re.search(rb'name="csrf_token" value="([^"]+)"', body).group(1).decode()
+    return re.search(rb'name="csrfmiddlewaretoken" value="([^"]+)"', body).group(1).decode()
 
 
 def test_mutations_require_csrf_and_same_origin_before_writing(management_server):
@@ -157,25 +171,20 @@ def test_snapshot_json_remains_free_of_settings_and_management_token(management_
         assert db.execute('PRAGMA quick_check').fetchone() == ('ok',)
 
 
-def test_unicode_csrf_and_missing_origin_are_rejected_without_mutation(management_server):
+def test_unicode_csrf_and_foreign_origin_are_rejected_without_mutation(management_server):
     server = management_server
     assert request(server, '/domains/add', method='POST', fields={
         'csrf_token': 'неверный-токен', 'domain': 'no.example',
     })[0] == 403
-    client = HTTPConnection(*server.server_address, timeout=3)
-    try:
-        client.request('POST', '/domains/add', body=urlencode({
-            'csrf_token': token(server), 'domain': 'no.example',
-        }), headers={'Content-Type': 'application/x-www-form-urlencoded'})
-        assert client.getresponse().status == 403
-    finally:
-        client.close()
+    assert request(server, '/domains/add', method='POST', fields={
+        'csrf_token': token(server), 'domain': 'no.example',
+    }, headers={'Origin': 'https://evil.example'})[0] == 403
     assert not storage.domain_exists(1, 'no.example')
 
 
 def test_live_checks_save_results_bound_concurrency_and_allow_readers(management_server, monkeypatch):
     import concurrent.futures
-    from sitewatcher import web
+    from sitewatcher.webapp import domains as web
     from sitewatcher.checks.base import CheckOutcome, Status
 
     server = management_server
@@ -215,7 +224,7 @@ def test_live_checks_save_results_bound_concurrency_and_allow_readers(management
 
 
 def test_deleted_domain_is_not_restored_by_finished_web_check(management_server, monkeypatch):
-    from sitewatcher import web
+    from sitewatcher.webapp import domains as web
     from sitewatcher.checks.base import CheckOutcome, Status
 
     class Dispatcher:
@@ -256,21 +265,16 @@ def test_multipart_csv_upload_uses_existing_owner_scoped_importer(management_ser
     assert storage.domain_exists(1, 'upload.example')
 
 
-def test_readonly_mode_rejects_writes_and_hides_management_controls():
-    storage.add_domain(1, 'one.example')
-    server = create_server(AppConfig(), 1, port=0, read_only=True)
-    thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.01})
-    thread.start()
-    try:
-        code, _, body = request(server)
-        assert code == 200 and b'csrf_token' not in body and b'/domains/new' not in body
-        assert request(server, '/domains/new')[0] == 404
-        assert request(server, '/domains/add', method='POST', fields={'domain': 'no.example'})[0] == 405
-        assert not storage.domain_exists(1, 'no.example')
-    finally:
-        server.shutdown()
-        thread.join(timeout=3)
-        server.server_close()
+def test_readonly_mode_rejects_writes_and_hides_management_controls(management_server, settings):
+    settings.SITEWATCHER_READ_ONLY = True
+    server = management_server
+    csrf = token(server)
+    code, _, body = request(server)
+    assert code == 200 and b'csrfmiddlewaretoken' not in body and b'/domains/new' not in body
+    assert request(server, '/domains/add', method='POST', fields={
+        'csrf_token': csrf, 'domain': 'no.example',
+    })[0] == 405
+    assert not storage.domain_exists(1, 'no.example')
 
 
 def test_rejected_stale_edit_cannot_overwrite_changes_by_resubmitting(management_server):

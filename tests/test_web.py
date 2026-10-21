@@ -143,24 +143,14 @@ def test_http_parser_errors_keep_security_headers_and_sanitized_body(server):
     assert b'private-query-value' not in body
 
 
-def test_run_web_prints_actual_url_and_closes_on_interrupt(monkeypatch, capsys):
+def test_run_web_always_uses_authenticated_asgi(monkeypatch):
     from sitewatcher import web
-
-    class InterruptedServer:
-        server_port = 12345
-        closed = False
-
-        def serve_forever(self):
-            raise KeyboardInterrupt
-
-        def server_close(self):
-            self.closed = True
-
-    server = InterruptedServer()
-    monkeypatch.setattr(web, 'create_server', lambda *args, **kwargs: server)
-    web.run_web(AppConfig(), 1)
-    assert server.closed
-    assert capsys.readouterr().out.strip() == 'http://127.0.0.1:12345'
+    from sitewatcher.webapp import bootstrap
+    calls = []
+    monkeypatch.setattr(bootstrap, 'run_asgi', lambda cfg, **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(web, 'create_server', lambda *a, **k: pytest.fail('legacy server launched'))
+    web.run_web(AppConfig(), None, port=3210, read_only=True)
+    assert calls == [{'port': 3210, 'read_only': True, 'owner_id': None}]
 
 
 @pytest.mark.parametrize('host', ['localhost', '127.0.0.1'])

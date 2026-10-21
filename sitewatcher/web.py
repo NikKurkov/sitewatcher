@@ -9,7 +9,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 import json
 import secrets
-import signal
 from threading import Lock
 from urllib.parse import parse_qs, urlencode, urlsplit
 
@@ -64,7 +63,7 @@ async def _check_domains(cfg: AppConfig, owner_id: int, names: list[str]) -> Non
 
 def create_server(cfg: AppConfig, owner_id: int, *, port: int = 8080,
                   read_only: bool = False) -> ThreadingHTTPServer:
-    """Bind IPv4 loopback; the owner is fixed for this server's entire lifetime."""
+    """Legacy test hook only; production run_web uses authenticated Django ASGI."""
     if type(owner_id) is not int or owner_id <= 0:
         raise ValueError('A positive integer owner is required')
     if type(port) is not int or not 0 <= port <= 65535:
@@ -355,19 +354,9 @@ def create_server(cfg: AppConfig, owner_id: int, *, port: int = 8080,
     return ThreadingHTTPServer(('127.0.0.1', port), Handler)
 
 
-def run_web(cfg: AppConfig, owner_id: int, port: int = 8080, *, read_only: bool = False) -> None:
-    """Serve until interrupted; a management installation can start with empty storage."""
-    server = create_server(cfg, owner_id, port=port, read_only=read_only)
-    previous_handler = None
-    try:
-        if not read_only:
-            storage.ensure_user(owner_id)
-        previous_handler = signal.signal(signal.SIGTERM, signal.default_int_handler)
-        print(f'http://127.0.0.1:{server.server_port}', flush=True)
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
-        if previous_handler is not None:
-            signal.signal(signal.SIGTERM, previous_handler)
+def run_web(cfg: AppConfig, owner_id: int | None = None, port: int = 8080, *,
+            read_only: bool = False) -> None:
+    """Production web entry: legacy create_server remains test-only until Task 10 removal."""
+    from .webapp.bootstrap import run_asgi
+
+    run_asgi(cfg, port=port, read_only=read_only, owner_id=owner_id)

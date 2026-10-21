@@ -94,17 +94,17 @@ For recovery, run `sitewatcher password` on the server. This resets the configur
 Run this alongside the bot, with the same `DATABASE_PATH` and YAML configuration:
 
 ```bash
-sitewatcher web --owner 123456789 --port 8080
+sitewatcher web --port 8080
 # Open http://127.0.0.1:8080
 ```
 
-Use your Telegram user ID for `--owner`. The dashboard manages only that owner's domains: add a domain, edit its checks/settings, pause/resume, inspect history, reset overrides or remove it with typed confirmation. Run one domain or all domains live; results are saved without sending Telegram messages from the web process. One manual run is allowed at a time. The bot continues scheduled monitoring and evaluates saved state on its next tick. Workspace settings toggle owner notifications; CSV import/export uses the same format as Telegram. Search/filter saved results or read `/api/status` as JSON. Overdue results are marked explicitly, paused domains retain their saved state, and all timestamps use UTC. Apply “Pause refresh” while reading details to stop the automatic 30-second refresh. `/healthz` tests whether saved state is readable; it does not certify that monitored sites are healthy.
+Sign in with the local account created by `sitewatcher setup`. The dashboard derives its owner exclusively from the authenticated account. Optional `--owner <owner_id>` only verifies the existing workspace binding; it never grants access. The dashboard manages only that owner's domains: add a domain, edit its checks/settings, pause/resume, inspect history, reset overrides or remove it with typed confirmation. Run one domain or all domains live; results are saved without sending Telegram messages from the web process. One manual run is allowed at a time using a process-local lock; run a single web process. Probes bypass cache and use the configured per-domain timeout (120 seconds by default). The bot continues scheduled monitoring and evaluates saved state on its next tick. Workspace settings toggle owner notifications; CSV import/export uses the same format as Telegram. Search/filter saved results or read `/api/status` as JSON. Overdue results are marked explicitly, paused domains retain their saved state, and all timestamps use UTC. Apply “Pause refresh” while reading details to stop the automatic 30-second refresh. `/healthz` is a public process-health endpoint without monitoring data; it does not certify that monitored sites are healthy.
 
 Settings forms preserve inherited values and reject stale edits instead of overwriting concurrent changes. Proxy credentials are never redisplayed; choose keep, inherit, clear override or set a new value. Clearing the domain override returns to the common HTTP client, which can have its own proxy. CSV downloads are private configuration backups and can contain proxy credentials. Imports apply valid rows independently, skip concurrently changed merge targets and report skipped rows; replace affects listed domains only.
 
-Choose **Day**, **Night** or **System** in the header. The browser remembers the choice; switching preserves unsaved input when JavaScript is enabled. Native forms and theme links also work without JavaScript. Settings pages never auto refresh.
+Use the **Day / Night** switch in the header. The browser remembers the choice; switching preserves unsaved input when JavaScript is enabled. Native forms and theme links also work without JavaScript. Settings pages never auto refresh.
 
-For viewing only, run `sitewatcher web --owner 123456789 --read-only`. Management endpoints are then unavailable, while the theme switch remains usable. Global YAML, API credentials and scheduler configuration remain deployment settings.
+For viewing only, run `sitewatcher web --read-only`. Monitoring mutations are then rejected, while authenticated viewing, history, private CSV backup download and the theme switch remain usable. Authentication still writes sessions and login-attempt records. Global YAML, API credentials and scheduler configuration remain deployment settings.
 
 The server binds to IPv4 loopback only. For a Python installation on another Linux host, keep the server running there and forward its port from your computer:
 
@@ -112,7 +112,7 @@ The server binds to IPv4 loopback only. For a Python installation on another Lin
 ssh -N -L 8080:127.0.0.1:8080 your-server
 ```
 
-Then open the same local URL. Port `0` selects an available port and prints the actual URL. No Telegram token is required for the dashboard. Local processes can access this workspace; it has no separate login and is intended for a trusted local session or SSH tunnel. Changes require same-origin POST forms with a per-process CSRF token. Keep the viewer private; it grants control over the selected owner. Restarting the server invalidates previously opened forms.
+Then open the same local URL. Port `0` selects an available port and prints the actual URL. No Telegram token is required for the dashboard. Monitoring pages and APIs require the configured owner login, including over an SSH tunnel. Changes require POST forms protected by Django session and CSRF checks. Forms reject duplicate fields and bodies larger than 1 MiB. Browser sessions and CSRF tokens remain valid across restarts using the persistent private web secret. Keep CSV backups private: they can include proxy credentials.
 
 ## Run as a service
 

@@ -20,6 +20,7 @@ MIDDLEWARE = [
     'sitewatcher.webapp.middleware.SecurityHeadersMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'sitewatcher.webapp.middleware.ManagementBodyMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',

@@ -48,7 +48,7 @@ def _parse_args() -> argparse.Namespace:
         "--owner",
         type=int,
         default=None,
-        help="Telegram user ID (required for check_domain and web; optional for check_all).",
+        help="Owner ID (required for check_domain; optional mapping assertion for web).",
     )
     return p.parse_args()
 
@@ -214,13 +214,16 @@ def main() -> None:
             raise SystemExit(str(error) or "Account input was cancelled") from None
         return
     if args.mode == "web":
-        if args.owner is None or args.owner <= 0:
-            raise SystemExit("web requires --owner with a positive Telegram user ID")
         from .web import run_web
+        from django.db import DatabaseError
 
         try:
             run_web(cfg, args.owner, port=args.port, read_only=args.read_only)
-        except (OSError, ValueError, sqlite3.Error):
+        except ValueError as error:
+            if str(error) == "Web owner does not match a configured workspace; run sitewatcher setup":
+                raise SystemExit(str(error)) from None
+            raise SystemExit("Cannot start local dashboard; check database permissions and --port") from None
+        except (DatabaseError, OSError, sqlite3.Error):
             raise SystemExit("Cannot start local dashboard; check database permissions and --port") from None
         return
     setup_logging(cfg.logging)
