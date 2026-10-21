@@ -86,16 +86,11 @@ def _parse_not_after(cert: dict[str, Any]) -> Optional[datetime]:
         except ValueError:
             pass
 
-    # ISO-ish fallbacks
-    if s.endswith("Z"):
-        try:
-            return datetime.fromisoformat(s[:-1] + "+00:00")
-        except Exception:
-            pass
     try:
-        return datetime.fromisoformat(s)
-    except Exception:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
         return None
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
 
 
 def _hostname_matches(hostname: str, san_dns: Iterable[str]) -> bool:
@@ -257,7 +252,7 @@ class TlsCertCheck(BaseCheck):
         # Hostname vs SAN validation
         san_dns = _extract_san_dns(cert)
         host_matches = _hostname_matches(self.domain, san_dns) if san_dns else False
-        if san_dns and not host_matches:
+        if not host_matches:
             # Don't escalate to CRIT by default (endpoints may terminate for other hostnames);
             # but still surface a WARN.
             log.warning(

@@ -9,6 +9,7 @@ import httpx
 
 from .base import BaseCheck, CheckOutcome, Status
 from ..utils.http_retry import get_with_retries
+from ..utils.http_body import BodyReadError, DEFAULT_MAX_RESPONSE_BYTES
 
 # Module-level logger
 log = logging.getLogger(__name__)
@@ -70,6 +71,7 @@ class KeywordsCheck(BaseCheck):
         client: httpx.AsyncClient,
         timeout_s: int = 5,
         keywords: Any = None,
+        max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
     ) -> None:
         """Create a keywords presence check.
 
@@ -81,6 +83,7 @@ class KeywordsCheck(BaseCheck):
         """
         super().__init__(domain)
         self.client = client
+        self.max_response_bytes = max_response_bytes
         self.timeout_s = int(timeout_s)
         self._kw_list: List[str] = _normalize_keywords(keywords)
         # Precompute a lowercased version for fast search
@@ -102,6 +105,7 @@ class KeywordsCheck(BaseCheck):
                 self.client,
                 url,
                 timeout_s=self.timeout_s,
+                max_response_bytes=self.max_response_bytes,
                 retries=2,
                 backoff_s=0.3,
                 follow_redirects=True,
@@ -122,6 +126,11 @@ class KeywordsCheck(BaseCheck):
                     "redirects": redirects,
                     "bytes": len(r.content or b""),
                 },
+            )
+        except BodyReadError as e:
+            return CheckOutcome(
+                self.name, Status.CRIT if e.status_code >= 400 else Status.UNKNOWN, str(e),
+                {"status_code": e.status_code, "max_response_bytes": self.max_response_bytes},
             )
         except httpx.RequestError as e:
             elapsed_ms = int((time.perf_counter() - start) * 1000) if "start" in locals() else None

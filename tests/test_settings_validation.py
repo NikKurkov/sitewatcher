@@ -141,3 +141,53 @@ def test_logging_standard_aliases_case_and_unlimited_size_are_valid():
         'level': ' debug ', 'third_party_levels': {'httpx': ' warn '},
         'file': {'rotate': 'time', 'when': ' w6 ', 'max_bytes': 0, 'backup_count': 0},
     }}))
+
+
+@pytest.mark.parametrize('settings', [
+    {'proxy': 'private-invalid-proxy'},
+    {'proxy': 'ftp://user:private-password@example.test'},
+    {'proxies': {'https': 'private-invalid-proxy'}},
+    {'proxies': {'private-protocol': 'http://example.test'}},
+])
+def test_global_http_proxy_errors_are_rejected_at_configuration_boundary(settings):
+    from sitewatcher.config import AppConfig, validation_message
+    with pytest.raises(ValueError) as caught:
+        AppConfig.model_validate({'http': settings})
+    assert 'private-' not in validation_message(caught.value)
+
+
+def test_global_proxy_mapping_accepts_legacy_scheme_spelling():
+    from sitewatcher.config import AppConfig, validate_config
+    validate_config(AppConfig.model_validate({'http': {'proxies': {
+        'http': 'http://127.0.0.1:3128', 'https://': 'socks5://127.0.0.1:1080',
+        'all': 'http://user:password@127.0.0.1:3128',
+    }}}))
+
+
+@pytest.mark.parametrize('settings', [
+    {'ports': {'targets': [{'port': 443, 'expect': '['}]}},
+    {'domains': [{'name': 'example.test', 'ports': [{'port': 443, 'expect': '['}]}]},
+])
+def test_invalid_port_expectation_cannot_silently_disable_banner_check(settings):
+    from sitewatcher.config import AppConfig
+    with pytest.raises(ValueError):
+        AppConfig.model_validate(settings)
+
+
+@pytest.mark.parametrize('other_cache', [None, 'whois', 'ipchange'])
+def test_rkn_index_cannot_share_a_database_that_contains_application_state(tmp_path, monkeypatch, other_cache):
+    from sitewatcher import storage
+    from sitewatcher.config import AppConfig, validate_config, validation_message
+    main = tmp_path / 'private-monitor.db'
+    monkeypatch.setattr(storage, 'DEFAULT_DB', main)
+    cfg = AppConfig()
+    target = main
+    if other_cache:
+        target = tmp_path / 'private-cache.db'
+        getattr(cfg, other_cache).db_path = str(target)
+    cfg.rkn.index_db_path = str(target)
+    with pytest.raises(ValueError) as caught:
+        validate_config(cfg)
+    assert 'rkn' in validation_message(caught.value)
+    assert 'private-' not in validation_message(caught.value)
+    assert not target.exists()

@@ -9,6 +9,7 @@ import httpx
 
 from .base import BaseCheck, CheckOutcome, Status
 from ..utils.http_retry import get_with_retries
+from ..utils.http_body import BodyReadError, DEFAULT_MAX_RESPONSE_BYTES
 
 # Module-level logger for structured events
 log = logging.getLogger(__name__)
@@ -37,9 +38,11 @@ class HttpBasicCheck(BaseCheck):
         latency_warn_ms: int = 1000,
         latency_crit_ms: int = 3000,
         proxy: Optional[str] = None,
+        max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
     ) -> None:
         super().__init__(domain)
         self.client = client
+        self.max_response_bytes = max_response_bytes
         self.timeout_s = timeout_s
         self.latency_warn_ms = latency_warn_ms
         self.latency_crit_ms = latency_crit_ms
@@ -73,10 +76,16 @@ class HttpBasicCheck(BaseCheck):
                 client,
                 origin_url,
                 timeout_s=self.timeout_s,
+                max_response_bytes=self.max_response_bytes,
                 retries=2,
                 backoff_s=0.3,
                 follow_redirects=False,
                 headers={"User-Agent": "sitewatcher/0.2 (+https://github.com/NikKurkov/sitewatcher)"},
+            )
+        except BodyReadError as e:
+            return CheckOutcome(
+                self.name, Status.CRIT if e.status_code >= 400 else Status.UNKNOWN, str(e),
+                {"status_code": e.status_code, "max_response_bytes": self.max_response_bytes},
             )
         except httpx.RequestError as e:
             elapsed_ms = int((time.perf_counter() - start1) * 1000)
@@ -132,6 +141,8 @@ class HttpBasicCheck(BaseCheck):
                     client,
                     target,
                     timeout_s=self.timeout_s,
+                    max_response_bytes=self.max_response_bytes,
+                    prior_body_bytes=r1.extensions.get("body_bytes", (0, 0)),
                     retries=2,
                     backoff_s=0.3,
                     follow_redirects=True,
@@ -155,6 +166,11 @@ class HttpBasicCheck(BaseCheck):
                         "latency_ms_total": total_ms,
                         "latency_ms_initial": elapsed1_ms,
                     },
+                )
+            except BodyReadError as e:
+                return CheckOutcome(
+                    self.name, Status.CRIT if e.status_code >= 400 else Status.UNKNOWN, str(e),
+                    {"status_code": e.status_code, "max_response_bytes": self.max_response_bytes},
                 )
             except httpx.RequestError as e:
                 redirect_error = e.__class__.__name__

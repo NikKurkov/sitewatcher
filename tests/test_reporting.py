@@ -112,7 +112,8 @@ def test_yaml_settings_drive_enabled_checks_and_next_due_time(database):
 
 
 @pytest.mark.parametrize('raw', ['{broken', '[]', '{"http_timeout_s":0}',
-                               '{"proxy":"bad://user:secret@host"}'])
+                               '{"proxy":"bad://user:secret@host"}',
+                               pytest.param('[' * 20000 + ']' * 20000, id='excessive-nesting')])
 def test_invalid_stored_settings_are_isolated_and_sanitized(database, raw):
     storage.add_domain(1, 'broken.example')
     save(1, 'good.example', 'ping')

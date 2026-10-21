@@ -9,7 +9,8 @@ from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 
 from ... import storage
-from ..validators import DOMAIN_RE
+from ..validators import normalize_domain
+from ..utils import safe_reply_html
 
 # Module-level logger for structured events
 log = logging.getLogger(__name__)
@@ -27,11 +28,11 @@ async def cmd_add_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     owner_id = update.effective_user.id
-    name = context.args[0].strip().lower()
+    name = normalize_domain(context.args[0])
 
     log.info("domains.add.start", extra={"event": "domains.add.start", "owner_id": owner_id, "domain": name})
 
-    if not DOMAIN_RE.match(name):
+    if not name:
         if msg:
             await msg.reply_text("Invalid domain format. Expect like: example.com")
         log.warning("domains.add.invalid", extra={"event": "domains.add.invalid", "owner_id": owner_id, "domain": name})
@@ -39,7 +40,7 @@ async def cmd_add_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     storage.add_domain(owner_id, name)
     if msg:
-        await msg.reply_text(f"Added: <b>{html.escape(name)}</b>", parse_mode="HTML")
+        await safe_reply_html(msg, f"Added: <b>{html.escape(name)}</b>")
     log.info("domains.add.done", extra={"event": "domains.add.done", "owner_id": owner_id, "domain": name})
 
 
@@ -50,8 +51,12 @@ async def cmd_remove_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if msg:
             await msg.reply_text("Usage: /remove example.com")
         return
-    name = context.args[0].strip().lower()
+    name = normalize_domain(context.args[0])
     owner_id = update.effective_user.id
+    if not name:
+        if msg:
+            await msg.reply_text("Invalid domain format. Expect like: example.com")
+        return
     ok = storage.remove_domain(owner_id, name)
     if msg:
         await msg.reply_text("Removed" if ok else "Not found")
@@ -68,7 +73,8 @@ async def cmd_list_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     items_sorted: List[str] = sorted(items)  # Sort domains alphabetically before printing
     msg = getattr(update, "effective_message", None)
     if msg:
-        await msg.reply_text("No domains yet" if not items_sorted else "\n".join(items_sorted))
+        await safe_reply_html(msg, "No domains yet" if not items_sorted
+                              else "\n".join(html.escape(name) for name in items_sorted))
     log.info("domains.list", extra={"event": "domains.list", "owner_id": owner_id, "count": len(items_sorted)})
 
 

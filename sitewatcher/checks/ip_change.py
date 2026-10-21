@@ -31,16 +31,20 @@ class IpChangeCheck(BaseCheck):
 
     name = "ip_change"
 
-    def __init__(self, domain: str, *, cfg: Any) -> None:
+    def __init__(self, domain: str, *, cfg: Any, owner_id: int | None = None) -> None:
         """
         Args:
             domain: Target domain to resolve.
+            owner_id: Monitoring owner; 0 isolates ephemeral scans; None retains legacy caching.
             cfg: ip_change config section with fields (optional):
                  - include_ipv6: bool (default False)
                  - refresh_hours: float (default 24)
                  - db_path: path to sqlite file (default storage.DEFAULT_DB)
         """
         super().__init__(domain)
+        if owner_id is not None and (type(owner_id) is not int or owner_id < 0):
+            raise ValueError("owner_id must be a nonnegative integer or None")
+        self._owner_id = owner_id
         self.cfg = cfg
         self._db_path = Path(getattr(cfg, "db_path", None) or storage.DEFAULT_DB)
 
@@ -215,14 +219,26 @@ class IpChangeCheck(BaseCheck):
         return sqlite3.connect(str(self._db_path))
 
     def _db_get(self) -> Optional[_Row]:
-        """Load last snapshot for this domain (if any)."""
+        """Load a scoped snapshot, bootstrapping from the untouched legacy cache once."""
         conn = self._connect()
         try:
-            cur = conn.execute(
-                "SELECT snapshot_json, fetched_at FROM dns_state WHERE domain=?",
-                (self.domain.lower(),),
-            )
-            row = cur.fetchone()
+            if self._owner_id is None:
+                row = conn.execute(
+                    "SELECT snapshot_json, fetched_at FROM dns_state WHERE domain=?",
+                    (self.domain.lower(),),
+                ).fetchone()
+            else:
+                query = "SELECT snapshot_json, fetched_at FROM owner_dns_state WHERE owner_id=? AND domain=?"
+                params = (self._owner_id, self.domain.lower())
+                row = conn.execute(query, params).fetchone()
+                if row is None:
+                    # Copy once, even when unchanged: later scans must not consume this baseline.
+                    conn.execute(
+                        "INSERT OR IGNORE INTO owner_dns_state(owner_id,domain,snapshot_json,fetched_at) "
+                        "SELECT ?,domain,snapshot_json,fetched_at FROM dns_state WHERE domain=?", params,
+                    )
+                    conn.commit()
+                    row = conn.execute(query, params).fetchone()
             if not row:
                 return None
             snap_json, fetched_at = row
@@ -235,9 +251,6 @@ class IpChangeCheck(BaseCheck):
             except Exception:
                 dt = datetime.now(timezone.utc)
             return _Row(domain=self.domain.lower(), snapshot_json=str(snap_json), fetched_at=dt)
-        except sqlite3.OperationalError:
-            # Table likely doesn't exist yet
-            return None
         finally:
             conn.close()
 
@@ -274,31 +287,21 @@ class IpChangeCheck(BaseCheck):
 
         conn = self._connect()
         try:
-            # Ensure table exists (idempotent)
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS dns_state (
-                    domain TEXT PRIMARY KEY,
-                    snapshot_json TEXT NOT NULL,
-                    fetched_at TEXT NOT NULL,
-                    updated_at TEXT
-                )
-                """
+            table = "dns_state" if self._owner_id is None else "owner_dns_state"
+            owner_column = "" if self._owner_id is None else "owner_id,"
+            params = (
+                self.domain.lower(),
+                json.dumps({"ips_v4": ips_v4, "ips_v6": ips_v6}, ensure_ascii=False),
+                now.isoformat(),
             )
+            if self._owner_id is not None:
+                params = (self._owner_id, *params)
             conn.execute(
-                """
-                INSERT INTO dns_state(domain, snapshot_json, fetched_at)
-                VALUES(?,?,?)
-                ON CONFLICT(domain) DO UPDATE SET
-                    snapshot_json=excluded.snapshot_json,
-                    fetched_at=excluded.fetched_at,
-                    updated_at=CURRENT_TIMESTAMP
-                """,
-                (
-                    self.domain.lower(),
-                    json.dumps({"ips_v4": ips_v4, "ips_v6": ips_v6}, ensure_ascii=False),
-                    now.isoformat(),
-                ),
+                f"INSERT INTO {table}({owner_column}domain,snapshot_json,fetched_at) "
+                f"VALUES({','.join('?' for _ in params)}) "
+                f"ON CONFLICT({owner_column}domain) DO UPDATE SET "
+                "snapshot_json=excluded.snapshot_json,fetched_at=excluded.fetched_at,"
+                "updated_at=CURRENT_TIMESTAMP", params,
             )
             conn.commit()
             log.debug(

@@ -120,3 +120,13 @@ def test_empty_port_override_roundtrips_without_activating_global_targets(databa
     override = storage.get_domain_override(2, 'example.com')
     assert override['ports'] == []
     assert resolve_settings(cfg, 'example.com', override).ports == []
+
+
+def test_new_csv_domain_rolls_back_when_its_settings_cannot_be_saved(database):
+    with closing(sqlite3.connect(database)) as connection:
+        connection.execute("""CREATE TRIGGER deny_import_settings BEFORE INSERT ON domain_overrides
+                              BEGIN SELECT RAISE(ABORT, 'synthetic write failure'); END""")
+    with pytest.raises(sqlite3.IntegrityError):
+        import_domains_csv(2, csv_data(domain='paused.example', interval_minutes='0'))
+    assert not storage.domain_exists(2, 'paused.example')
+    assert 2 not in storage.list_users()

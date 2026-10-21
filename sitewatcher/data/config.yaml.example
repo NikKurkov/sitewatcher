@@ -39,6 +39,7 @@ alerts:
 # Other settings retain their defaults. Set one only when needed.
 # http:
 #   proxy: http://proxy.example:3128
+#   max_response_bytes: 8388608     # cumulative wire/decoded page limit, including redirects
 # malware:
 #   vt_api_key: "your-key"
 # rkn:

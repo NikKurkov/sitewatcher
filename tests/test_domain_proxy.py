@@ -147,3 +147,26 @@ def test_dispatcher_target_proxy_overrides_global_proxy(client_factory):
             assert client_factory[1][0]['proxy'] == cfg.defaults.proxy
             assert 'mounts' not in client_factory[1][0]
     asyncio.run(scenario())
+
+
+def test_dispatcher_mapping_transports_preserve_http_tuning(monkeypatch):
+    from sitewatcher import dispatcher as dispatcher_module
+    original = httpx.AsyncHTTPTransport
+    options = []
+    def transport(**kwargs):
+        options.append(kwargs)
+        return original(**kwargs)
+    monkeypatch.setattr(dispatcher_module.httpx, 'AsyncHTTPTransport', transport)
+    cfg = proxy_config()
+    cfg.http.proxies = {
+        'http': 'http://127.0.0.1:3128', 'https': 'http://127.0.0.1:3129',
+    }
+    async def scenario():
+        async with Dispatcher(cfg):
+            pass
+    asyncio.run(scenario())
+    assert len(options) == 2
+    for supplied in options:
+        assert supplied['http2'] is True
+        assert supplied['limits'].max_connections == cfg.http.max_connections
+        assert supplied['limits'].max_keepalive_connections == cfg.http.max_keepalive_connections

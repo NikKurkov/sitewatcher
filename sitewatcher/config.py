@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import logging
+import re
 from copy import deepcopy
 from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path
@@ -135,6 +136,16 @@ class PortSpec(ConfigModel):
     timeout_s: Optional[float] = Field(None, gt=0)
     read_bytes: Optional[int] = Field(None, gt=0)
 
+    @field_validator("expect")
+    @classmethod
+    def valid_expectation(cls, value):
+        if value:
+            try:
+                re.compile(value, flags=re.IGNORECASE | re.MULTILINE)
+            except re.error:
+                raise ValueError("expect must be a valid regular expression") from None
+        return value
+
 
 class PortsConfig(ConfigModel):
     """TCP ports probing defaults and targets."""
@@ -184,6 +195,7 @@ class WhoisConfig(ConfigModel):
 
 class HttpClientConfig(ConfigModel):
     """Optional HTTP client tuning for httpx.AsyncClient."""
+    max_response_bytes: int = Field(8 * 1024 * 1024, gt=0)
     connect_timeout: float = 5.0
     read_timeout: float = 10.0
     write_timeout: float = 10.0
@@ -193,6 +205,17 @@ class HttpClientConfig(ConfigModel):
     proxy: Optional[str] = None
     # optional mapping support; Dispatcher умеет работать с `proxies` как mounts
     proxies: Optional[Dict[str, str]] = None
+
+    _proxy = field_validator("proxy")(_validate_proxy)
+
+    @field_validator("proxies")
+    @classmethod
+    def validate_proxy_mapping(cls, value):
+        for scheme, proxy in (value or {}).items():
+            if scheme.removesuffix("://") not in {"http", "https", "all"}:
+                raise ValueError("proxy mappings must use http, https or all schemes")
+            _validate_proxy(proxy)
+        return value
 
 
 class Defaults(ConfigModel):
@@ -483,6 +506,16 @@ def get_bot_token_from_env() -> Optional[str]:
 def validate_config(cfg: AppConfig) -> None:
     """Validate runtime-critical config invariants. Raise ValueError with a summary on failure."""
     errors: list[str] = []
+
+    # Rebuilding/removing the RKN index must never destroy persistent monitoring/cache state.
+    from .checks.rkn_block_sqlite import rkn_index_path
+    try:
+        index_path = rkn_index_path(cfg.rkn).resolve()
+        if any(path and index_path == Path(path).resolve()
+               for path in (cfg.whois.db_path, cfg.ipchange.db_path)):
+            raise ValueError
+    except (OSError, ValueError):
+        errors.append("rkn.index_db_path must be separate from monitoring, WHOIS and IP-change databases")
 
     # Scheduler
     if cfg.scheduler.interval_minutes <= 0:

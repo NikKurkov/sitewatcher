@@ -32,8 +32,15 @@ async def cmd_cfg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     owner_id = update.effective_user.id
     cfg: AppConfig = context.application.bot_data["cfg"]
 
-    override = storage.get_domain_override(owner_id, domain) or {}
-    settings = resolve_settings(cfg, domain, override)
+    try:
+        override = storage.get_domain_override(owner_id, domain) or {}
+        settings = resolve_settings(cfg, domain, override)
+    except storage.InvalidDomainOverride as error:
+        await msg.reply_text(str(error))
+        return
+    except ValueError as error:
+        await msg.reply_text(validation_message(error))
+        return
     effective = {
         "checks": settings.checks.model_dump(),
         "http_timeout_s": getattr(settings, "http_timeout_s", None),
@@ -192,23 +199,23 @@ async def cmd_cfg_unset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     key = context.args[1].strip() if len(context.args) > 1 else None
     owner_id = update.effective_user.id
-    candidate = deepcopy(storage.get_domain_override(owner_id, domain) or {})
-    if key is None:
-        candidate = {}
-    else:
-        ref = candidate
-        parts = key.split(".")
-        for part in parts[:-1]:
-            ref = ref.get(part, {}) if isinstance(ref, dict) else {}
-        if isinstance(ref, dict):
-            ref.pop(parts[-1], None)
     try:
+        candidate = {} if key is None else deepcopy(storage.get_domain_override(owner_id, domain) or {})
+        if key is not None:
+            ref = candidate
+            parts = key.split(".")
+            for part in parts[:-1]:
+                ref = ref.get(part, {}) if isinstance(ref, dict) else {}
+            if isinstance(ref, dict):
+                ref.pop(parts[-1], None)
         validate_domain_override(context.application.bot_data["cfg"], domain, candidate)
+        storage.unset_domain_override(owner_id, domain, key)
+    except storage.InvalidDomainOverride as error:
+        await msg.reply_text(str(error))
+        return
     except ValueError as error:
         await msg.reply_text(validation_message(error))
         return
-
-    storage.unset_domain_override(owner_id, domain, key)
 
     if msg:
         if key:

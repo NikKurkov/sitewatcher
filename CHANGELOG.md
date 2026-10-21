@@ -8,8 +8,12 @@
 - Make storage updates atomic, preserve concurrent settings changes, and prevent completed jobs from restoring deleted domains.
 - Retry undelivered incident transitions and summaries without consuming their state; serialize concurrent delivery and respect alert toggles.
 - Validate domain settings and YAML before use, preserve explicit zero values, and give safe field-specific error messages.
+- Fail closed on corrupt stored settings; allow an explicit full reset without exposing malformed content.
+- Bound page downloads before decompression, including redirect bodies, and reject incomplete content without reporting a clean result.
+- Save wizard and CSV domain creation together with settings in one transaction, and inherit the configured check defaults.
 - Correct TLS wildcard matching, redirect failure severity, incomplete DNSBL/RKN coverage, WHOIS fallback/cache paths and per-domain HTTP proxies.
 - Preserve IP-change baselines during temporary DNS failures; require completed, valid VirusTotal observations before reporting a clean result.
+- Isolate IP-change baselines by owner and ad hoc scans, preserving legacy cache migration without consuming another owner's change.
 - Fix same-day history filtering, lossless CSV keyword/port round trips, zero history retention and UTC maintenance scheduling.
 - Test supported Python versions 3.12–3.14, including real loopback HTTPS/proxy and cancellation flows.
 - Exclude private YAML, environment files, runtime SQLite sidecars and cache archives from Docker builds; test the installed assets and build boundary with synthetic canaries.

@@ -6,9 +6,12 @@ import logging
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from random import random
+from functools import partial
 from typing import Any, Iterable, Optional
 
 import httpx
+
+from .http_body import bounded_get
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +71,8 @@ async def get_with_retries(
     max_backoff_s: float = 5.0,
     jitter: float = 0.1,
     log_extra: Optional[dict[str, Any]] = None,
+    max_response_bytes: Optional[int] = None,
+    prior_body_bytes: tuple[int, int] = (0, 0),
     **kwargs: Any,
 ) -> httpx.Response:
     """
@@ -100,6 +105,9 @@ async def get_with_retries(
     """
     attempt = 0
     delay = float(backoff_s)
+    get = client.get if max_response_bytes is None else partial(
+        bounded_get, client, max_response_bytes=max_response_bytes, prior_body_bytes=prior_body_bytes,
+    )
 
     while True:
         log.debug(
@@ -113,7 +121,7 @@ async def get_with_retries(
             },
         )
         try:
-            resp = await client.get(
+            resp = await get(
                 url,
                 headers=headers,
                 timeout=timeout_s,

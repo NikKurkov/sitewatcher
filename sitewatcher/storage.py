@@ -74,6 +74,15 @@ CREATE TABLE IF NOT EXISTS dns_state (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS owner_dns_state (
+  owner_id INTEGER NOT NULL,
+  domain TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY(owner_id, domain)
+);
+
 CREATE TABLE IF NOT EXISTS alert_state (
   owner_id INTEGER NOT NULL,
   domain TEXT NOT NULL,
@@ -455,6 +464,10 @@ def upsert_alert_state(owner_id: int, domain: str, last_overall: str, last_sent_
 
 # ---------- Overrides ----------
 
+class InvalidDomainOverride(ValueError):
+    """Stored settings cannot safely be used or merged."""
+
+
 def _read_domain_override(conn: sqlite3.Connection, owner_id: int, domain: str) -> dict | None:
     row = conn.execute(
         "SELECT data_json FROM domain_overrides WHERE owner_id=? AND domain=?",
@@ -464,9 +477,13 @@ def _read_domain_override(conn: sqlite3.Connection, owner_id: int, domain: str) 
         return None
     try:
         data = json.loads(row["data_json"])
-        return data if isinstance(data, dict) else None
-    except (TypeError, ValueError):
-        return None
+        if isinstance(data, dict):
+            return data
+    except (TypeError, ValueError, RecursionError):
+        pass
+    raise InvalidDomainOverride(
+        "Invalid stored domain settings. Reset with /cfg_unset <domain>."
+    ) from None
 
 
 def get_domain_override(owner_id: int, domain: str) -> Optional[dict]:
@@ -489,8 +506,11 @@ def _store_domain_override(conn: sqlite3.Connection, owner_id: int, domain: str,
     )
 
 
-def set_domain_override(owner_id: int, domain: str, patch: dict, *, replace: bool = False) -> dict:
-    """Atomically merge settings for an existing owner's domain."""
+def set_domain_override(
+    owner_id: int, domain: str, patch: dict, *, replace: bool = False,
+    create_missing: bool = False,
+) -> dict:
+    """Atomically merge settings; explicit creation includes the domain in the same transaction."""
     _ensure_initialized()
     domain = (domain or "").strip().lower()
     if not domain:
@@ -504,6 +524,10 @@ def set_domain_override(owner_id: int, domain: str, patch: dict, *, replace: boo
                 dst[k] = v
 
     with _write_connection() as conn:
+        if create_missing:
+            conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES(?)", (int(owner_id),))
+            conn.execute("INSERT OR IGNORE INTO domains(owner_id,name) VALUES(?,?)",
+                         (int(owner_id), domain))
         if not conn.execute(
             "SELECT 1 FROM domains WHERE owner_id=? AND name=?", (int(owner_id), domain),
         ).fetchone():

@@ -190,3 +190,43 @@ def test_dispatcher_cancellation_closes_real_proxy_tunnel(local_certificate):
                         await asyncio.gather(task, return_exceptions=True)
         assert routes == ['target.example:443']
     asyncio.run(scenario())
+
+
+def test_mapping_proxy_enforces_configured_connection_limit(local_certificate):
+    import httpx
+
+    async def scenario():
+        started = asyncio.Event()
+        release = asyncio.Event()
+        calls = 0
+
+        async def origin(reader, writer):
+            nonlocal calls
+            await reader.readuntil(b'\r\n\r\n')
+            calls += 1
+            if calls == 1:
+                started.set()
+                await release.wait()
+            writer.write(b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK')
+            await writer.drain()
+
+        routes = []
+        async with local_server(origin, ssl_context=local_certificate) as origin_port:
+            async with local_server(tunnel_proxy(origin_port, routes)) as proxy_port:
+                cfg = AppConfig()
+                cfg.http = HttpClientConfig(
+                    proxies={'https': f'http://127.0.0.1:{proxy_port}'},
+                    max_connections=1, max_keepalive_connections=1, pool_timeout=0.1,
+                )
+                async with Dispatcher(cfg) as dispatcher:
+                    first = asyncio.create_task(dispatcher._client.get('https://target.example/'))
+                    try:
+                        await asyncio.wait_for(started.wait(), timeout=5)
+                        with pytest.raises(httpx.PoolTimeout):
+                            await dispatcher._client.get('https://target.example/')
+                    finally:
+                        release.set()
+                        response = await first
+                        assert response.status_code == 200
+        assert routes == ['target.example:443']
+    asyncio.run(scenario())

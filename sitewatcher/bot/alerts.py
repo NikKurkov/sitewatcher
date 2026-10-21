@@ -183,13 +183,12 @@ def _is_fresh_ok_for_all(
         for r in current_results if not getattr(r, "cached", False)
     }
 
-    # Optional per-domain override for a common interval
+    # A failed settings read cannot confirm that a recovery is fresh.
     try:
         override = storage.get_domain_override(owner_id, domain) or {}
+        domain_iv = resolve_settings(cfg, domain, override).interval_minutes
     except Exception:
-        override = {}
-
-    domain_iv = resolve_settings(cfg, domain, override).interval_minutes
+        return False
 
     # Check all enabled checks
     for check in enabled_checks:

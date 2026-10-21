@@ -38,7 +38,7 @@ def _domain_snapshot(cfg, name, raw_override, histories, now):
         if raw_override is not None and not isinstance(override, dict):
             raise ValueError('Invalid override')
         settings = resolve_settings(cfg, name, override)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RecursionError):
         row['error'] = 'Invalid domain settings'
         return row
 

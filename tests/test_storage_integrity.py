@@ -128,17 +128,28 @@ def test_concurrent_nested_unset_and_patches_preserve_every_change(database):
     }
 
 
-@pytest.mark.parametrize("raw", ["[]", "false", '"text"', "{invalid"])
-def test_invalid_stored_override_is_ignored_and_can_be_replaced(database, raw):
+@pytest.mark.parametrize("raw", ["[]", "false", '"private-text"', "{private-invalid", "null"])
+def test_invalid_stored_override_rejects_reads_and_edits_until_explicit_repair(database, raw):
     storage.add_domain(1, "example.com")
     with closing(sqlite3.connect(database)) as conn, conn:
         conn.execute(
             "INSERT INTO domain_overrides(owner_id, domain, data_json) VALUES(?, ?, ?)",
             (1, "example.com", raw),
         )
-    assert storage.get_domain_override(1, "example.com") is None
-    storage.unset_domain_override(1, "example.com", "checks.ping")
-    assert storage.set_domain_override(1, "example.com", {"ports": [443]}) == {"ports": [443]}
+    for operation in (
+        lambda: storage.get_domain_override(1, "example.com"),
+        lambda: storage.unset_domain_override(1, "example.com", "checks.ping"),
+        lambda: storage.set_domain_override(1, "example.com", {"ports": [443]}),
+    ):
+        with pytest.raises(ValueError) as caught:
+            operation()
+        assert "private" not in str(caught.value)
+    with closing(sqlite3.connect(database)) as conn:
+        assert conn.execute("SELECT data_json FROM domain_overrides").fetchone()[0] == raw
+    assert storage.get_domain_override(2, "example.com") is None
+    assert storage.set_domain_override(1, "example.com", {"ports": [443]}, replace=True) == {
+        "ports": [443],
+    }
 
 
 @pytest.mark.parametrize('cutoff', [

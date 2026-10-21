@@ -145,3 +145,30 @@ def test_rkn_legacy_parser_index_is_rebuilt_before_confirming_clean(tmp_path, mo
         return_value='example.test',
     ))
     assert asyncio.run(check.run()).status is Status.CRIT
+
+
+@pytest.mark.parametrize('html', [
+    '<!doctype html><html><a href=https://example.com>error</a></html>',
+    '<HTML><a href="https://example.com">maintenance</a></HTML>',
+    '\ufeff \n<!DOCTYPE HTML><html><a href="https://example.com">error</a></html>',
+])
+def test_rkn_html_error_page_does_not_replace_registry_index(tmp_path, monkeypatch, html):
+    check = checker(tmp_path)
+    fetched = datetime.now(timezone.utc) - timedelta(days=2)
+    check._rebuild_index('old.example;192.0.2.1', fetched)
+    monkeypatch.setattr(check, '_download_dump_with_fallbacks', AsyncMock(return_value=html))
+    result = asyncio.run(check.run())
+    assert result.status is Status.UNKNOWN
+    assert check._query_domain_match('old.example', False) == 'old.example'
+    assert check._query_ip_matches(['192.0.2.1']) == ['192.0.2.1']
+    assert check._read_meta_fetched_at() == fetched
+
+
+def test_direct_rkn_index_path_cannot_target_main_storage(tmp_path, monkeypatch):
+    from sitewatcher import storage
+    from sitewatcher.checks.rkn_block_sqlite import rkn_index_path
+    main = tmp_path / 'monitor.db'
+    monkeypatch.setattr(storage, 'DEFAULT_DB', main)
+    with pytest.raises(ValueError):
+        rkn_index_path(RknConfig(index_db_path=str(main)))
+    assert not main.exists()

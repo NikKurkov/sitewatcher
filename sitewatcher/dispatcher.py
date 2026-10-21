@@ -11,6 +11,7 @@ from typing import Iterable, List, Optional, Tuple
 import httpx
 
 from . import storage
+from .utils.http_body import DEFAULT_MAX_RESPONSE_BYTES
 from .utils.results import overall_from_results, status_text, strip_cached_suffix
 from .checks.base import CheckOutcome, Status
 from .checks.deface import DefaceCheck
@@ -115,7 +116,8 @@ class Dispatcher:
                 client_kwargs["proxy"] = proxies
             else:
                 client_kwargs["mounts"] = {
-                    scheme: httpx.AsyncHTTPTransport(proxy=url) for scheme, url in proxies.items()
+                    scheme: httpx.AsyncHTTPTransport(proxy=url, http2=True, limits=limits)
+                    for scheme, url in proxies.items()
                 }
 
         self._client = httpx.AsyncClient(http2=True, **client_kwargs)
@@ -154,7 +156,7 @@ class Dispatcher:
 
         settings = resolve_settings(self.cfg, domain) if ephemeral else self._resolve(owner_id, domain)
         use_cache = use_cache and not ephemeral
-        all_checks = self._build_checks(settings)
+        all_checks = self._build_checks(settings, owner_id=0 if ephemeral else owner_id)
         checks = self._filter_checks(all_checks, only_checks)
 
         if not checks:
@@ -335,15 +337,16 @@ class Dispatcher:
                     "error_type": e.__class__.__name__,
                 },
             )
-            patch = {}
+            raise
 
         return resolve_settings(self.cfg, domain, patch)
 
-    def _build_checks(self, settings: ResolvedSettings) -> List:
+    def _build_checks(self, settings: ResolvedSettings, *, owner_id: int | None = None) -> List:
         """Instantiate enabled checks based on resolved settings."""
         assert self._client is not None
 
         target_client = self._client
+        max_response_bytes = getattr(self.cfg.http, "max_response_bytes", DEFAULT_MAX_RESPONSE_BYTES)
         proxy = _validate_proxy(settings.proxy)
         if proxy and any(
             getattr(settings.checks, name, False) for name in ("http_basic", "keywords", "deface")
@@ -361,6 +364,7 @@ class Dispatcher:
                 HttpBasicCheck(
                     settings.name,
                     client=target_client,
+                    max_response_bytes=max_response_bytes,
                     timeout_s=settings.http_timeout_s,
                     latency_warn_ms=settings.latency_warn_ms,
                     latency_crit_ms=settings.latency_crit_ms,
@@ -376,6 +380,7 @@ class Dispatcher:
                 KeywordsCheck(
                     settings.name,
                     client=target_client,
+                    max_response_bytes=max_response_bytes,
                     timeout_s=settings.http_timeout_s,
                     keywords=settings.keywords,
                 )
@@ -399,7 +404,8 @@ class Dispatcher:
             else:
                 log.debug("DefaceCheck: no phrases_path configured; using built-in defaults")
 
-            out.append(DefaceCheck(settings.name, client=target_client, timeout_s=timeout_s, markers=markers))
+            out.append(DefaceCheck(settings.name, client=target_client, timeout_s=timeout_s,
+                                  markers=markers, max_response_bytes=max_response_bytes))
         else:
             log.debug("DefaceCheck: disabled for %s", settings.name)
 
@@ -432,7 +438,7 @@ class Dispatcher:
             )
 
         if getattr(settings.checks, "ip_change", False):
-            out.append(IpChangeCheck(settings.name, cfg=self.cfg.ipchange))
+            out.append(IpChangeCheck(settings.name, cfg=self.cfg.ipchange, owner_id=owner_id))
 
         # Malware reputation check (VirusTotal passive lookup) — now with strict rate limiting
         if getattr(settings.checks, "malware", False):

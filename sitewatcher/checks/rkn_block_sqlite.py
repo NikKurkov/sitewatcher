@@ -31,7 +31,10 @@ _IP_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 
 
 def rkn_index_path(cfg: RknConfig) -> Path:
-    return Path(cfg.index_db_path) if cfg.index_db_path else storage.DEFAULT_DB.with_name("z_i_index.db")
+    path = Path(cfg.index_db_path) if cfg.index_db_path else storage.DEFAULT_DB.with_name("z_i_index.db")
+    if path.resolve() == storage.DEFAULT_DB.resolve():
+        raise ValueError("RKN index must be separate from the monitoring database")
+    return path
 
 
 class RknBlockCheck(BaseCheck):
@@ -305,6 +308,8 @@ class RknBlockCheck(BaseCheck):
 
     def _rebuild_index(self, csv_text: str, fetched_at: datetime) -> None:
         """Create/replace SQLite DB from parsed dump text."""
+        if re.match(r"\s*(?:<!doctype\s+html\b|<html\b)", csv_text.lstrip("\ufeff"), re.IGNORECASE):
+            raise ValueError("z-i source returned an HTML page instead of a registry dump")
         dom_seen, ip_seen = self._parse_dump(csv_text)
         if not dom_seen and not ip_seen:
             raise ValueError("z-i dump contains no valid domains or IPv4 addresses")
