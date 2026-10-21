@@ -24,7 +24,7 @@ def test_private_health_and_hosts(web_database, client, settings):
     assert "default-src 'self'" in response['Content-Security-Policy']
     assert "frame-ancestors 'none'" in response['Content-Security-Policy']
     assert client.get('/healthz', HTTP_HOST='attacker.example').status_code == 400
-    assert client.get('/', HTTP_HOST='localhost').status_code == 404
+    assert client.get('/', HTTP_HOST='localhost').status_code == 302
     assert settings.SECRET_KEY.encode() not in response.content
 
 

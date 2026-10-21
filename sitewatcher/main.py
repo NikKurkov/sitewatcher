@@ -32,7 +32,7 @@ from .utils.results import (
 def _parse_args() -> argparse.Namespace:
     """Parse monitoring, diagnostics and local dashboard arguments."""
     p = argparse.ArgumentParser(description="sitewatcher CLI")
-    p.add_argument("mode", choices=["bot", "check_all", "check_domain", "scan", "doctor", "web"], help="Run mode")
+    p.add_argument("mode", choices=["bot", "check_all", "check_domain", "scan", "doctor", "web", "setup", "password"], help="Run mode")
     p.add_argument("--json", action="store_true", help="Print doctor diagnostics as JSON")
     p.add_argument("--read-only", action="store_true", help="Disable web management; viewing only")
     p.add_argument("--port", type=int, default=8080, help="Local dashboard port (web mode)")
@@ -195,6 +195,24 @@ def main() -> None:
         validate_config(cfg)
     except (OSError, ValueError) as error:
         raise SystemExit(validation_message(error)) from None
+    if args.mode in {"setup", "password"}:
+        from django.db import DatabaseError
+        from .webapp.bootstrap import configure_web, migrate_web_database
+        try:
+            configure_web(cfg)
+            migrate_web_database()
+            from .webapp.accounts import reset_password, setup_owner
+            if args.mode == "setup":
+                setup_owner(owner_id=args.owner)
+            else:
+                if args.owner is not None:
+                    raise ValueError("password does not accept --owner")
+                reset_password()
+        except (DatabaseError, OSError, sqlite3.Error):
+            raise SystemExit("Cannot update local account; check database permissions and setup") from None
+        except (ValueError, EOFError) as error:
+            raise SystemExit(str(error) or "Account input was cancelled") from None
+        return
     if args.mode == "web":
         if args.owner is None or args.owner <= 0:
             raise SystemExit("web requires --owner with a positive Telegram user ID")

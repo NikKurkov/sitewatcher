@@ -1,4 +1,6 @@
 """Private-by-default Django settings; runtime secrets are loaded by bootstrap."""
+from datetime import timedelta
+
 from sitewatcher import storage
 
 DEBUG = False
@@ -10,6 +12,7 @@ INSTALLED_APPS = [
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
+    'axes',
     'sitewatcher.webapp.apps.WebappConfig',
 ]
 MIDDLEWARE = [
@@ -20,6 +23,7 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'axes.middleware.AxesMiddleware',
 ]
 DATABASES = {
     'default': {
@@ -48,3 +52,28 @@ CSRF_COOKIE_SECURE = False
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = 'same-origin'
 X_FRAME_OPTIONS = 'DENY'
+
+LOGIN_URL = '/login/'
+LOGIN_REDIRECT_URL = '/'
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+AUTHENTICATION_BACKENDS = [
+    'axes.backends.AxesStandaloneBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+AUTH_PASSWORD_VALIDATORS = [
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+     'OPTIONS': {'min_length': 12}},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
+]
+AXES_HANDLER = 'axes.handlers.database.AxesDatabaseHandler'
+AXES_FAILURE_LIMIT = 5
+AXES_COOLOFF_TIME = timedelta(minutes=15)
+AXES_LOCKOUT_PARAMETERS = [['username', 'ip_address']]
+AXES_IPWARE_META_PRECEDENCE_ORDER = ('REMOTE_ADDR',)
+AXES_RESET_ON_SUCCESS = True
+AXES_LOCKOUT_CALLABLE = 'sitewatcher.webapp.accounts.locked_out'
+AXES_SENSITIVE_PARAMETERS = ['username', 'ip_address', 'password', 'csrfmiddlewaretoken']
+AXES_VERBOSE = False
+AXES_DISABLE_ACCESS_LOG = True
