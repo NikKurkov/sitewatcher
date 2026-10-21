@@ -16,16 +16,23 @@ _LABELS = {"OK": "Healthy", "WARN": "Warning", "CRIT": "Critical", "UNKNOWN": "N
 
 
 def _theme(value: str) -> str:
-    return value if value in {"light", "dark", "system"} else "system"
+    return "dark" if value == "dark" else "light"
 
 
 def theme_controls(theme: str, next_path: str = "/") -> str:
-    links = []
-    for mode, label in (("light", "Day"), ("dark", "Night"), ("system", "System")):
-        query = html.escape(urlencode({"mode": mode, "next": next_path}), quote=True)
-        current = ' aria-current="true"' if mode == _theme(theme) else ''
-        links.append(f'<a href="/theme?{query}" data-theme-choice="{mode}"{current}>{label}</a>')
-    return '<nav class="theme-controls" aria-label="Color theme">' + ''.join(links) + '</nav>'
+    dark = _theme(theme) == "dark"
+    mode = "light" if dark else "dark"
+    next_path = html.escape(next_path, quote=True)
+    return (
+        '<form class="theme-controls" method="get" action="/theme">'
+        '<span aria-hidden="true">☀</span>'
+        f'<input type="hidden" name="next" value="{next_path}">'
+        f'<button class="theme-switch" type="submit" name="mode" value="{mode}"'
+        f' role="switch" aria-checked="{str(dark).lower()}"'
+        ' aria-label="Night mode" title="Day / Night">'
+        '<span class="theme-thumb" aria-hidden="true"></span></button>'
+        '<span aria-hidden="true">☾</span></form>'
+    )
 
 
 def _badge(status: str) -> str:
@@ -101,7 +108,7 @@ def _domain_card(domain: dict, csrf_token: str | None = None) -> str:
 
 def render_dashboard(snapshot: dict, query: str = "", status: str = "all", *,
                      auto_refresh: bool = True, csrf_token: str | None = None,
-                     notice: str = "", theme: str = "system") -> str:
+                     notice: str = "", theme: str = "light") -> str:
     """Render one owner-scoped snapshot with server-side search and filters."""
     if status not in FILTERS:
         raise ValueError("Unknown status filter")

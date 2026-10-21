@@ -44,6 +44,9 @@ def test_management_views_use_native_forms_without_refresh_or_inline_scripts(vie
     assert '/style.css' in page
     assert ('<label' in page) if view != 'history' else ('No saved' in page)
     for form in Forms(page).forms:
+        if form['action'] == '/theme':
+            assert form['method'] == 'get'
+            continue
         assert form['method'] == 'post'
         assert {'type': 'hidden', 'name': 'csrf_token', 'value': 'test-token'} in form['inputs']
 
@@ -97,9 +100,12 @@ def test_all_management_pages_offer_safe_theme_switching():
     from sitewatcher.management import render_management
     page = render_management('edit', settings(), 'token', theme='dark')
     assert 'data-theme="dark"' in page
-    assert '/theme?mode=light' in page and '/theme?mode=system' in page
+    assert 'role="switch" aria-checked="true"' in page
+    assert 'name="mode" value="light"' in page
+    assert page.index('>☀</span>') < page.index('class="theme-switch"') < page.index('>☾</span>')
+    assert '🖥' not in page and 'mode=system' not in page
     page = render_management('edit', settings(), 'token', theme='"><unsafe>')
-    assert 'data-theme="system"' in page and '<unsafe>' not in page
+    assert 'data-theme="light"' in page and '<unsafe>' not in page
 
 
 def test_edit_form_includes_revision_for_stale_update_protection():

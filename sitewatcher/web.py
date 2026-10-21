@@ -18,7 +18,7 @@ from .config import AppConfig
 from .dispatcher import Dispatcher
 
 _VIEW_STATUSES = {'all', 'problems', 'ok', 'warn', 'crit', 'unknown', 'paused', 'stale'}
-_THEMES = {'light', 'dark', 'system'}
+_THEMES = {'light', 'dark'}
 _PAGES = {'/domains/new': 'add', '/domains/edit': 'edit', '/domains/delete': 'delete',
           '/domains/history': 'history', '/workspace': 'workspace', '/import': 'import'}
 _MAX_FORM_BYTES = 1024 * 1024
@@ -128,10 +128,10 @@ def create_server(cfg: AppConfig, owner_id: int, *, port: int = 8080,
         def _theme(self):
             try:
                 cookie = SimpleCookie(self.headers.get('Cookie', ''))
-                value = cookie['sitewatcher_theme'].value if 'sitewatcher_theme' in cookie else 'system'
-                return value if value in _THEMES else 'system'
+                value = cookie['sitewatcher_theme'].value if 'sitewatcher_theme' in cookie else 'light'
+                return value if value in _THEMES else 'light'
             except CookieError:
-                return 'system'
+                return 'light'
 
         def _redirect(self, notice='', *, location=None, headers=None):
             target = location or '/?' + urlencode({'notice': notice})
@@ -168,7 +168,7 @@ def create_server(cfg: AppConfig, owner_id: int, *, port: int = 8080,
                 if status not in _VIEW_STATUSES:
                     raise ValueError('Invalid status')
                 if path == '/theme':
-                    theme = query.get('mode', 'system')
+                    theme = query.get('mode', 'light')
                     target = query.get('next', '/')
                     parsed = urlsplit(target)
                     if (theme not in _THEMES or parsed.scheme or parsed.netloc or parsed.fragment

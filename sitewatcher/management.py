@@ -109,7 +109,7 @@ def _settings(view: str, context: dict, token: str) -> str:
 
 
 def render_management(view: str, context: dict, csrf_token: str, *, error: str = '',
-                      theme: str = 'system') -> str:
+                      theme: str = 'light') -> str:
     """Render escaped settings, confirmation, history, import or workspace forms."""
     titles = {'add': 'Add domain', 'edit': 'Edit domain', 'delete': 'Remove domain',
               'history': 'Recent check history', 'import': 'Import domain CSV',

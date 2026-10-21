@@ -117,6 +117,7 @@ def test_theme_cookie_persists_across_pages_without_data_writes(management_serve
         code, _, body = request(server, path, headers={'Cookie': cookie})
         assert code == 200 and b'data-theme="dark"' in body
     assert request(server, '/theme?mode=invalid')[0] == 400
+    assert request(server, '/theme?mode=system')[0] == 400
     assert request(server, '/theme?mode=dark&next=https://evil.example')[0] == 400
     assert storage.DEFAULT_DB.read_bytes() == before
 
