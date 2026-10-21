@@ -10,6 +10,8 @@ venv/
 sitewatcher/pyvenv.cfg
 
 # Secrets & local env
+*.telegram-token
+.telegram-token-*
 *.web-secret
 .web-secret-*
 .env

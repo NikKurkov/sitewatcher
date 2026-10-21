@@ -3,6 +3,7 @@ from email import policy
 from email.parser import BytesParser
 from urllib.parse import parse_qs
 
+from django import forms
 from django.contrib.auth.forms import AuthenticationForm
 from django.core.exceptions import ValidationError
 
@@ -42,3 +43,50 @@ def parse_management_form(content_type: str, body: bytes) -> dict[str, str]:
             raise ValueError('Invalid form field')
         values[name] = (part.get_payload(decode=True) or b'').decode('utf-8-sig')
     return values
+
+
+class WorkspacePreferencesForm(forms.Form):
+    """Validate optional patches so a timezone save never resets Telegram settings."""
+    timezone = forms.CharField(label='Timezone', max_length=64, required=False,
+                               help_text='Use an IANA name such as Europe/Moscow or America/New_York.')
+    enabled = forms.ChoiceField(label='Telegram notifications', required=False,
+                               choices=[('on', 'Enabled'), ('off', 'Disabled')])
+    chat_id = forms.IntegerField(label='Chat ID', required=False,
+                                 min_value=-(2**63) + 1, max_value=2**63 - 1,
+                                 widget=forms.TextInput(attrs={'inputmode': 'numeric'}))
+    bot_token = forms.CharField(label='New bot token', required=False, max_length=224,
+                                widget=forms.PasswordInput(render_value=False, attrs={
+                                    'autocomplete': 'new-password', 'spellcheck': 'false',
+                                }))
+
+    def clean_timezone(self):
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        value = self.cleaned_data['timezone']
+        if 'timezone' in self.data:
+            try:
+                ZoneInfo(value)
+            except (ValueError, ZoneInfoNotFoundError):
+                raise ValidationError('Choose a valid IANA timezone, for example Europe/Moscow.') from None
+        return value
+
+    def clean_enabled(self):
+        value = self.cleaned_data['enabled']
+        if 'enabled' in self.data and not value:
+            raise ValidationError('Choose Enabled or Disabled.')
+        return value
+
+    def clean_chat_id(self):
+        value = self.cleaned_data['chat_id']
+        if value == 0:
+            raise ValidationError('Enter a nonzero numeric Telegram chat ID.')
+        return value
+
+    def clean_bot_token(self):
+        from sitewatcher.telegram_connection import validate_bot_token
+        value = self.cleaned_data['bot_token']
+        if value:
+            try:
+                return validate_bot_token(value)
+            except ValueError as error:
+                raise ValidationError(str(error)) from None
+        return ''

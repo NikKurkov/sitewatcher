@@ -1,0 +1,122 @@
+"""Owner settings share the existing delivery preferences and UTC monitoring data."""
+import asyncio
+
+from django.conf import settings
+from django.http import HttpResponse
+from django.shortcuts import render
+from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
+from django.views.decorators.http import require_http_methods
+
+from sitewatcher import storage
+from sitewatcher.bot.utils import _resolve_alert_chat_id
+from sitewatcher.telegram_connection import (
+    find_chats, load_bot_token, save_bot_token, send_test_notification,
+)
+from .accounts import owner_required
+from .forms import WorkspacePreferencesForm
+
+
+def _destination(cfg, owner_id):
+    chat_id = _resolve_alert_chat_id(None, None, cfg, owner_id)
+    configured = getattr(cfg.alerts, 'chat_id', None)
+    if isinstance(configured, int) and configured:
+        source = 'installation'
+    elif storage.get_user_alert_chat_id(owner_id):
+        source = 'workspace'
+    elif chat_id:
+        source = 'environment'
+    else:
+        source = 'missing'
+    return chat_id, source
+
+
+@sensitive_variables('token')
+def _render(request, form=None, *, error='', notice='', chats=None, status=200):
+    owner_id = request.workspace.owner_id
+    destination, source = _destination(settings.SITEWATCHER_CONFIG, owner_id)
+    if form is None:
+        form = WorkspacePreferencesForm(initial={
+            'timezone': request.workspace.timezone,
+            'enabled': 'on' if storage.is_user_alerts_enabled(owner_id) else 'off',
+            'chat_id': storage.get_user_alert_chat_id(owner_id),
+        })
+    try:
+        token = load_bot_token()
+        token_present = bool(token)
+    except (OSError, ValueError):
+        token_present = False
+        error = error or 'The saved Telegram connection could not be read. Save a new bot token.'
+    import os
+    response = render(request, 'sitewatcher/preferences.html', {
+        'form': form, 'read_only': settings.SITEWATCHER_READ_ONLY,
+        'token_present': token_present, 'environment_override': bool(os.getenv('TELEGRAM_TOKEN', '').strip()),
+        'destination': destination, 'destination_source': source,
+        'alerts_enabled': storage.is_user_alerts_enabled(owner_id),
+        'error': error, 'notice': notice, 'chats': chats or [],
+    }, status=status)
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+@owner_required
+@require_http_methods(['GET', 'HEAD', 'POST'])
+@sensitive_post_parameters('bot_token')
+@sensitive_variables('token', 'fields', 'form')
+def preferences(request):
+    if request.method != 'POST':
+        if set(request.GET) - {'saved'} or any(len(v) != 1 for _, v in request.GET.lists()):
+            return HttpResponse('Invalid request', status=400)
+        return _render(request, notice='Settings saved.' if request.GET.get('saved') == '1' else '')
+    if settings.SITEWATCHER_READ_ONLY:
+        return HttpResponse('Read-only workspace', status=405, headers={'Allow': 'GET, HEAD'})
+    fields = dict(request.management_form)
+    fields.pop('csrfmiddlewaretoken', None)
+    action = fields.pop('action', 'save')
+    if (request.GET or set(fields) - set(WorkspacePreferencesForm.base_fields)
+            or action not in {'save', 'test', 'find_chats'} or action != 'save' and fields):
+        return HttpResponse('Invalid request', status=400)
+    if action == 'save':
+        form = WorkspacePreferencesForm(fields)
+        if not form.is_valid():
+            return _render(request, form, status=400)
+        try:
+            # Empty connection fields retain the existing configuration.
+            if form.cleaned_data['bot_token']:
+                save_bot_token(form.cleaned_data['bot_token'])
+            if 'enabled' in fields:
+                storage.set_user_alerts_enabled(request.workspace.owner_id,
+                                                form.cleaned_data['enabled'] == 'on')
+            if form.cleaned_data['chat_id'] is not None:
+                storage.set_user_alert_chat_id(request.workspace.owner_id,
+                                               form.cleaned_data['chat_id'])
+            if 'timezone' in fields:
+                request.workspace.timezone = form.cleaned_data['timezone']
+                request.workspace.save(update_fields=['timezone'])
+        except Exception:
+            return _render(request, form, error='Settings could not be saved. Reload and check before retrying.',
+                           status=503)
+        return HttpResponse(status=303, headers={'Location': '/settings?saved=1'})
+    try:
+        token = load_bot_token()
+    except (OSError, ValueError):
+        return _render(request, error='The saved Telegram connection could not be read. Save a new bot token.',
+                       status=400)
+    if not token:
+        return _render(request, error='Add a bot token before connecting to Telegram.', status=400)
+    try:
+        if action == 'find_chats':
+            chats = asyncio.run(find_chats(token))
+            notice = ('Choose a chat below, then save it as your destination.' if chats else
+                      'No chats found. Send /start to your bot and try again, or enter a chat ID in Advanced.')
+            return _render(request, chats=chats, notice=notice)
+        destination, _ = _destination(settings.SITEWATCHER_CONFIG, request.workspace.owner_id)
+        if destination is None:
+            return _render(request, error='Choose a chat destination before sending a test.', status=400)
+        asyncio.run(send_test_notification(token, destination))
+        return _render(request, notice='Test notification sent to the effective destination shown below.')
+    except Exception:
+        # Never echo an exception: client errors can contain the credential-bearing URL.
+        return _render(request, error=(
+            'Telegram could not complete the request. Check the token and destination. '
+            'If finding chats, another process may be polling or a webhook may be enabled; '
+            'enter a chat ID in Advanced, or stop polling before trying again.'), status=400)

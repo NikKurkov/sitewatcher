@@ -1572,3 +1572,17 @@ input[type=file] {
   margin-top: 20px;
   font-size: 12px;
 }
+
+.preferences-form fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.preferences-form legend {
+  font-size: 20px;
+  font-weight: 600;
+  padding: 0;
+  margin-bottom: 20px;
+}

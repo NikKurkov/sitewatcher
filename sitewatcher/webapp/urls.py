@@ -5,7 +5,7 @@ from django.http import Http404, HttpResponse, JsonResponse
 from django.urls import path
 from django.views.decorators.http import require_safe
 
-from . import auth_views, domains
+from . import auth_views, domains, preferences
 
 ASSETS = {
     'workspace.css': 'text/css; charset=utf-8',
@@ -42,7 +42,8 @@ urlpatterns += [
     path('domains/edit', domains.management, {'view': 'edit'}),
     path('domains/delete', domains.management, {'view': 'delete'}),
     path('domains/history', domains.management, {'view': 'history'}),
-    path('workspace', domains.management, {'view': 'workspace'}),
+    path('workspace', preferences.preferences),
+    path('settings', preferences.preferences, name='settings'),
     path('import', domains.management, {'view': 'import'}),
     path('export.csv', domains.export),
     path('theme', domains.theme),

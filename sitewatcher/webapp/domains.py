@@ -320,7 +320,7 @@ def theme(request):
         parsed = urlsplit(target)
         if (mode not in {'light', 'dark'} or parsed.scheme or parsed.netloc or parsed.fragment
                 or parsed.path not in {'/', '/domains/new', '/domains/edit', '/domains/delete',
-                                       '/domains/history', '/workspace', '/import', '/login/', '/password/'}
+                                       '/domains/history', '/workspace', '/settings', '/import', '/login/', '/password/'}
                 or any(ord(char) < 32 or char == chr(92) for char in target)):
             raise ValueError('Invalid theme')
     except ValueError:

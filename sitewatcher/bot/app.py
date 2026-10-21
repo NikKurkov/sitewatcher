@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 def run_bot(cfg: AppConfig) -> None:
     token = get_bot_token_from_env()
     if not token:
-        raise RuntimeError("TELEGRAM_TOKEN is not set in environment (.env)")
+        raise RuntimeError("Telegram is not configured; connect a bot in workspace Settings or set TELEGRAM_TOKEN")
 
     allowed_ids = _parse_allowed_user_ids()
 

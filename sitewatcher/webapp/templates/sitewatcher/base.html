@@ -12,7 +12,7 @@
 <a class="skip-link" href="#content">Skip to content</a>
 <header class="topbar"><div class="topbar-inner">
   <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">◉</span> SiteWatcher</a>
-  {% if user.is_authenticated %}<nav class="main-nav" aria-label="Main navigation"><a href="/" {% if request.path == '/' %}aria-current="page"{% endif %}>Overview</a><a href="/workspace" {% if request.path == '/workspace' %}aria-current="page"{% endif %}>Settings</a></nav>{% endif %}
+  {% if user.is_authenticated %}<nav class="main-nav" aria-label="Main navigation"><a href="/" {% if request.path == '/' %}aria-current="page"{% endif %}>Overview</a><a href="/workspace" {% if request.path == '/workspace' or request.path == '/settings' %}aria-current="page"{% endif %}>Settings</a></nav>{% endif %}
   <form class="theme-controls" method="get" action="/theme">
     <span aria-hidden="true">☀</span><input type="hidden" name="next" value="{{ request.get_full_path }}">
     <button class="theme-switch" type="submit" name="mode" value="{% if request.COOKIES.sitewatcher_theme == 'dark' %}light{% else %}dark{% endif %}" role="switch" aria-label="Dark theme" aria-checked="{% if request.COOKIES.sitewatcher_theme == 'dark' %}true{% else %}false{% endif %}"><span></span></button><span aria-hidden="true">☾</span>

@@ -497,8 +497,9 @@ def validation_message(error: Exception) -> str:
 
 
 def get_bot_token_from_env() -> Optional[str]:
-    """Best-effort Telegram token reader (returns None if unset)."""
-    return os.getenv("TELEGRAM_TOKEN")
+    """Compatibility name: read the environment override or private connection file."""
+    from .telegram_connection import load_bot_token
+    return load_bot_token()
 
 
 # -------------------------- Validation helpers --------------------------

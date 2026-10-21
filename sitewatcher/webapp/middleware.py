@@ -29,7 +29,7 @@ class ManagementBodyMiddleware:
         if request.method == 'POST' and request.path in {
             '/domains/new', '/domains/edit', '/domains/add', '/domains/save',
             '/domains/delete', '/domains/pause', '/domains/resume', '/domains/reset',
-            '/domains/check', '/workspace', '/alerts', '/import',
+            '/domains/check', '/workspace', '/settings', '/alerts', '/import',
         }:
             try:
                 length = request.META.get('CONTENT_LENGTH', '')

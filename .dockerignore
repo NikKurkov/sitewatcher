@@ -27,3 +27,13 @@ build
 dist
 docs
 tests
+
+# Runtime credentials must never enter the build context.
+*.web-secret
+**/*.web-secret
+.web-secret-*
+**/.web-secret-*
+*.telegram-token
+**/*.telegram-token
+.telegram-token-*
+**/.telegram-token-*

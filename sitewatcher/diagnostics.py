@@ -72,13 +72,19 @@ def diagnose(config_path=None) -> dict:
         access = {'ok': False, 'mode': 'invalid', 'count': 0,
                   'error': 'TELEGRAM_ALLOWED_USER_IDS must contain positive numeric user IDs'}
     database = _database_report()
+    telegram = {'token_present': False, 'access': access}
+    try:
+        telegram['token_present'] = bool(get_bot_token_from_env())
+    except (OSError, ValueError):
+        telegram['error'] = ('Telegram token file is invalid or unreadable; '
+                             'check its contents and mode 0600 permissions.')
     return {
-        'ok': config['ok'] and database['ok'] and access['ok'],
+        'ok': config['ok'] and database['ok'] and access['ok'] and 'error' not in telegram,
         'python': platform.python_version(),
         'sqlite': sqlite3.sqlite_version,
         'config': config,
         'database': database,
-        'telegram': {'token_present': bool(get_bot_token_from_env()), 'access': access},
+        'telegram': telegram,
     }
 
 
@@ -102,4 +108,6 @@ def format_diagnostics(report: dict) -> str:
         lines.append(database['error'])
     if access.get('error'):
         lines.append(access['error'])
+    if telegram.get('error'):
+        lines.append(telegram['error'])
     return '\n'.join(lines)
