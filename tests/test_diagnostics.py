@@ -140,16 +140,21 @@ def test_live_wal_database_is_checked_without_changing_database_bytes(diagnostic
         assert (storage.DEFAULT_DB.read_bytes(), wal_path.read_bytes()) == before
 
 
-def test_missing_wal_metadata_does_not_create_sidecars(diagnostic_environment):
+def test_malformed_database_and_wal_are_preserved_with_only_reader_metadata(diagnostic_environment):
     from sitewatcher.diagnostics import diagnose
 
     storage.DEFAULT_DB.write_bytes(b'example database')
     wal_path = storage.DEFAULT_DB.with_name(storage.DEFAULT_DB.name + '-wal')
     wal_path.write_bytes(b'example journal')
     files_before = set(storage.DEFAULT_DB.parent.iterdir())
+    before = storage.DEFAULT_DB.read_bytes(), wal_path.read_bytes()
     report = diagnose(diagnostic_environment)
     assert report['ok'] is False
-    assert set(storage.DEFAULT_DB.parent.iterdir()) == files_before
+    assert (storage.DEFAULT_DB.read_bytes(), wal_path.read_bytes()) == before
+    shm_path = storage.DEFAULT_DB.with_name(storage.DEFAULT_DB.name + '-shm')
+    assert set(storage.DEFAULT_DB.parent.iterdir()) - files_before <= {shm_path}
+
+
 def test_doctor_cli_json_is_sanitized_and_does_not_initialize_database(tmp_path):
     import json
     import os
@@ -183,3 +188,95 @@ def test_existing_database_requires_file_write_access(tmp_path, monkeypatch):
     assert report["database"]["file_writable"] is False
 
 
+def test_quiescent_wal_read_preserves_application_data_with_only_sqlite_metadata(
+    diagnostic_environment,
+):
+    from sitewatcher.diagnostics import diagnose
+
+    path = storage.DEFAULT_DB
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute('PRAGMA journal_mode=WAL')
+        connection.executescript(storage.SCHEMA_SQL)
+        connection.execute("INSERT INTO users(telegram_id,username) VALUES(1,'private-user')")
+        connection.commit()
+    before = path.read_bytes()
+    files_before = set(path.parent.iterdir())
+    report = diagnose(diagnostic_environment)
+    assert report['ok'] is True
+    assert path.read_bytes() == before
+    wal = path.with_name(path.name + '-wal')
+    shm = path.with_name(path.name + '-shm')
+    assert set(path.parent.iterdir()) - files_before == {wal, shm}
+    assert wal.stat().st_size == 0
+    assert 'private-user' not in json.dumps(report)
+
+
+def test_diagnostics_reader_blocks_checkpoint_until_integrity_check_finishes(
+    diagnostic_environment, monkeypatch,
+):
+    from threading import Event, Thread
+    from sitewatcher.diagnostics import diagnose
+
+    path = storage.DEFAULT_DB
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute('PRAGMA journal_mode=WAL')
+        connection.executescript(storage.SCHEMA_SQL)
+        connection.execute('INSERT INTO users(telegram_id) VALUES(1)')
+        connection.execute("INSERT INTO domains(owner_id,name) VALUES(1,'synthetic.example')")
+        connection.execute("""
+            WITH RECURSIVE slots(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM slots WHERE n<20000)
+            INSERT INTO history(owner_id,domain,check_name,status,message,created_at)
+            SELECT 1,'synthetic.example','ping','OK','synthetic','2026-10-21 12:00:00'
+            FROM slots
+        """)
+        connection.commit()
+    assert not path.with_name(path.name + '-wal').exists()
+    original_connect = sqlite3.connect
+    reader_started = Event()
+    writer_done = Event()
+    checkpoints = []
+    writer_errors = []
+    callback_timeouts = []
+
+    def write_and_checkpoint():
+        try:
+            if not reader_started.wait(timeout=5):
+                raise AssertionError('Reader never reached its integrity check')
+            with closing(original_connect(path, timeout=0.05)) as writer:
+                writer.execute("UPDATE history SET message='updated synthetic data' WHERE id<=100")
+                writer.commit()
+                checkpoints.append(writer.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone())
+        except Exception as error:
+            writer_errors.append(error)
+        finally:
+            writer_done.set()
+
+    def pause_reader():
+        if not reader_started.is_set():
+            reader_started.set()
+            if not writer_done.wait(timeout=5):
+                callback_timeouts.append(True)
+                return 1
+        return 0
+
+    class ObservedConnection(sqlite3.Connection):
+        def execute(self, sql, parameters=()):
+            if sql == 'PRAGMA quick_check':
+                self.set_progress_handler(pause_reader, 1000)
+            return super().execute(sql, parameters)
+
+    def connect(*args, **kwargs):
+        return original_connect(*args, **kwargs, factory=ObservedConnection)
+
+    monkeypatch.setattr(sqlite3, 'connect', connect)
+    writer_thread = Thread(target=write_and_checkpoint)
+    writer_thread.start()
+    try:
+        report = diagnose(diagnostic_environment)
+    finally:
+        writer_thread.join(timeout=6)
+    assert not writer_thread.is_alive() and not writer_errors and not callback_timeouts
+    assert checkpoints and checkpoints[0][0] == 1  # Native SQLite reader lock prevents truncation.
+    assert report['ok'] and report['database']['integrity'] == 'ok'
+    with closing(original_connect(path)) as connection:
+        assert connection.execute('PRAGMA quick_check').fetchall() == [('ok',)]

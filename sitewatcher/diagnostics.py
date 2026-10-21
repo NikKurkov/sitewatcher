@@ -38,14 +38,8 @@ def _database_report() -> dict:
     if not result['exists']:
         return result
     try:
-        # immutable avoids SQLite creating journal sidecars for a quiescent database.
-        # Existing WAL metadata is required to inspect a live WAL database read-only.
-        wal = Path(str(path) + '-wal')
-        shm = Path(str(path) + '-shm')
-        if wal.exists() and not shm.exists():
-            result.update(ok=False, error='WAL metadata missing; stop the bot and retry diagnostics')
-            return result
-        uri = path.as_uri() + '?mode=ro' + ('' if wal.exists() else '&immutable=1')
+        # Native read-only locking permits SQLite WAL/SHM reader metadata, never data writes.
+        uri = path.as_uri() + '?mode=ro'
         with closing(sqlite3.connect(uri, uri=True, timeout=3)) as connection:
             connection.execute('PRAGMA query_only=ON')
             healthy = connection.execute('PRAGMA quick_check').fetchall() == [('ok',)]

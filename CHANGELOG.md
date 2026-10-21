@@ -4,7 +4,7 @@
 
 - Add a Docker image and Compose setup for one-command startup with persistent SQLite data.
 - Add a loopback-only, read-only web dashboard with fixed owner isolation, search, status filters, saved check details and JSON output. No frontend framework or runtime dependency is required.
-- Add sanitized `doctor` diagnostics for local configuration, schema, database integrity and permissions.
+- Add sanitized `doctor` diagnostics for local configuration, schema, database integrity and permissions; retain native SQLite reader locks during concurrent checkpoints.
 - Make storage updates atomic, preserve concurrent settings changes, and prevent completed jobs from restoring deleted domains.
 - Retry undelivered incident transitions and summaries without consuming their state; serialize concurrent delivery and respect alert toggles.
 - Apply the Telegram proxy to both ordinary Bot API calls and long polling.
