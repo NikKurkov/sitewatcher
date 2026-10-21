@@ -1,7 +1,8 @@
 # Operations and recovery
 
-See the [dated verification report](verification-2026-10-21.md) for installation,
-recovery and measured performance evidence.
+See the [reliability report](verification-2026-10-21.md) for recovery/performance
+and the [web management report](verification-web-management-2026-10-22.md) for browser,
+security and installed-package verification.
 
 ## Verify an installation
 
