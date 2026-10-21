@@ -24,10 +24,11 @@ def due_checks(cfg: AppConfig, owner_id: int, domain: str, *, warmup: bool = Fal
     if not cfg.scheduler.enabled:
         return []
     override = storage.get_domain_override(owner_id, domain) or {}
-    domain_interval = override.get("interval_minutes")
-    if domain_interval is not None and int(domain_interval) <= 0:
+    settings = resolve_settings(cfg, domain, override)
+    domain_interval = settings.interval_minutes
+    if domain_interval is not None and domain_interval <= 0:
         return []
-    checks = resolve_settings(cfg, domain, override).checks.model_dump()
+    checks = settings.checks.model_dump()
     ages = storage.last_check_ages(owner_id, domain)
     return [
         name for name, enabled in checks.items()
@@ -61,7 +62,7 @@ def register_jobs(app: Application, cooldown: int) -> None:
 
     jq = app.job_queue
     interval_min = cfg.scheduler.interval_minutes
-    first_delay = random.randint(10, 30)  # small jitter to avoid thundering herd
+    first_delay = random.randint(0, cfg.scheduler.jitter_seconds)  # small jitter to avoid thundering herd
 
     # One-time warmup job (baseline without alerts)
     if cfg.scheduler.run_on_startup:
@@ -134,6 +135,8 @@ async def _run_checks_for_all_domains(
         run_id: Correlation id for this whole scheduler iteration.
     """
     cfg: AppConfig = context.application.bot_data["cfg"]
+    if not cfg.scheduler.enabled:
+        return
 
     owners: Sequence[int] = storage.list_users()
     if not owners:
@@ -158,9 +161,17 @@ async def _run_checks_for_all_domains(
             async with sem:
                 try:
                     selected = due_checks(cfg, owner_id, domain, warmup=warmup)
-                    if not selected:
+                    override = storage.get_domain_override(owner_id, domain) or {}
+                    if resolve_settings(cfg, domain, override).interval_minutes == 0:
                         return
-                    results = await d.run_for(owner_id, domain, only_checks=selected, use_cache=False, run_id=run_id)
+                    if selected:
+                        results = await d.run_for(owner_id, domain, only_checks=selected, use_cache=False, run_id=run_id)
+                        storage.save_histories(owner_id, domain, results, create_missing=False)
+                    elif not warmup:
+                        # Retry undelivered state changes on the next tick, without extra probes.
+                        results = _complete_results(cfg, owner_id, domain, [])
+                    else:
+                        return
                 except Exception as e:
                     log.exception(
                         "Checks failed for owner=%s domain=%s: %s", owner_id, domain, e,
@@ -168,16 +179,13 @@ async def _run_checks_for_all_domains(
                     )
                     return
 
-                # Persist each check result to history
-                storage.save_histories(owner_id, domain, results)
-
                 # Send alerts (unless warmup)
                 if warmup and storage.get_alert_state(owner_id, domain) is None:
                     baseline = _overall_from_results(_complete_results(cfg, owner_id, domain, results))
                     storage.upsert_alert_state(owner_id, domain, baseline, None)
                 elif not warmup:
                     try:
-                        await maybe_send_alert(update=None, context=context, owner_id=owner_id, domain=domain, results=results)
+                        await maybe_send_alert(update=None, context=context, owner_id=owner_id, domain=domain, results=results, run_id=run_id)
                     except Exception as e:
                         log.exception(
                             "Alert send failed for owner=%s domain=%s: %s", owner_id, domain, e,

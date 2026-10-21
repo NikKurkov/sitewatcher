@@ -19,10 +19,6 @@ from ..validators import DOMAIN_RE
 
 log = logging.getLogger(__name__)
 
-# Telegram hard limit is 4096; keep a safety margin for HTML entities, etc.
-_MAX_CHARS = 3800
-
-
 # ---------------------------- small helpers ----------------------------
 
 def _parse_check(tokens: Iterable[str]) -> Optional[str]:
@@ -213,23 +209,5 @@ async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     text = "\n".join(lines)
 
-    # Chunked send if necessary
-    if len(text) <= _MAX_CHARS:
-        await safe_reply_html(update.effective_message, text)
-        log.info("history.done", extra={"event": "history.done", "owner_id": owner_id, "rows": len(rows[:limit])})
-        return
-
-    start = 0
-    sent_chunks = 0
-    while start < len(text):
-        end = text.rfind("\n", start, start + _MAX_CHARS)
-        if end == -1 or end <= start:
-            end = min(len(text), start + _MAX_CHARS)
-        await safe_reply_html(update.effective_message, text[start:end])
-        sent_chunks += 1
-        start = end + 1
-
-    log.info(
-        "history.done",
-        extra={"event": "history.done", "owner_id": owner_id, "rows": len(rows[:limit]), "chunks": sent_chunks},
-    )
+    await safe_reply_html(update.effective_message, text)
+    log.info("history.done", extra={"event": "history.done", "owner_id": owner_id, "rows": len(rows[:limit])})

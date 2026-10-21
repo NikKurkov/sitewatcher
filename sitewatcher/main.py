@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import json
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -15,7 +16,7 @@ load_dotenv(Path.cwd() / ".env")
 
 from . import storage
 from .bot import run_bot
-from .config import AppConfig, ChecksModel, load_config, validate_config
+from .config import AppConfig, ChecksModel, load_config, validate_config, validation_message
 from .dispatcher import Dispatcher
 from .logging_setup import setup_logging
 from .bot.validators import DOMAIN_RE, normalize_domain
@@ -30,7 +31,8 @@ from .utils.results import (
 def _parse_args() -> argparse.Namespace:
     """Parse CLI arguments for bot/one-shot checks."""
     p = argparse.ArgumentParser(description="sitewatcher CLI")
-    p.add_argument("mode", choices=["bot", "check_all", "check_domain", "scan"], help="Run mode")
+    p.add_argument("mode", choices=["bot", "check_all", "check_domain", "scan", "doctor"], help="Run mode")
+    p.add_argument("--json", action="store_true", help="Print doctor diagnostics as JSON")
     p.add_argument("name", nargs="?", help="Domain for 'check_domain' or 'scan'")
     p.add_argument("--config", default=None, help="Path to config.yaml")
     p.add_argument("--force", action="store_true", help="Ignore cache and run all checks live")
@@ -171,22 +173,24 @@ async def _cmd_check_one(
 def main() -> None:
     """Entrypoint for `python -m sitewatcher.main`."""
     args = _parse_args()
+    if args.mode == "doctor":
+        from .diagnostics import diagnose, format_diagnostics
+
+        report = diagnose(args.config)
+        print(json.dumps(report, ensure_ascii=False) if args.json else format_diagnostics(report))
+        raise SystemExit(0 if report["ok"] else 1)
+    if args.json:
+        raise SystemExit("--json is supported by doctor")
     if args.name:
         args.name = normalize_domain(args.name)
         if not args.name or not DOMAIN_RE.fullmatch(args.name):
             raise SystemExit("Invalid domain")
-    cfg = load_config(args.config)
-
-    # Initialize logging ASAP so validation and later steps are captured
-    setup_logging(getattr(cfg, "logging", None))
-
-    # validate config early (fail-fast with clear summary)
     try:
+        cfg = load_config(args.config)
         validate_config(cfg)
-    except ValueError as e:
-        # Use logging to emit the failure as well
-        logging.getLogger("sitewatcher.main").error("config.invalid: %s", e, extra={"event": "config.invalid"})
-        raise SystemExit(str(e)) from e
+    except (OSError, ValueError) as error:
+        raise SystemExit(validation_message(error)) from None
+    setup_logging(cfg.logging)
 
     log = logging.getLogger("sitewatcher.main")
     log.info(

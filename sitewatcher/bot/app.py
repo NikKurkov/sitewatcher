@@ -23,6 +23,8 @@ def run_bot(cfg: AppConfig) -> None:
     if not token:
         raise RuntimeError("TELEGRAM_TOKEN is not set in environment (.env)")
 
+    allowed_ids = _parse_allowed_user_ids()
+
     request = HTTPXRequest(
         http_version="1.1",
         connect_timeout=10.0,
@@ -37,7 +39,8 @@ def run_bot(cfg: AppConfig) -> None:
         Application.builder()
         .token(token)
         .request(request)
-        .concurrent_updates(True)
+        # ConversationHandler requires ordered updates.
+        .concurrent_updates(False)
         .build()
     )
     app.bot_data["cfg"] = cfg
@@ -47,7 +50,6 @@ def run_bot(cfg: AppConfig) -> None:
     app.bot_data[BUSY_USERS_LOCK_KEY] = asyncio.Lock()
 
     # Access control
-    allowed_ids = _parse_allowed_user_ids()
     if allowed_ids:
         log.info(
             "bot.access.restricted",
@@ -61,9 +63,7 @@ def run_bot(cfg: AppConfig) -> None:
     app.bot_data["allowed_user_ids"] = allowed_ids
 
     # Alerts deduper instance in bot_data (no globals)
-    cooldown = int((getattr(cfg.alerts, "cooldown_sec", None)
-                        or getattr(cfg.alerts, "debounce_sec", None)
-                        or 0))
+    cooldown = cfg.alerts.effective_cooldown
     app.bot_data["alert_deduper"] = AlertDeduper(cooldown_sec=cooldown)
 
     # Handlers & jobs

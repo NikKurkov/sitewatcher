@@ -6,6 +6,7 @@ import contextlib
 import json
 import sqlite3
 import time
+from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -18,6 +19,8 @@ from ..config import WhoisConfig
 from ..utils.http_retry import get_with_retries
 from .. import storage
 
+
+_extract_domain = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
 
 WHOIS_PORT = 43  # single source of truth for raw WHOIS
 
@@ -32,7 +35,8 @@ def registrable_domain(hostname: str) -> str:
       - "example.biz"       -> "example.biz"
     """
     hn = (hostname or "").strip().rstrip(".").lower()
-    ext = tldextract.extract(hn)
+    hn = hn.encode("idna").decode("ascii")
+    ext = _extract_domain(hn)
     if not ext.domain or not ext.suffix:
         # Fallback to original if parsing fails
         return hn
@@ -140,7 +144,7 @@ class WhoisInfoCheck(BaseCheck):
         self.client = client
         self.cfg = cfg
         # SSOT: rely on storage.DEFAULT_DB, not env lookups here.
-        self.db_path = storage.DEFAULT_DB
+        self.db_path = Path(getattr(cfg, "db_path", None) or storage.DEFAULT_DB)
 
     async def run(self) -> CheckOutcome:
         """Run the check: fetch snapshot (with cache), diff, and expiry status."""
@@ -151,7 +155,7 @@ class WhoisInfoCheck(BaseCheck):
         must_refresh = True
         if prev:
             age_hours = (now - prev.fetched_at).total_seconds() / 3600.0
-            must_refresh = age_hours >= float(getattr(self.cfg, "refresh_hours", 24) or 24)
+            must_refresh = age_hours >= float(getattr(self.cfg, "refresh_hours", 24))
 
         # Always define rx_metrics so except-paths can safely reference it
         rx_metrics: Dict[str, Any] = {}
@@ -295,15 +299,37 @@ class WhoisInfoCheck(BaseCheck):
                 "whois_host": host,
             }
 
-        # Default: RDAP path
-        rdap, rdap_ms = await self._fetch_rdap(reg_domain)
-        snap = _extract_snapshot(rdap)
-        return snap, datetime.now(timezone.utc), {
-            "rdap_latency_ms": rdap_ms,
-            "rdap_url": str(getattr(self.cfg, "rdap_endpoint", "https://rdap.org/domain/{domain}")).format(
-                domain=reg_domain
-            ),
-        }
+        # Only the supported registries have a known WHOIS expiry parser. An
+        # explicit override always takes precedence over the automatic fallback.
+        fallback = (
+            tld in {"ru", "su", "xn--p1ai"}
+            and tld not in self.cfg.tld_overrides
+            and self.cfg.fallback_whois_if_missing_expiry
+        )
+        metrics: Dict[str, Any] = {}
+        try:
+            rdap, rdap_ms = await self._fetch_rdap(reg_domain)
+        except httpx.HTTPStatusError as exc:
+            if not fallback or exc.response.status_code != 404:
+                raise
+            snap = {}
+            metrics["rdap_status_code"] = 404
+        else:
+            snap = _extract_snapshot(rdap)
+            metrics = {
+                "rdap_latency_ms": rdap_ms,
+                "rdap_url": self.cfg.rdap_endpoint.format(domain=reg_domain),
+            }
+        if fallback and not snap.get("expires_at"):
+            host = "whois.tcinet.ru"
+            start = time.perf_counter()
+            text = await self._whois_query(host, reg_domain)
+            snap = self._parse_tcinet_ru(text, host)
+            metrics.update({
+                "whois_latency_ms": int((time.perf_counter() - start) * 1000),
+                "whois_host": host,
+            })
+        return snap, datetime.now(timezone.utc), metrics
 
     async def _fetch_rdap(self, domain: str) -> Tuple[Dict[str, Any], int]:
         """Perform RDAP query with retry policy; returns (json, latency_ms)."""
@@ -338,10 +364,7 @@ class WhoisInfoCheck(BaseCheck):
             await writer.drain()
             chunks: List[bytes] = []
             while True:
-                try:
-                    data = await asyncio.wait_for(reader.read(4096), timeout=10.0)
-                except asyncio.TimeoutError:
-                    break
+                data = await asyncio.wait_for(reader.read(4096), timeout=10.0)
                 if not data:
                     break
                 chunks.append(data)
@@ -438,9 +461,9 @@ class WhoisInfoCheck(BaseCheck):
 
         if days_left < 0:
             return Status.CRIT, f"domain expired {-days_left}d ago ({exp.date()} UTC)", days_left
-        if days_left <= int(getattr(self.cfg, "expiry_crit_days", 7) or 7):
+        if days_left <= int(getattr(self.cfg, "expiry_crit_days", 7)):
             return Status.CRIT, f"expires in {days_left}d ({exp.date()} UTC)", days_left
-        if days_left <= int(getattr(self.cfg, "expiry_warn_days", 30) or 30):
+        if days_left <= int(getattr(self.cfg, "expiry_warn_days", 30)):
             return Status.WARN, f"expires in {days_left}d ({exp.date()} UTC)", days_left
         return Status.OK, f"expires in {days_left}d ({exp.date()} UTC)", days_left
 
@@ -464,6 +487,7 @@ class WhoisInfoCheck(BaseCheck):
     # --------------------------------- SQLite IO --------------------------------
     def _connect(self) -> sqlite3.Connection:
         """Open a connection to the snapshot DB."""
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         storage._ensure_initialized(self.db_path)
         return sqlite3.connect(str(self.db_path))
 

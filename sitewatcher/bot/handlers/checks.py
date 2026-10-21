@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterable, List
+from typing import Iterable
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -23,25 +23,6 @@ def _parse_force(args: Iterable[str]) -> bool:
     """Return True if args contain any force flag."""
     tokens = {str(a).strip().lower() for a in (args or [])}
     return bool({"--force", "-f", "force"} & tokens)
-
-
-def _chunk_text(text: str, limit: int = 4000) -> List[str]:
-    """Split long HTML into Telegram-friendly chunks."""
-    if len(text) <= limit:
-        return [text]
-    parts: List[str] = []
-    buf: List[str] = []
-    size = 0
-    for line in text.splitlines(keepends=True):
-        if size + len(line) > limit and buf:
-            parts.append("".join(buf))
-            buf = []
-            size = 0
-        buf.append(line)
-        size += len(line)
-    if buf:
-        parts.append("".join(buf))
-    return parts
 
 
 # --- commands ----------------------------------------------------------------
@@ -144,8 +125,7 @@ async def _check_all(update, context, format_results, separator: str, command: s
             await maybe_send_alert(update, context, owner_id, name, results)
 
     text = separator.join(parts) if parts else "No results."
-    for chunk in _chunk_text(text):
-        await safe_reply_html(msg, chunk)
+    await safe_reply_html(msg, text)
 
     log.info(
         f"cmd.{command}.done",

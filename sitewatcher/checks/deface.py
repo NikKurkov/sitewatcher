@@ -123,7 +123,14 @@ class DefaceCheck(BaseCheck):
                             },
                         )
 
-                # No markers found on this scheme: return OK immediately
+                if not 200 <= code < 300:
+                    return CheckOutcome(
+                        self.name, Status.UNKNOWN, f"unable to inspect main page: HTTP {code}",
+                        {"url": str(r.url), "status_code": code, "redirects": redirects,
+                         "latency_ms": elapsed_ms, "markers_checked": len(self.markers)},
+                    )
+
+                # No markers found in a successful response.
                 return CheckOutcome(
                     self.name,
                     Status.OK,

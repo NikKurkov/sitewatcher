@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import csv
 import io
-import re
+import json
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from .. import storage
+from ..config import AppConfig, validate_domain_override, validation_message
+from .domains import normalize_domain
 
 __all__ = ["HEADERS", "RowResult", "ImportReport", "export_domains_csv", "import_domains_csv"]
 
@@ -34,10 +36,6 @@ HEADERS: Tuple[str, ...] = (
     "proxy",
     "interval_minutes",
 )
-
-
-# Simple (permissive) domain pattern
-_DOMAIN_RE = re.compile(r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.[A-Za-z0-9-]{1,63})+$")
 
 
 @dataclass
@@ -110,6 +108,11 @@ def _parse_list_ports(s: str) -> Optional[List[int]]:
     t = s.strip()
     if t == "":
         return []
+    if t.startswith("["):
+        values = json.loads(t)
+        if not isinstance(values, list):
+            raise ValueError("ports must be a list")
+        return values
     out: List[int] = []
     for part in t.split(","):
         p = int(part.strip())
@@ -120,11 +123,10 @@ def _parse_list_ports(s: str) -> Optional[List[int]]:
 
 
 def _normalize_domain(name: str) -> str:
-    """Normalize domain to lower-case and strip trailing dot."""
-    dn = (name or "").strip().lower().rstrip(".")
-    if not dn or not _DOMAIN_RE.match(dn):
+    domain = normalize_domain(name)
+    if domain is None:
         raise ValueError("invalid domain format")
-    return dn
+    return domain
 
 
 def _flatten_for_export(override: Dict) -> Dict[str, str]:
@@ -154,13 +156,15 @@ def _flatten_for_export(override: Dict) -> Dict[str, str]:
         "checks.malware": b(checks.get("malware")),
         "checks.ports": b(checks.get("ports")),
         "keywords": join(override.get("keywords")),
-        "ports": join(override.get("ports")),
-        "http_timeout_s": str(override.get("http_timeout_s") or "") if override.get("http_timeout_s") is not None else "",
-        "latency_warn_ms": str(override.get("latency_warn_ms") or "") if override.get("latency_warn_ms") is not None else "",
-        "latency_crit_ms": str(override.get("latency_crit_ms") or "") if override.get("latency_crit_ms") is not None else "",
-        "tls_warn_days": str(override.get("tls_warn_days") or "") if override.get("tls_warn_days") is not None else "",
-        "proxy": (override.get("proxy") or "") if override.get("proxy") is not None else "",
-        "interval_minutes": str(override.get("interval_minutes") or "") if override.get("interval_minutes") is not None else "",
+        "ports": (json.dumps(override["ports"], ensure_ascii=False)
+                  if any(isinstance(port, dict) for port in (override.get("ports") or []))
+                  else join(override.get("ports"))),
+        "http_timeout_s": str(override["http_timeout_s"]) if override.get("http_timeout_s") is not None else "",
+        "latency_warn_ms": str(override["latency_warn_ms"]) if override.get("latency_warn_ms") is not None else "",
+        "latency_crit_ms": str(override["latency_crit_ms"]) if override.get("latency_crit_ms") is not None else "",
+        "tls_warn_days": str(override["tls_warn_days"]) if override.get("tls_warn_days") is not None else "",
+        "proxy": (override["proxy"] if override["proxy"] is not None else "off") if "proxy" in override else "",
+        "interval_minutes": str(override["interval_minutes"]) if override.get("interval_minutes") is not None else "",
     }
 
 
@@ -189,7 +193,11 @@ def _build_override_from_row(row: Dict[str, str], *, mode: str) -> Dict:
     """Build an override dict from a parsed CSV row; honor merge/replace semantics."""
     # Parse booleans (None means 'not provided')
     def pb(name: str) -> Optional[bool]:
-        return _is_truthy(row.get(name, ""))
+        raw = row.get(name, "")
+        value = _is_truthy(raw)
+        if raw.strip() and value is None:
+            raise ValueError("Invalid check flag")
+        return value
 
     checks: Dict[str, bool] = {}
     for key in (
@@ -253,7 +261,7 @@ def _build_override_from_row(row: Dict[str, str], *, mode: str) -> Dict:
     return ov
 
 
-def import_domains_csv(owner_id: int, data: bytes, *, mode: str = "merge") -> ImportReport:
+def import_domains_csv(owner_id: int, data: bytes, *, mode: str = "merge", cfg: AppConfig | None = None) -> ImportReport:
     """Import domains and overrides from CSV bytes. Mode: 'merge' or 'replace'."""
     if mode not in {"merge", "replace"}:
         raise ValueError("mode must be 'merge' or 'replace'")
@@ -310,9 +318,13 @@ def import_domains_csv(owner_id: int, data: bytes, *, mode: str = "merge") -> Im
         # Build override, with field-level validation
         try:
             override = _build_override_from_row(data_map, mode=mode)
+            validate_domain_override(
+                cfg if cfg is not None else AppConfig(), domain, override,
+                storage.get_domain_override(owner_id, domain) if mode == "merge" else None,
+            )
         except ValueError as e:
             report.skipped += 1
-            msg = f"line {line_no}: {domain}: {e}"
+            msg = f"line {line_no}: {domain}: {validation_message(e)}"
             report.details.append(RowResult(domain=domain, status="skipped", error=msg))
             report.errors.append(msg)
             continue
@@ -322,15 +334,8 @@ def import_domains_csv(owner_id: int, data: bytes, *, mode: str = "merge") -> Im
         if not existed:
             storage.add_domain(owner_id, domain)
 
-        if mode == "replace":
-            # Clear previous override, then set new override (possibly empty)
-            storage.unset_domain_override(owner_id, domain, None)
-            if override:
-                storage.set_domain_override(owner_id, domain, override)
-        else:
-            # merge
-            if override:
-                storage.set_domain_override(owner_id, domain, override)
+        if override:
+            storage.set_domain_override(owner_id, domain, override, replace=(mode == "replace"))
 
         if not existed:
             report.added += 1

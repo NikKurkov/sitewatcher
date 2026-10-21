@@ -22,7 +22,7 @@ class HttpBasicCheck(BaseCheck):
       2) If 3xx with Location, follow redirects once (letting httpx handle the full chain)
          to obtain final URL/code and add the extra time.
       3) Status:
-         - CRIT: initial HTTP >= 400, or initial latency >= latency_crit_ms, or request error.
+         - CRIT: initial/final HTTP >= 400, critical initial latency, or request error.
          - WARN: initial HTTP is 3xx, or initial latency >= latency_warn_ms.
          - OK: otherwise.
     """
@@ -117,6 +117,7 @@ class HttpBasicCheck(BaseCheck):
         final_url = str(r1.url)
         final_code = code1
         redirects = 0
+        redirect_error: Optional[str] = None
         total_ms = elapsed1_ms
 
         # --- 2) Follow redirects (if any) to report the final target & total latency ---
@@ -156,6 +157,7 @@ class HttpBasicCheck(BaseCheck):
                     },
                 )
             except httpx.RequestError as e:
+                redirect_error = e.__class__.__name__
                 # Keep initial hop data; log that following redirects failed
                 log.warning(
                     "http_basic.redirect_follow_error",
@@ -169,6 +171,8 @@ class HttpBasicCheck(BaseCheck):
 
         # --- 3) Derive status from initial code and initial latency thresholds ---
         status = self._status_from_initial(code1, elapsed1_ms)
+        if final_code >= 400 or redirect_error:
+            status = Status.CRIT
 
         # --- 4) Compose a compact message & metrics ---
         if redirects:
@@ -178,6 +182,9 @@ class HttpBasicCheck(BaseCheck):
             )
         else:
             msg = f"HTTP {code1}, latency {elapsed1_ms} ms"
+
+        if redirect_error:
+            msg += f"; redirect request error: {redirect_error}"
 
         # Final event (compact, with derived status)
         log.info(
@@ -207,19 +214,18 @@ class HttpBasicCheck(BaseCheck):
                 "final_code": final_code,
                 "latency_ms_total": total_ms,
                 "origin_url": origin_url,
+                "redirect_error": redirect_error,
             },
         )
 
     # ---- helpers ----
     def _status_from_initial(self, code1: int, elapsed1_ms: int) -> Status:
         """Map the first response code and latency to a status."""
-        if code1 >= 400:
+        if code1 >= 400 or elapsed1_ms >= self.latency_crit_ms:
             return Status.CRIT
         if 300 <= code1 < 400:
             return Status.WARN
         # 2xx:
-        if elapsed1_ms >= self.latency_crit_ms:
-            return Status.CRIT
         if elapsed1_ms >= self.latency_warn_ms:
             return Status.WARN
         return Status.OK

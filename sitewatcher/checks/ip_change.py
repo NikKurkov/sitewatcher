@@ -6,11 +6,13 @@ import json
 import logging
 import socket
 import sqlite3
+from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, List, Optional, Tuple
 
 from .base import BaseCheck, CheckOutcome, Status
+from .. import storage
 
 # Module-level logger for structured events
 log = logging.getLogger(__name__)
@@ -36,15 +38,15 @@ class IpChangeCheck(BaseCheck):
             cfg: ip_change config section with fields (optional):
                  - include_ipv6: bool (default False)
                  - refresh_hours: float (default 24)
-                 - db_path: path to sqlite file (default ./ipchange_cache.sqlite)
+                 - db_path: path to sqlite file (default storage.DEFAULT_DB)
         """
         super().__init__(domain)
         self.cfg = cfg
-        self._db_path: str = getattr(cfg, "db_path", None) or "./ipchange_cache.sqlite"
+        self._db_path = Path(getattr(cfg, "db_path", None) or storage.DEFAULT_DB)
 
         # Normalize basic options
         self.cfg.include_ipv6 = bool(getattr(cfg, "include_ipv6", False))
-        self.cfg.refresh_hours = float(getattr(cfg, "refresh_hours", 24) or 24)
+        self.cfg.refresh_hours = float(getattr(cfg, "refresh_hours", 24))
 
     # ------------------------------------------------------------------ public
 
@@ -199,7 +201,9 @@ class IpChangeCheck(BaseCheck):
 
     def _connect(self) -> sqlite3.Connection:
         """Open a connection to the sqlite database."""
-        return sqlite3.connect(self._db_path)
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        storage._ensure_initialized(self._db_path)
+        return sqlite3.connect(str(self._db_path))
 
     def _db_get(self) -> Optional[_Row]:
         """Load last snapshot for this domain (if any)."""

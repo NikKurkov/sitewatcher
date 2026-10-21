@@ -81,6 +81,7 @@ class PortsCheck(BaseCheck):
                             port=int(it.get("port")),
                             tls=bool(it.get("tls", False)),
                             timeout_s=float(it.get("timeout_s")) if it.get("timeout_s") is not None else None,
+                            read_bytes=int(it["read_bytes"]) if it.get("read_bytes") is not None else None,
                             **{key: str(it[key]) for key in ("host", "send", "expect") if it.get(key) is not None},
                         )
                     )
@@ -109,6 +110,8 @@ class PortsCheck(BaseCheck):
         flat: List[_PortResult] = []
         for spec, res in zip(self.targets, results, strict=True):
             host = spec.host or self.domain
+            if isinstance(res, asyncio.CancelledError):
+                raise res
             if isinstance(res, Exception):
                 # Defensive default on unexpected crash per probe
                 flat.append(
@@ -133,7 +136,9 @@ class PortsCheck(BaseCheck):
         opens = sum(1 for pr in flat if pr.port != -1 and pr.ok)
         closed = failures
 
-        if failures > 0:
+        if total == 0:
+            status = Status.UNKNOWN
+        elif failures > 0:
             status = Status.CRIT
         elif mismatches > 0:
             status = Status.WARN
@@ -146,7 +151,7 @@ class PortsCheck(BaseCheck):
             parts.append(f"mismatch {mismatches}")
         if failures:
             parts.append(f"fail {failures}")
-        message = ", ".join(parts)
+        message = ", ".join(parts) if total else "no port targets configured"
 
         # Metrics (compact per-probe list)
         metrics = {
@@ -196,7 +201,10 @@ class PortsCheck(BaseCheck):
         tls = bool(spec.tls)
         connect_timeout = float(getattr(spec, "timeout_s", None) or getattr(self.defaults, "connect_timeout_s", 2.0))
         read_timeout = float(getattr(self.defaults, "read_timeout_s", 1.0))
-        read_bytes = int(getattr(self.defaults, "read_bytes", 512))
+        read_bytes = int(
+            spec.read_bytes if spec.read_bytes is not None
+            else getattr(self.defaults, "read_bytes", 512)
+        )
 
         # Attempt-start event
         log.debug(

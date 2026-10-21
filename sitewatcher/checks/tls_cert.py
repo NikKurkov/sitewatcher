@@ -103,9 +103,15 @@ def _hostname_matches(hostname: str, san_dns: Iterable[str]) -> bool:
     Check whether hostname matches any SAN DNS entry.
     Wildcards: only left-most label ('*.example.com') semantics are supported.
     """
-    hn = (hostname or "").strip().lower().rstrip(".")
+    try:
+        hn = (hostname or "").strip().rstrip(".").encode("idna").decode("ascii").lower()
+    except UnicodeError:
+        return False
     for pattern in san_dns:
-        p = (pattern or "").lower().rstrip(".")
+        try:
+            p = (pattern or "").strip().rstrip(".").encode("idna").decode("ascii").lower()
+        except UnicodeError:
+            continue
         if not p:
             continue
         if p == hn:
@@ -113,7 +119,7 @@ def _hostname_matches(hostname: str, san_dns: Iterable[str]) -> bool:
         if p.startswith("*."):
             # Match single-label wildcard: sub.example.com matches, example.com doesn't
             suffix = p[1:]  # "*.example.com" -> ".example.com"
-            if hn.endswith(suffix) and hn.count(".") >= p.count("."):
+            if hn.endswith(suffix) and hn.count(".") == p.count("."):
                 return True
     return False
 
@@ -171,6 +177,11 @@ class TlsCertCheck(BaseCheck):
                 },
             )
             return CheckOutcome(self.name, Status.UNKNOWN, "tls timeout", {"timeout_s": self.timeout_s})
+        except ssl.SSLCertVerificationError as e:
+            return CheckOutcome(
+                self.name, Status.CRIT, f"certificate verification failed: {e}",
+                {"verify_code": getattr(e, "verify_code", None)},
+            )
         except ssl.SSLError as e:
             # SSL-level failures (handshake issues, protocol mismatch, etc.)
             log.error(
@@ -361,8 +372,5 @@ class TlsCertCheck(BaseCheck):
             writer.close()
             try:
                 await writer.wait_closed()
-            except asyncio.CancelledError:
-                # allow clean task cancellation during shutdown
-                pass
             except Exception:
                 pass

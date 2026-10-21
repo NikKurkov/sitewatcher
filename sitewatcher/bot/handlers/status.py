@@ -129,10 +129,10 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 best = None
             if best is not None:
                 chk = html.escape((best["check_name"] or ""))
-                msg = html.escape(_strip_cached_suffix((best["message"] or "")))
+                msg = _strip_cached_suffix(best["message"] or "")
                 if len(msg) > 100:
                     msg = msg[:97] + "…"
-                reason = f" ({chk}: {msg})"
+                reason = f" ({chk}: {html.escape(msg)})"
 
         line = f"{_status_emoji(overall)} {ts} <b>{html.escape(name)}</b> — {overall}{reason}"
         pairs.append((-_status_weight(overall), name, line))

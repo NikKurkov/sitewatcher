@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import NamedTuple, Optional, Mapping, Any
 
-from telegram.error import NetworkError, RetryAfter, TimedOut
+from telegram.error import BadRequest, NetworkError, RetryAfter, TimedOut
 from telegram.ext import ContextTypes  # noqa: F401
 
 from .. import storage
@@ -18,6 +18,7 @@ from ..checks.base import CheckOutcome
 from ..config import AppConfig, resolve_settings
 from .utils import _resolve_alert_chat_id
 from .formatting import _format_check
+from .html import split_html
 from ..utils.results import status_emoji as _status_emoji
 from ..utils.results import (
     overall_from_results as _overall_from_results,
@@ -81,15 +82,15 @@ class AlertDeduper:
                 if rec.suppressed > 0
                 else ""
             )
-            rec.last_sent_at = ts
-            rec.last_text = text
-            rec.suppressed = 0
             return True, (prefix + text)
 
         # Within cooldown window: suppress and count
         rec.suppressed += 1
-        rec.last_text = text
         return False, None
+
+    def mark_sent(self, key: _AlertKey, text: str) -> None:
+        """Commit dedupe state only after a successful delivery."""
+        self._state[key] = _AlertRecord(last_sent_at=time.time(), last_text=text)
 
     def flush_summaries(self, max_batch: int = 20) -> list[tuple[_AlertKey, str]]:
         """Flush summary lines for keys with suppressions whose cooldown elapsed."""
@@ -147,7 +148,7 @@ def _complete_results(cfg: AppConfig, owner_id: int, domain: str, current: list)
     enabled = set(_enabled_checks_for(cfg, owner_id, domain))
     for name, row in storage.latest_check_results(owner_id, domain).items():
         if name not in by_check and name in enabled:
-            by_check[name] = CheckOutcome(name, row["status"], row["message"], {})
+            by_check[name] = CheckOutcome(name, row["status"], row["message"], {}, cached=True)
     for name in enabled - by_check.keys():
         by_check[name] = CheckOutcome(name, "UNKNOWN", "not checked yet", {})
     return list(by_check.values())
@@ -170,7 +171,7 @@ def _is_fresh_ok_for_all(
     # Current statuses from this tick
     current_map: dict[str, str] = {
         getattr(r, "check", ""): _status_text(getattr(r, "status", ""))
-        for r in current_results
+        for r in current_results if not getattr(r, "cached", False)
     }
 
     # Optional per-domain override for a common interval
@@ -179,9 +180,7 @@ def _is_fresh_ok_for_all(
     except Exception:
         override = {}
 
-    domain_iv = None
-    if isinstance(override.get("interval_minutes"), int) and override["interval_minutes"] > 0:
-        domain_iv = int(override["interval_minutes"])
+    domain_iv = resolve_settings(cfg, domain, override).interval_minutes
 
     # Check all enabled checks
     for check in enabled_checks:
@@ -232,25 +231,34 @@ async def safe_send_message(
     - Retries once or twice on transient network timeouts.
     - On success returns telegram.Message; on final failure re-raises the error.
     """
-    attempt = 1
-    while True:
-        try:
-            return await bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                parse_mode=parse_mode,
-                disable_web_page_preview=disable_web_page_preview,
-            )
-        except RetryAfter as e:
-            if attempt >= max_attempts:
+    if max_attempts < 1:
+        raise ValueError("max_attempts must be positive")
+    chunks = split_html(text) if parse_mode == "HTML" else [text[i:i + 1900] for i in range(0, len(text), 1900)]
+    message = None
+    for chunk in chunks:
+        for attempt in range(1, max_attempts + 1):
+            try:
+                message = await bot.send_message(
+                    chat_id=chat_id,
+                    text=chunk,
+                    parse_mode=parse_mode,
+                    disable_web_page_preview=disable_web_page_preview,
+                )
+                break
+            except BadRequest:
                 raise
-            await asyncio.sleep(max(1.0, float(getattr(e, "retry_after", 1.0))))
-        except (TimedOut, NetworkError):
-            if attempt >= max_attempts:
-                raise
-            # simple linear backoff (1s, 2s, ...)
-            await asyncio.sleep(float(attempt))
-        attempt += 1
+            except RetryAfter as error:
+                if attempt == max_attempts:
+                    raise
+                delay = error.retry_after
+                if isinstance(delay, timedelta):
+                    delay = delay.total_seconds()
+                await asyncio.sleep(max(1.0, float(delay)))
+            except (TimedOut, NetworkError):
+                if attempt == max_attempts:
+                    raise
+                await asyncio.sleep(float(attempt))
+    return message
 
 
 def _log_alert_skipped(
@@ -270,7 +278,16 @@ def _log_alert_skipped(
     log.info("alert.skipped", extra=xtra)
 
 
-async def maybe_send_alert(
+async def maybe_send_alert(update, context, owner_id: int, domain: str, results, *, run_id=None) -> None:
+    """Serialize delivery decisions for one owner's domain."""
+    locks = context.application.bot_data.setdefault("alert_locks", {})
+    lock = locks.setdefault((owner_id, domain), asyncio.Lock())
+    async with lock:
+        if storage.domain_exists(owner_id, domain):
+            await _maybe_send_alert(update, context, owner_id, domain, results, run_id=run_id)
+
+
+async def _maybe_send_alert(
     update,
     context,
     owner_id: int,
@@ -333,13 +350,6 @@ async def maybe_send_alert(
             _log_alert_skipped("recovery_not_confirmed", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
             return
 
-        # Guard against repeated recovery spam: reuse cooldown_sec unless recovery_guard_sec is provided
-        guard_sec = int(getattr(cfg.alerts, "recovery_guard_sec", getattr(cfg.alerts, "cooldown_sec", 0)) or 0)
-        if guard_sec > 0 and last_sent_at_dt is not None and (now - last_sent_at_dt) < timedelta(seconds=guard_sec):
-            storage.upsert_alert_state(owner_id, domain, overall_txt, last_sent_iso)
-            _log_alert_skipped("recovery_guard", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
-            return
-
         text = _compose_message(domain, overall_txt, prev_overall_txt, results)
 
         # Add a list of checks that recovered (based on last problem text, if available)
@@ -360,7 +370,6 @@ async def maybe_send_alert(
 
         chat_id = _resolve_alert_chat_id(context, update, cfg, owner_id)
         if not chat_id:
-            storage.upsert_alert_state(owner_id, domain, overall_txt, None)
             _log_alert_skipped("no_chat_id", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
             return
         try:
@@ -377,12 +386,6 @@ async def maybe_send_alert(
                 extra={"event": "alert.sent", "owner_id": owner_id, "domain": domain, "level": overall_txt, "run_id": run_id, "type": "recovery"},
             )
         except Exception as e:
-            storage.upsert_alert_state(
-                owner_id,
-                domain,
-                overall_txt,
-                last_sent_at_dt.isoformat() if last_sent_at_dt else None,
-            )
             log.error(
                 "alert.error",
                 exc_info=e,
@@ -413,16 +416,14 @@ async def maybe_send_alert(
             return
 
     # Cooldown for repeating alerts (applies to problem states)
-    cooldown = int(getattr(cfg.alerts, "cooldown_sec", getattr(cfg.alerts, "debounce_sec", 0)) or 0)
-    if last_sent_at_dt is not None and (now - last_sent_at_dt) < timedelta(seconds=cooldown):
-        storage.upsert_alert_state(owner_id, domain, overall_txt, last_sent_iso)
+    cooldown = cfg.alerts.effective_cooldown
+    if overall_txt == prev_overall_txt and last_sent_at_dt is not None and (now - last_sent_at_dt) < timedelta(seconds=cooldown):
         _log_alert_skipped("cooldown_active", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
         return
 
     # Resolve destination chat
     chat_id = _resolve_alert_chat_id(context, update, cfg, owner_id)
     if not chat_id:
-        storage.upsert_alert_state(owner_id, domain, overall_txt, None)
         _log_alert_skipped("no_chat_id", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
         return
 
@@ -431,8 +432,8 @@ async def maybe_send_alert(
 
     # Optional in-process deduper (per (owner, domain, level))
     deduper: Optional[AlertDeduper] = context.application.bot_data.get("alert_deduper")  # type: ignore[assignment]
-    if deduper is not None:
-        key = _AlertKey(owner_id=owner_id, domain=domain, level=overall_txt)
+    key = _AlertKey(owner_id=owner_id, domain=domain, level=overall_txt)
+    if deduper is not None and overall_txt == prev_overall_txt:
         send_now, maybe_text = deduper.should_send_now(key, text)
         if not send_now:
             storage.upsert_alert_state(owner_id, domain, overall_txt, last_sent_iso)
@@ -451,19 +452,15 @@ async def maybe_send_alert(
             disable_web_page_preview=True,
         )
         storage.upsert_alert_state(owner_id, domain, overall_txt, now.isoformat())
+        if deduper is not None:
+            deduper.mark_sent(key, text)
         log.info(
             "alert.sent",
             extra={"event": "alert.sent", "owner_id": owner_id, "domain": domain, "level": overall_txt, "run_id": run_id, "type": "problem"},
         )
     except Exception as e:
-        # Preserve previous timestamp on failure
-        storage.upsert_alert_state(
-            owner_id,
-            domain,
-            overall_txt,
-            last_sent_at_dt.isoformat() if last_sent_at_dt else None,
-        )
         log.exception(
             "alert send failed for %s: %s", domain, e,
             extra={"event": "alert.error", "owner_id": owner_id, "domain": domain, "level": overall_txt, "run_id": run_id, "type": "problem"},
         )
+        raise

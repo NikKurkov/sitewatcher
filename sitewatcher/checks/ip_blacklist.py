@@ -127,6 +127,9 @@ class IpBlacklistCheck(BaseCheck):
         tasks = [self._probe_ip_zone(sem, ip, zone) for ip in ips for zone in self.zones]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, asyncio.CancelledError):
+                raise result
         hits: List[Hit] = [r for r in results if isinstance(r, Hit)]
         errors_count = sum(1 for r in results if isinstance(r, Exception))
         queries_total = len(ips) * len(self.zones)
@@ -174,8 +177,8 @@ class IpBlacklistCheck(BaseCheck):
 
         return CheckOutcome(
             self.name,
-            Status.OK,
-            "not listed",
+            Status.UNKNOWN if errors_count or not queries_total else Status.OK,
+            "DNSBL queries incomplete" if errors_count or not queries_total else "not listed",
             {
                 "ips_v4": ips_v4,
                 "ips_v6": ips_v6,
@@ -198,8 +201,6 @@ class IpBlacklistCheck(BaseCheck):
         except (
             dns.resolver.NXDOMAIN,
             dns.resolver.NoAnswer,
-            dns.resolver.Timeout,
-            dns.exception.DNSException,
         ):
             v4 = []
 
@@ -209,8 +210,6 @@ class IpBlacklistCheck(BaseCheck):
         except (
             dns.resolver.NXDOMAIN,
             dns.resolver.NoAnswer,
-            dns.resolver.Timeout,
-            dns.exception.DNSException,
         ):
             v6 = []
 
@@ -241,8 +240,6 @@ class IpBlacklistCheck(BaseCheck):
             except (
                 dns.resolver.NXDOMAIN,
                 dns.resolver.NoAnswer,
-                dns.resolver.Timeout,
-                dns.exception.DNSException,
             ):
                 return None
 

@@ -5,7 +5,7 @@ import json
 import os
 import sqlite3
 import logging
-from contextlib import closing
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
@@ -93,7 +93,7 @@ def _connect(db_path: Path | None = None) -> sqlite3.Connection:
     # Use WAL for better concurrency with jobs + handlers, and longer busy timeout.
     conn = sqlite3.connect(
         db_path or DEFAULT_DB,
-        isolation_level=None,          # autocommit; explicit transactions via 'with conn'
+        isolation_level=None,          # autocommit; writes use explicit BEGIN IMMEDIATE
         timeout=30.0,                  # 30s busy timeout at driver-level
         check_same_thread=False,       # safer when used across async contexts/threads
     )
@@ -103,6 +103,15 @@ def _connect(db_path: Path | None = None) -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous=NORMAL;")
     conn.execute("PRAGMA busy_timeout=3000;")   # 3s at SQL level
     return conn
+
+
+@contextmanager
+def _write_connection():
+    """Serialize read-modify-write operations and roll back every write on failure."""
+    with closing(_connect()) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        with conn:
+            yield conn
 
 
 def _ensure_initialized(db_path: Path | None = None) -> None:
@@ -124,7 +133,7 @@ def ensure_user(
     alert_chat_id: int | None = None
 ) -> None:
     _ensure_initialized()
-    with closing(_connect()) as conn, conn:
+    with _write_connection() as conn:
         conn.execute(
             """
             INSERT INTO users(telegram_id, username, first_name, last_name, alert_chat_id)
@@ -149,7 +158,7 @@ def list_users() -> List[int]:
 
 def set_user_alert_chat_id(owner_id: int, chat_id: int) -> None:
     _ensure_initialized()
-    with closing(_connect()) as conn, conn:
+    with _write_connection() as conn:
         conn.execute(
             "UPDATE users SET alert_chat_id=?, updated_at=datetime('now') WHERE telegram_id=?",
             (int(chat_id), int(owner_id)),
@@ -177,7 +186,7 @@ def is_user_alerts_enabled(owner_id: int) -> bool:
 
 def set_user_alerts_enabled(owner_id: int, enabled: bool) -> None:
     _ensure_initialized()
-    with closing(_connect()) as conn, conn:
+    with _write_connection() as conn:
         # ensure user row exists
         conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES(?)", (int(owner_id),))
         conn.execute(
@@ -193,7 +202,7 @@ def add_domain(owner_id: int, name: str) -> None:
     name = (name or "").strip().lower()
     if not name:
         return
-    with closing(_connect()) as conn, conn:
+    with _write_connection() as conn:
         # страховка от FK: создаём пользователя, если его ещё нет
         conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES (?)", (int(owner_id),))
         conn.execute(
@@ -207,7 +216,7 @@ def remove_domain(owner_id: int, name: str) -> bool:
     name = (name or "").strip().lower()
     if not name:
         return False
-    with closing(_connect()) as conn, conn:
+    with _write_connection() as conn:
         cur = conn.execute("DELETE FROM domains WHERE owner_id=? AND name=?", (int(owner_id), name))
         return cur.rowcount > 0
 
@@ -242,20 +251,28 @@ def save_history(
     check_name: str,
     status: Any,
     message: str,
-    metrics: Dict[str, Any]
+    metrics: Dict[str, Any],
+    *,
+    create_missing: bool = True,
 ) -> None:
-    _save_history_rows(owner_id, domain, [(check_name, status, message, metrics)])
+    _save_history_rows(
+        owner_id, domain, [(check_name, status, message, metrics)], create_missing=create_missing,
+    )
 
 
-def save_histories(owner_id: int, domain: str, results: list) -> None:
+def save_histories(
+    owner_id: int, domain: str, results: list, *, create_missing: bool = True,
+) -> None:
     """Persist a domain run in one SQLite transaction."""
     _save_history_rows(owner_id, domain, [
         (result.check, result.status, result.message, result.metrics)
         for result in results if not getattr(result, "cached", False)
-    ])
+    ], create_missing=create_missing)
 
 
-def _save_history_rows(owner_id: int, domain: str, results: list) -> None:
+def _save_history_rows(
+    owner_id: int, domain: str, results: list, *, create_missing: bool,
+) -> None:
     _ensure_initialized()
     domain = (domain or "").strip().lower()
     if not domain or not results:
@@ -265,9 +282,16 @@ def _save_history_rows(owner_id: int, domain: str, results: list) -> None:
          json.dumps(metrics, ensure_ascii=False, default=str))
         for check, status, message, metrics in results
     ]
-    with closing(_connect()) as conn, conn:
-        conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES (?)", (int(owner_id),))
-        conn.execute("INSERT OR IGNORE INTO domains(owner_id, name) VALUES(?,?)", (int(owner_id), domain))
+    with _write_connection() as conn:
+        if create_missing:
+            conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES (?)", (int(owner_id),))
+            conn.execute(
+                "INSERT OR IGNORE INTO domains(owner_id, name) VALUES(?,?)", (int(owner_id), domain),
+            )
+        elif not conn.execute(
+            "SELECT 1 FROM domains WHERE owner_id=? AND name=?", (int(owner_id), domain),
+        ).fetchone():
+            return
         conn.executemany(
             "INSERT INTO history(owner_id, domain, check_name, status, message, metrics_json, created_at) "
             "VALUES (?,?,?,?,?,?,datetime('now'))",
@@ -409,10 +433,11 @@ def upsert_alert_state(owner_id: int, domain: str, last_overall: str, last_sent_
     domain = (domain or "").strip().lower()
     if not domain:
         return
-    with closing(_connect()) as conn, conn:
-        # страховка от FK: гарантируем домен (и пользователя)
-        conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES (?)", (int(owner_id),))
-        conn.execute("INSERT OR IGNORE INTO domains(owner_id, name) VALUES(?,?)", (int(owner_id), domain))
+    with _write_connection() as conn:
+        if not conn.execute(
+            "SELECT 1 FROM domains WHERE owner_id=? AND name=?", (int(owner_id), domain),
+        ).fetchone():
+            return
         conn.execute(
             """
             INSERT INTO alert_state(owner_id,domain,last_overall,last_sent_at)
@@ -427,28 +452,46 @@ def upsert_alert_state(owner_id: int, domain: str, last_overall: str, last_sent_
 
 # ---------- Overrides ----------
 
+def _read_domain_override(conn: sqlite3.Connection, owner_id: int, domain: str) -> dict | None:
+    row = conn.execute(
+        "SELECT data_json FROM domain_overrides WHERE owner_id=? AND domain=?",
+        (int(owner_id), domain),
+    ).fetchone()
+    if not row:
+        return None
+    try:
+        data = json.loads(row["data_json"])
+        return data if isinstance(data, dict) else None
+    except (TypeError, ValueError):
+        return None
+
+
 def get_domain_override(owner_id: int, domain: str) -> Optional[dict]:
     _ensure_initialized()
     domain = (domain or "").strip().lower()
     with closing(_connect()) as conn:
-        row = conn.execute(
-            "SELECT data_json FROM domain_overrides WHERE owner_id=? AND domain=?",
-            (int(owner_id), domain),
-        ).fetchone()
-        if not row or not row["data_json"]:
-            return None
-        try:
-            return json.loads(row["data_json"])
-        except Exception:
-            return None
+        return _read_domain_override(conn, owner_id, domain)
 
 
-def set_domain_override(owner_id: int, domain: str, patch: dict) -> dict:
+def _store_domain_override(conn: sqlite3.Connection, owner_id: int, domain: str, data: dict):
+    conn.execute(
+        """
+        INSERT INTO domain_overrides(owner_id, domain, data_json, updated_at)
+        VALUES(?, ?, ?, datetime('now'))
+        ON CONFLICT(owner_id,domain) DO UPDATE SET
+          data_json=excluded.data_json,
+          updated_at=excluded.updated_at
+        """,
+        (int(owner_id), domain, json.dumps(data, ensure_ascii=False)),
+    )
+
+
+def set_domain_override(owner_id: int, domain: str, patch: dict, *, replace: bool = False) -> dict:
+    """Atomically merge settings for an existing owner's domain."""
     _ensure_initialized()
     domain = (domain or "").strip().lower()
     if not domain:
         return {}
-    current = get_domain_override(owner_id, domain) or {}
 
     def _merge(dst, src):
         for k, v in src.items():
@@ -457,22 +500,14 @@ def set_domain_override(owner_id: int, domain: str, patch: dict) -> dict:
             else:
                 dst[k] = v
 
-    _merge(current, patch)
-
-    with closing(_connect()) as conn, conn:
-        # страховка от FK: гарантируем домен (и пользователя)
-        conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES (?)", (int(owner_id),))
-        conn.execute("INSERT OR IGNORE INTO domains(owner_id, name) VALUES(?,?)", (int(owner_id), domain))
-        conn.execute(
-            """
-            INSERT INTO domain_overrides(owner_id, domain, data_json, updated_at)
-            VALUES(?, ?, ?, datetime('now'))
-            ON CONFLICT(owner_id,domain) DO UPDATE SET
-              data_json=excluded.data_json,
-              updated_at=excluded.updated_at
-            """,
-            (int(owner_id), domain, json.dumps(current, ensure_ascii=False)),
-        )
+    with _write_connection() as conn:
+        if not conn.execute(
+            "SELECT 1 FROM domains WHERE owner_id=? AND name=?", (int(owner_id), domain),
+        ).fetchone():
+            return {}
+        current = {} if replace else (_read_domain_override(conn, owner_id, domain) or {})
+        _merge(current, patch)
+        _store_domain_override(conn, owner_id, domain, current)
     return current
 
 
@@ -481,20 +516,24 @@ def unset_domain_override(owner_id: int, domain: str, key: str | None) -> None:
     domain = (domain or "").strip().lower()
     if not domain:
         return
-    if key is None:
-        with closing(_connect()) as conn, conn:
-            conn.execute("DELETE FROM domain_overrides WHERE owner_id=? AND domain=?", (int(owner_id), domain))
-        return
-
-    cur = get_domain_override(owner_id, domain) or {}
-    parts = key.split(".")
-    ref = cur
-    for p in parts[:-1]:
-        if not isinstance(ref.get(p), dict):
+    with _write_connection() as conn:
+        if key is None:
+            conn.execute(
+                "DELETE FROM domain_overrides WHERE owner_id=? AND domain=?", (int(owner_id), domain),
+            )
             return
-        ref = ref[p]
-    ref.pop(parts[-1], None)
-    set_domain_override(owner_id, domain, cur)
+        current = _read_domain_override(conn, owner_id, domain)
+        if current is None:
+            return
+        parts = key.split(".")
+        ref = current
+        for part in parts[:-1]:
+            if not isinstance(ref.get(part), dict):
+                return
+            ref = ref[part]
+        ref.pop(parts[-1], None)
+        _store_domain_override(conn, owner_id, domain, current)
+
 
 def iter_history(
     owner_id: int,

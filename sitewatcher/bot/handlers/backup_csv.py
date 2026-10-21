@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import html
 import logging
 
 from telegram import Update, InputFile
@@ -55,7 +56,7 @@ async def cmd_export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         count = len(storage.list_domains(owner_id))
     except Exception as e:
         log.exception("export_csv.failed user=%s: %s", owner_id, e, extra={"event": "export_csv.failed", "owner": owner_id})
-        await safe_reply_html(update.effective_message, f"❌ Export failed: <code>{e}</code>")
+        await safe_reply_html(update.effective_message, f"❌ Export failed: <code>{html.escape(str(e))}</code>")
         return
 
     if not csv_bytes:
@@ -74,7 +75,7 @@ async def cmd_export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
     except Exception as e:
         log.exception("export_csv.send.failed user=%s: %s", owner_id, e, extra={"event": "export_csv.send.failed", "owner": owner_id})
-        await safe_reply_html(update.effective_message, f"❌ Failed to send file: <code>{e}</code>")
+        await safe_reply_html(update.effective_message, f"❌ Failed to send file: <code>{html.escape(str(e))}</code>")
 
 
 # -----------------------------
@@ -144,7 +145,7 @@ async def _process_import_document(update: Update, context: ContextTypes.DEFAULT
         data = bytes(blob)  # pass bytes to the importer
     except Exception as e:
         log.exception("import_csv.download.failed user=%s: %s", owner_id, e, extra={"event": "import_csv.download.failed", "owner": owner_id})
-        await safe_reply_html(msg, f"❌ Failed to download file: <code>{e}</code>")
+        await safe_reply_html(msg, f"❌ Failed to download file: <code>{html.escape(str(e))}</code>")
         return
     finally:
         # Reset FSM regardless of outcome to avoid being stuck in busy state
@@ -153,10 +154,10 @@ async def _process_import_document(update: Update, context: ContextTypes.DEFAULT
 
     # Import via utility
     try:
-        report = csvutil.import_domains_csv(owner_id, data, mode=mode)
+        report = csvutil.import_domains_csv(owner_id, data, mode=mode, cfg=context.application.bot_data["cfg"])
     except Exception as e:
         log.exception("import_csv.failed user=%s: %s", owner_id, e, extra={"event": "import_csv.failed", "owner": owner_id})
-        await safe_reply_html(msg, f"❌ Import failed: <code>{e}</code>")
+        await safe_reply_html(msg, f"❌ Import failed: <code>{html.escape(str(e))}</code>")
         return
 
     # Summarize result
@@ -173,6 +174,6 @@ async def _process_import_document(update: Update, context: ContextTypes.DEFAULT
     ]
     if errors:
         lines.append("\n<b>Errors (first 5):</b>")
-        lines.extend(f"• {e}" for e in errors[:5])
+        lines.extend(f"• {html.escape(str(e))}" for e in errors[:5])
 
     await safe_reply_html(msg, "\n".join(lines))

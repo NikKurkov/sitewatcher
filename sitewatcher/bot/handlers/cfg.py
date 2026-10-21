@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import html
 import logging
+from copy import deepcopy
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from ... import storage
-from ...config import AppConfig, ChecksModel, resolve_settings
+from ...config import AppConfig, ChecksModel, resolve_settings, validate_domain_override, validation_message
+from ...utils.domains import normalize_domain
+from ...utils.secrets import redact_configuration
 from ..utils import _parse_bool, _parse_scalar_or_list, _format_preview_dict, safe_reply_html
 
 log = logging.getLogger(__name__)
@@ -22,18 +25,17 @@ async def cmd_cfg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await msg.reply_text("Usage: /cfg example.com")
         return
 
-    domain = context.args[0].strip().lower()
+    domain = normalize_domain(context.args[0])
+    if domain is None:
+        await msg.reply_text("Invalid domain")
+        return
     owner_id = update.effective_user.id
     cfg: AppConfig = context.application.bot_data["cfg"]
 
     override = storage.get_domain_override(owner_id, domain) or {}
     settings = resolve_settings(cfg, domain, override)
     effective = {
-        "checks": {
-            k: getattr(settings.checks, k)
-            for k in dir(settings.checks)
-            if not k.startswith("_") and isinstance(getattr(settings.checks, k), bool)
-        },
+        "checks": settings.checks.model_dump(),
         "http_timeout_s": getattr(settings, "http_timeout_s", None),
         # bugfix: return actual warn value (no accidental boolean 'and')
         "latency_warn_ms": getattr(settings, "latency_warn_ms", None),
@@ -41,13 +43,14 @@ async def cmd_cfg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "tls_warn_days": getattr(settings, "tls_warn_days", None),
         "proxy": getattr(settings, "proxy", None),
         "keywords": getattr(settings, "keywords", None),
-        "ports": getattr(settings, "ports", None),
+        "ports": [port.model_dump(exclude_none=True) for port in settings.ports] if settings.ports is not None else None,
+        "interval_minutes": settings.interval_minutes,
     }
 
     text = (
         f"<b>{html.escape(domain)}</b>\n\n"
-        f"<b>Effective settings</b>:\n<pre>{html.escape(_format_preview_dict(effective))}</pre>\n\n"
-        f"<b>Domain override</b>:\n<pre>{html.escape(_format_preview_dict(override))}</pre>"
+        f"<b>Effective settings</b>:\n<pre>{html.escape(_format_preview_dict(redact_configuration(effective)))}</pre>\n\n"
+        f"<b>Domain override</b>:\n<pre>{html.escape(_format_preview_dict(redact_configuration(override)))}</pre>"
     )
 
     log.info("cfg.show", extra={"event": "cfg.show", "owner_id": owner_id, "domain": domain})
@@ -153,11 +156,24 @@ async def cmd_cfg_set(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         log.warning("cfg.set.unknown_key", extra={"event": "cfg.set.unknown_key", "key": key})
         return
 
+    domain = normalize_domain(domain)
+    if domain is None:
+        await msg.reply_text("Invalid domain")
+        return
+    if not storage.domain_exists(owner_id, domain):
+        await msg.reply_text("Domain not found. Add it with /add_domain first.")
+        return
+    cfg = context.application.bot_data["cfg"]
+    try:
+        validate_domain_override(cfg, domain, patch, storage.get_domain_override(owner_id, domain))
+    except ValueError as error:
+        await msg.reply_text(validation_message(error))
+        return
     merged = storage.set_domain_override(owner_id, domain, patch)
     if msg:
         await safe_reply_html(
             msg,
-            "✅ Saved.\nCurrent override:\n<pre>{}</pre>".format(html.escape(_format_preview_dict(merged))),
+            "✅ Saved.\nCurrent override:\n<pre>{}</pre>".format(html.escape(_format_preview_dict(redact_configuration(merged)))),
         )
     log.info("cfg.set.done", extra={"event": "cfg.set.done", "owner_id": owner_id, "domain": domain, "key": key})
 
@@ -170,9 +186,27 @@ async def cmd_cfg_unset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await msg.reply_text("Usage: /cfg_unset <domain> [key]")
         return
 
-    domain = context.args[0].strip().lower()
+    domain = normalize_domain(context.args[0])
+    if domain is None:
+        await msg.reply_text("Invalid domain")
+        return
     key = context.args[1].strip() if len(context.args) > 1 else None
     owner_id = update.effective_user.id
+    candidate = deepcopy(storage.get_domain_override(owner_id, domain) or {})
+    if key is None:
+        candidate = {}
+    else:
+        ref = candidate
+        parts = key.split(".")
+        for part in parts[:-1]:
+            ref = ref.get(part, {}) if isinstance(ref, dict) else {}
+        if isinstance(ref, dict):
+            ref.pop(parts[-1], None)
+    try:
+        validate_domain_override(context.application.bot_data["cfg"], domain, candidate)
+    except ValueError as error:
+        await msg.reply_text(validation_message(error))
+        return
 
     storage.unset_domain_override(owner_id, domain, key)
 

@@ -396,8 +396,8 @@ class Dispatcher:
             out.append(RknBlockCheck(settings.name, client=self._client, rkn_cfg=self.cfg.rkn))
 
         if getattr(settings.checks, "ports", False):
-            targets = getattr(settings, "ports", None) or self.cfg.ports.targets
-            out.append(PortsCheck(settings.name, targets=targets if targets else self.cfg.ports.targets, defaults=self.cfg.ports))
+            targets = settings.ports if settings.ports is not None else self.cfg.ports.targets
+            out.append(PortsCheck(settings.name, targets=targets, defaults=self.cfg.ports))
 
         if getattr(settings.checks, "whois", False):
             out.append(WhoisInfoCheck(settings.name, client=self._client, cfg=self.cfg.whois))

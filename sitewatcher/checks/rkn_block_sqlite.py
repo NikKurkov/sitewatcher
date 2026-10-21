@@ -21,9 +21,12 @@ from ..utils.http_retry import get_with_retries  # импорт оставлен
 
 # ---- Constants & regexes (source of truth) ----
 _ZI_BASE_URL = "https://raw.githubusercontent.com/zapret-info/z-i/master/"
-_ZI_PARTS_COUNT = 20  # dump-00..19.csv
+# Verified upstream repository tree on 2026-10-21:
+# https://github.com/zapret-info/z-i lists dump-00.csv through dump-19.csv.
+_ZI_PARTS_COUNT = 20
+_PARSER_VERSION = "2"
 
-_DOMAIN_RE = re.compile(r"\b([a-z0-9-]+\.)+[a-z]{2,}\b", re.IGNORECASE)
+_DOMAIN_RE = re.compile(r"(?<![\w.-])(?:\*\.)?(?:[\w-]+\.)+[\w-]+\.?(?![\w.-])")
 _IP_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 
 
@@ -84,8 +87,8 @@ class RknBlockCheck(BaseCheck):
             )
             return CheckOutcome(self.name, Status.UNKNOWN, f"source error: {e.__class__.__name__}: {e}", {})
 
-        dom = self.domain.lower().rstrip(".")
         try:
+            dom = self.domain.rstrip(".").encode("idna").decode("ascii").lower()
             # 1) Domain match (with optional parent walk)
             hit_domain = await asyncio.to_thread(self._query_domain_match, dom, self.cfg.match_subdomains)
             if hit_domain:
@@ -111,7 +114,7 @@ class RknBlockCheck(BaseCheck):
         except Exception as e:
             self.log.exception(
                 "rkn.domain.query_failed",
-                extra={"event": "rkn.domain.query_failed", "domain": dom},
+                extra={"event": "rkn.domain.query_failed", "domain": self.domain},
             )
             return CheckOutcome(self.name, Status.UNKNOWN, f"query error: {e.__class__.__name__}: {e}", {})
 
@@ -150,15 +153,8 @@ class RknBlockCheck(BaseCheck):
                         "url": self._dump_url,
                     },
                 )
-                try:
-                    csv_text = await self._download_dump_with_fallbacks()
-                    await asyncio.to_thread(self._rebuild_index, csv_text, datetime.now(timezone.utc))
-                except Exception as e:
-                    # Soft-fail: keep existing DB for queries, only log the refresh error.
-                    self.log.exception(
-                        "rkn.index.refresh_error",
-                        extra={"event": "rkn.index.refresh_error", "error": f"{e.__class__.__name__}: {e}"},
-                    )
+                csv_text = await self._download_dump_with_fallbacks()
+                await asyncio.to_thread(self._rebuild_index, csv_text, datetime.now(timezone.utc))
 
     # ------------------------------------------------------------------ #
     # Download & parse
@@ -178,10 +174,7 @@ class RknBlockCheck(BaseCheck):
                 with gzip.GzipFile(fileobj=BytesIO(content)) as gz:
                     raw = gz.read()
                 return self._decode_bytes(raw)
-            try:
-                return r.text
-            except UnicodeDecodeError:
-                return content.decode("cp1251", errors="ignore")
+            return self._decode_bytes(content)
         except Exception:
             pass
 
@@ -192,13 +185,10 @@ class RknBlockCheck(BaseCheck):
                 u = f"{_ZI_BASE_URL}dump-{i:02d}.csv"
                 rr = await get_with_retries(self.client, u, timeout_s=30.0, retries=1, follow_redirects=True)
                 if rr.status_code == 200 and rr.content:
-                    try:
-                        parts.append(rr.text)
-                    except UnicodeDecodeError:
-                        parts.append(rr.content.decode("cp1251", errors="ignore"))
+                    parts.append(self._decode_bytes(rr.content))
             except Exception:
                 continue
-        if parts:
+        if len(parts) == _ZI_PARTS_COUNT:
             return "\n".join(parts)
 
         # 3) Mirrors
@@ -222,10 +212,7 @@ class RknBlockCheck(BaseCheck):
                                     with gzip.GzipFile(fileobj=BytesIO(data)) as gz:
                                         raw = gz.read()
                                     return self._decode_bytes(raw)
-                                try:
-                                    return mr.text
-                                except UnicodeDecodeError:
-                                    return data.decode("cp1251", errors="ignore")
+                                return self._decode_bytes(data)
                         except Exception:
                             continue
         except Exception:
@@ -253,7 +240,11 @@ class RknBlockCheck(BaseCheck):
         for line in text.splitlines():
             # domains
             for m in _DOMAIN_RE.finditer(line.lower()):
-                d = m.group(0).rstrip(".")
+                try:
+                    d = m.group(0).removeprefix("*.").rstrip(".")
+                    d = d.encode("idna").decode("ascii").lower()
+                except UnicodeError:
+                    continue
                 if RknBlockCheck._looks_like_domain(d):
                     doms.add(d)
             # IPv4
@@ -272,7 +263,13 @@ class RknBlockCheck(BaseCheck):
         except Exception:
             pass
         parts = d.split(".")
-        return len(parts) >= 2 and all(parts) and len(parts[-1]) >= 2
+        return (
+            len(parts) >= 2
+            and len(d) <= 253
+            and (parts[-1].isalpha() or parts[-1].startswith("xn--"))
+            and len(parts[-1]) >= 2
+            and all(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", p) for p in parts)
+        )
 
     @staticmethod
     def _valid_ipv4(ip: str) -> bool:
@@ -292,6 +289,9 @@ class RknBlockCheck(BaseCheck):
         con = sqlite3.connect(self.db_path.as_posix())
         try:
             cur = con.cursor()
+            cur.execute("SELECT value FROM meta WHERE key='parser_version'")
+            if cur.fetchone() != (_PARSER_VERSION,):
+                return None
             cur.execute("SELECT value FROM meta WHERE key='fetched_at'")
             row = cur.fetchone()
             if not row:
@@ -306,35 +306,23 @@ class RknBlockCheck(BaseCheck):
     def _rebuild_index(self, csv_text: str, fetched_at: datetime) -> None:
         """Create/replace SQLite DB from parsed dump text."""
         dom_seen, ip_seen = self._parse_dump(csv_text)
+        if not dom_seen and not ip_seen:
+            raise ValueError("z-i dump contains no valid domains or IPv4 addresses")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         con = sqlite3.connect(self.db_path.as_posix())
         try:
             cur = con.cursor()
-            # Schema
-            cur.executescript(
-                """
-                PRAGMA journal_mode=WAL;
-                PRAGMA synchronous=NORMAL;
-
-                DROP TABLE IF EXISTS meta;
-                DROP TABLE IF EXISTS domains;
-                DROP TABLE IF EXISTS ips;
-
-                CREATE TABLE meta (
-                    key   TEXT PRIMARY KEY,
-                    value TEXT NOT NULL
-                );
-
-                CREATE TABLE domains (
-                    domain TEXT PRIMARY KEY
-                );
-
-                CREATE TABLE ips (
-                    ip TEXT PRIMARY KEY
-                );
-                """
-            )
+            # DDL is transactional when executed individually after BEGIN.
+            # executescript() commits any pending transaction before running.
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.execute("PRAGMA synchronous=NORMAL")
+            cur.execute("BEGIN IMMEDIATE")
+            for table in ("meta", "domains", "ips"):
+                cur.execute(f"DROP TABLE IF EXISTS {table}")
+            cur.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            cur.execute("CREATE TABLE domains (domain TEXT PRIMARY KEY)")
+            cur.execute("CREATE TABLE ips (ip TEXT PRIMARY KEY)")
 
             # Bulk insert
             if dom_seen:
@@ -344,7 +332,13 @@ class RknBlockCheck(BaseCheck):
 
             # Meta
             cur.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('fetched_at', ?)", (fetched_at.isoformat(),))
+            cur.execute(
+                "INSERT INTO meta(key, value) VALUES ('parser_version', ?)", (_PARSER_VERSION,),
+            )
             con.commit()
+        except BaseException:
+            con.rollback()
+            raise
         finally:
             con.close()
 
@@ -418,17 +412,14 @@ class RknBlockCheck(BaseCheck):
         Resolve A-records (IPv4) for domain; preserve order & deduplicate.
         """
         loop = asyncio.get_running_loop()
-        try:
-            infos = await loop.getaddrinfo(
-                domain,
-                80,
-                family=socket.AF_INET,            # IPv4 only: our index stores IPv4
-                type=socket.SOCK_STREAM,
-                proto=socket.IPPROTO_TCP,
-                flags=socket.AI_ADDRCONFIG,       # skip unsupported families on this host
-            )
-        except Exception:
-            return []
+        infos = await loop.getaddrinfo(
+            domain,
+            80,
+            family=socket.AF_INET,
+            type=socket.SOCK_STREAM,
+            proto=socket.IPPROTO_TCP,
+            flags=socket.AI_ADDRCONFIG,
+        )
         out: list[str] = []
         for _, _, _, _, sockaddr in infos:
             if isinstance(sockaddr, tuple) and len(sockaddr) >= 1:
