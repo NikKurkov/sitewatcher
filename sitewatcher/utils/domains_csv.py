@@ -232,16 +232,6 @@ def _build_override_from_row(row: Dict[str, str], *, mode: str) -> Dict:
         ov["keywords"] = kws if kws is not None else []
         ov["ports"] = ports if ports is not None else []
         ov["proxy"] = proxy  # may be None to clear
-        if http_timeout_s is not None:
-            ov["http_timeout_s"] = http_timeout_s
-        if latency_warn_ms is not None:
-            ov["latency_warn_ms"] = latency_warn_ms
-        if latency_crit_ms is not None:
-            ov["latency_crit_ms"] = latency_crit_ms
-        if tls_warn_days is not None:
-            ov["tls_warn_days"] = tls_warn_days
-        if interval_minutes is not None:
-            ov["interval_minutes"] = interval_minutes
     else:
         # merge: only include fields explicitly provided and non-empty
         if kws is not None and len(kws) > 0:
@@ -250,17 +240,16 @@ def _build_override_from_row(row: Dict[str, str], *, mode: str) -> Dict:
             ov["ports"] = ports
         if proxy_raw != "":
             ov["proxy"] = proxy
-        if http_timeout_s is not None:
-            ov["http_timeout_s"] = http_timeout_s
-        if latency_warn_ms is not None:
-            ov["latency_warn_ms"] = latency_warn_ms
-        if latency_crit_ms is not None:
-            ov["latency_crit_ms"] = latency_crit_ms
-        if tls_warn_days is not None:
-            ov["tls_warn_days"] = tls_warn_days
-        if interval_minutes is not None:
-            ov["interval_minutes"] = interval_minutes
 
+    for key, value in {
+        "http_timeout_s": http_timeout_s,
+        "latency_warn_ms": latency_warn_ms,
+        "latency_crit_ms": latency_crit_ms,
+        "tls_warn_days": tls_warn_days,
+        "interval_minutes": interval_minutes,
+    }.items():
+        if value is not None:
+            ov[key] = value
     return ov
 
 

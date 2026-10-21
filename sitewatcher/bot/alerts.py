@@ -17,6 +17,13 @@ from .. import storage
 from ..checks.base import CheckOutcome
 from ..config import AppConfig, resolve_settings
 from .utils import _resolve_alert_chat_id
+from .formatting import _format_check
+from ..utils.results import status_emoji as _status_emoji
+from ..utils.results import (
+    overall_from_results as _overall_from_results,
+    status_text as _status_text,
+    status_weight as _status_weight,
+)
 
 # Module-level logger (use consistently as 'log')
 log = logging.getLogger(__name__)
@@ -102,47 +109,6 @@ class AlertDeduper:
         return out
 
 
-def _status_text(s) -> str:
-    """Normalize status (enum or str) to an uppercased string."""
-    return getattr(s, "value", str(s)).upper()
-
-
-def _status_weight(s) -> int:
-    """Map status to numeric severity for comparisons."""
-    u = _status_text(s)
-    if u == "CRIT":
-        return 2
-    if u in ("WARN", "UNKNOWN"):
-        return 1
-    return 0
-
-
-def _status_emoji(s) -> str:
-    """Return a traffic-light emoji for the given status."""
-    u = _status_text(s)
-    return {"CRIT": "🔴", "WARN": "🟡", "OK": "🟢", "UNKNOWN": "⚪"}.get(u, "⚪")
-
-
-def _status_bullet(s) -> str:
-    """Return a compact bullet for per-check lines."""
-    u = _status_text(s)
-    if u == "CRIT":
-        return "🔺"
-    if u == "WARN":
-        return "🔸"
-    return "•"
-
-
-def _overall_from_results(results) -> str:
-    """Compute overall status from individual check results."""
-    if not results:
-        return "UNKNOWN"
-    worst = 0
-    for r in results:
-        worst = max(worst, _status_weight(getattr(r.status, "value", str(r.status))))
-    return {2: "CRIT", 1: "WARN", 0: "OK"}[worst]
-
-
 def _parse_bad_checks_from_alert(text: str) -> set[str]:
     """Extract check names that were non-OK from a previously sent alert (HTML)."""
     bad: set[str] = set()
@@ -166,19 +132,7 @@ def _compose_message(domain: str, overall: str, prev_overall: Optional[str], res
     if prev_overall:
         head += f" (was {prev_overall})"
 
-    lines = [head]
-    for r in results:
-        st = _status_text(r.status)
-        bullet = _status_bullet(st)
-        lines.append(
-            "{bullet} <code>{check}</code> — <b>{status}</b> — {msg}".format(
-                bullet=bullet,
-                check=html.escape(str(r.check)),
-                status=html.escape(st),
-                msg=html.escape(str(r.message)),
-            )
-        )
-    return "\n".join(lines)
+    return "\n".join([head] + [_format_check(result) for result in results])
 
 
 def _enabled_checks_for(cfg: AppConfig, owner_id: int, domain: str) -> list[str]:

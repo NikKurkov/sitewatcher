@@ -103,6 +103,15 @@ async def cmd_check_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def cmd_check_all_detail(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Detailed check for all owned domains (per-check lines for every domain)."""
+    await _check_all(update, context, _format_results, "\n\n", "check_all_detail")
+
+
+async def cmd_check_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Summary check for all owned domains (overall line; details only for non-OK)."""
+    await _check_all(update, context, _format_results_summary, "\n", "check_all")
+
+
+async def _check_all(update, context, format_results, separator: str, command: str) -> None:
     msg = getattr(update, "effective_message", None)
     cfg: AppConfig = context.application.bot_data["cfg"]
     owner_id = update.effective_user.id
@@ -115,8 +124,8 @@ async def cmd_check_all_detail(update: Update, context: ContextTypes.DEFAULT_TYP
 
     force = _parse_force(context.args)
     log.info(
-        "cmd.check_all_detail.start",
-        extra={"event": "cmd.check_all_detail.start", "owner_id": owner_id, "count": len(names), "force": bool(force)},
+        f"cmd.{command}.start",
+        extra={"event": f"cmd.{command}.start", "owner_id": owner_id, "count": len(names), "force": bool(force)},
     )
 
     parts: list[str] = []
@@ -127,60 +136,18 @@ async def cmd_check_all_detail(update: Update, context: ContextTypes.DEFAULT_TYP
             except Exception:
                 # Keep going even if one domain fails
                 log.exception(
-                    "cmd.check_all_detail.domain_error",
-                    extra={"event": "cmd.check_all_detail.domain_error", "owner_id": owner_id, "domain": name},
+                    f"cmd.{command}.domain_error",
+                    extra={"event": f"cmd.{command}.domain_error", "owner_id": owner_id, "domain": name},
                 )
                 continue
-            parts.append(await _format_results(owner_id, name, results, persist=True))
+            parts.append(await format_results(owner_id, name, results, persist=True))
             await maybe_send_alert(update, context, owner_id, name, results)
 
-    text = "\n\n".join(parts) if parts else "No results."
+    text = separator.join(parts) if parts else "No results."
     for chunk in _chunk_text(text):
         await safe_reply_html(msg, chunk)
 
     log.info(
-        "cmd.check_all_detail.done",
-        extra={"event": "cmd.check_all_detail.done", "owner_id": owner_id, "count": len(names)},
-    )
-
-
-async def cmd_check_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Summary check for all owned domains (overall line; details only for non-OK)."""
-    msg = getattr(update, "effective_message", None)
-    cfg: AppConfig = context.application.bot_data["cfg"]
-    owner_id = update.effective_user.id
-    names = storage.list_domains(owner_id)
-
-    if not names:
-        if msg:
-            await msg.reply_text("No domains in DB")
-        return
-
-    force = _parse_force(context.args)
-    log.info(
-        "cmd.check_all.start",
-        extra={"event": "cmd.check_all.start", "owner_id": owner_id, "count": len(names), "force": bool(force)},
-    )
-
-    parts: list[str] = []
-    async with Dispatcher(cfg) as d:
-        for name in names:
-            try:
-                results = await d.run_for(owner_id, name, use_cache=not force)
-            except Exception:
-                log.exception(
-                    "cmd.check_all.domain_error",
-                    extra={"event": "cmd.check_all.domain_error", "owner_id": owner_id, "domain": name},
-                )
-                continue
-            parts.append(await _format_results_summary(owner_id, name, results, persist=True))
-            await maybe_send_alert(update, context, owner_id, name, results)
-
-    text = "\n".join(parts) if parts else "No results."
-    for chunk in _chunk_text(text):
-        await safe_reply_html(msg, chunk)
-
-    log.info(
-        "cmd.check_all.done",
-        extra={"event": "cmd.check_all.done", "owner_id": owner_id, "count": len(names)},
+        f"cmd.{command}.done",
+        extra={"event": f"cmd.{command}.done", "owner_id": owner_id, "count": len(names)},
     )

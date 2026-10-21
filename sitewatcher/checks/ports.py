@@ -10,29 +10,10 @@ from dataclasses import dataclass
 from typing import Any, List, Optional, Mapping
 
 from .base import BaseCheck, CheckOutcome, Status
+from ..config import PortSpec
 
 # Module-level logger for structured events
 log = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class PortSpec:
-    """Desired port probe specification.
-
-    Attributes:
-        port: TCP port number.
-        host: Optional override host; defaults to the check's domain.
-        tls: If True, wrap the TCP connection with TLS.
-        send: Optional preamble to send after connect (e.g., "HEAD / HTTP/1.0\r\n\r\n").
-        expect: Optional regex to check in the received banner.
-        timeout_s: Optional per-probe connect timeout (seconds). If None, use defaults.
-    """
-    port: int
-    host: Optional[str] = None
-    tls: bool = False
-    send: Optional[str] = None
-    expect: Optional[str] = None
-    timeout_s: Optional[float] = None
 
 
 @dataclass
@@ -84,12 +65,10 @@ class PortsCheck(BaseCheck):
 
         for it in items:
             try:
-                if hasattr(it, "model_dump"):
-                    it = it.model_dump(exclude_none=True)
                 if isinstance(it, PortSpec):
                     out.append(it)
                     continue
-                if isinstance(it, int):
+                if isinstance(it, int) or (isinstance(it, str) and it.isdigit()):
                     out.append(PortSpec(port=int(it)))
                     continue
                 if isinstance(it, Mapping):
@@ -100,19 +79,12 @@ class PortsCheck(BaseCheck):
                     out.append(
                         PortSpec(
                             port=int(it.get("port")),
-                            host=str(it.get("host")) if it.get("host") is not None else None,
                             tls=bool(it.get("tls", False)),
-                            send=str(it.get("send")) if it.get("send") is not None else None,
-                            expect=str(it.get("expect")) if it.get("expect") is not None else None,
                             timeout_s=float(it.get("timeout_s")) if it.get("timeout_s") is not None else None,
+                            **{key: str(it[key]) for key in ("host", "send", "expect") if it.get(key) is not None},
                         )
                     )
                     continue
-                # Unknown shape — try to coerce simple strings like "443"
-                if isinstance(it, str) and it.isdigit():
-                    out.append(PortSpec(port=int(it)))
-                    continue
-
                 log.warning("ports.target_ignored", extra={"event": "ports.target_ignored", "reason": "unsupported_type", "item": repr(it)})
             except Exception as e:
                 log.warning("ports.target_ignored", extra={"event": "ports.target_ignored", "reason": e.__class__.__name__})

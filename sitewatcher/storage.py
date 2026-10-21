@@ -314,22 +314,10 @@ def minutes_since_last(owner_id: int, domain: str, check_name: str) -> Optional[
     if not ts:
         return None
 
-    s = str(ts)
-    dt = None
-    # Try ISO-8601 with 'Z'
     try:
-        if s.endswith("Z"):
-            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        else:
-            dt = datetime.fromisoformat(s)
-    except Exception:
-        dt = None
-    # Legacy SQLite DATETIME('now') format: "YYYY-MM-DD HH:MM:SS"
-    if dt is None:
-        try:
-            dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
-        except Exception:
-            return None
+        dt = datetime.fromisoformat(str(ts))
+    except ValueError:
+        return None
 
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)

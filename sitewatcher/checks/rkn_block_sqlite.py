@@ -7,7 +7,6 @@ import ipaddress
 import re
 import socket
 import sqlite3
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
@@ -30,12 +29,6 @@ _IP_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 
 def rkn_index_path(cfg: RknConfig) -> Path:
     return Path(cfg.index_db_path) if cfg.index_db_path else storage.DEFAULT_DB.with_name("z_i_index.db")
-
-
-@dataclass
-class _CacheMeta:
-    fetched_at: datetime
-    db_path: Path
 
 
 class RknBlockCheck(BaseCheck):

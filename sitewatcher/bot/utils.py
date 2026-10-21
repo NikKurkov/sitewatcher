@@ -69,14 +69,6 @@ def _format_preview_dict(d: Any) -> str:
         return repr(d)
 
 
-def _strip_cached_suffix(msg: str) -> str:
-    """
-    Remove trailing '[cached Xm]' markers from a message.
-    Used before persisting to storage to keep messages clean.
-    """
-    return re.sub(r"(?:\s*\[cached\s+\d+m\])+$", "", msg or "", flags=re.I)
-
-
 # -----------------------------------------------------------------------------
 # Access control and busy-guard
 # -----------------------------------------------------------------------------

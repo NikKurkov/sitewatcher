@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import uuid
 from functools import lru_cache
 from typing import Iterable, List, Optional, Tuple
@@ -12,6 +11,7 @@ from typing import Iterable, List, Optional, Tuple
 import httpx
 
 from . import storage
+from .utils.results import overall_from_results, status_text, strip_cached_suffix
 from .checks.base import CheckOutcome, Status
 from .checks.deface import DefaceCheck
 from .checks.http_basic import HttpBasicCheck
@@ -294,26 +294,8 @@ class Dispatcher:
         results: List[CheckOutcome] = [r for r in results_ordered if r is not None]
 
         # Log summary
-        def _status_str(x: object) -> str:
-            return getattr(x, "value", str(x))
-
-        def _overall_from(res: Iterable[CheckOutcome]) -> str:
-            def weight(st: str) -> int:
-                st = (st or "").upper()
-                if st == "CRIT":
-                    return 2
-                if st in ("WARN", "UNKNOWN"):
-                    return 1
-                return 0
-
-            worst = 0
-            for rr in res:
-                st = _status_str(getattr(rr, "status", "UNKNOWN")).upper()
-                worst = max(worst, weight(st))
-            return {2: "CRIT", 1: "WARN", 0: "OK"}[worst]
-
-        overall = _overall_from(results)
-        checks_summary = {r.check: _status_str(r.status) for r in results}
+        overall = overall_from_results(results)
+        checks_summary = {r.check: status_text(r.status) for r in results}
 
         log.info(
             "dispatcher.done",
@@ -483,10 +465,6 @@ class Dispatcher:
         val = getattr(sched, name, None)
         return val if isinstance(val, (int, float)) and val > 0 else default
 
-    @staticmethod
-    def _strip_cached_suffix(msg: str) -> str:
-        return re.sub(r"(?:\s*\[cached\s+\d+m\])+$", "", msg or "", flags=re.I)
-
     def _maybe_cached_result(
         self,
         owner_id: int,
@@ -539,7 +517,7 @@ class Dispatcher:
         except Exception:
             metrics = {}
 
-        base_msg = self._strip_cached_suffix(row["message"] or "")
+        base_msg = strip_cached_suffix(row["message"] or "")
         return CheckOutcome(
             check=check_name,
             status=row["status"],

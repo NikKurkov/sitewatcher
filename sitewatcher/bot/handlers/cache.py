@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import ContextTypes
 
 from ... import storage
 from ...config import AppConfig
@@ -114,15 +114,3 @@ async def cmd_clear_cache(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if msg:
         await safe_reply_html(msg, "✅ Cache cleared: " + summary)
-
-
-# ------------------------------ registry --------------------------------
-
-def register_handlers(app: Application) -> None:
-    """Register cache-related handlers."""
-    app.add_handler(CommandHandler("clear_cache", cmd_clear_cache, block=False), group=0)
-
-
-def register_cache_handlers(app: Application) -> None:
-    """Backward-compatible alias expected by router.py (if used)."""
-    register_handlers(app)

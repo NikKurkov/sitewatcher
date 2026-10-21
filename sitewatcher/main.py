@@ -6,7 +6,7 @@ import asyncio
 import logging
 import uuid
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -19,6 +19,11 @@ from .config import AppConfig, ChecksModel, load_config, validate_config
 from .dispatcher import Dispatcher
 from .logging_setup import setup_logging
 from .bot.validators import DOMAIN_RE, normalize_domain
+from .utils.results import (
+    overall_from_results as _overall_from,
+    status_text as _status_str,
+    status_emoji as _status_emoji,
+)
 
 # ---------- CLI parsing ----------
 
@@ -48,33 +53,6 @@ def _parse_args() -> argparse.Namespace:
 def _new_run_id() -> str:
     """Create a short correlation id for this CLI invocation."""
     return uuid.uuid4().hex
-
-
-def _status_str(x: object) -> str:
-    """Get human string from Status enum or string."""
-    return getattr(x, "value", str(x))
-
-
-def _status_emoji(s: str) -> str:
-    """Simple traffic light for CLI output."""
-    s = (s or "").upper()
-    return {"CRIT": "🔴", "WARN": "🟡", "OK": "🟢", "UNKNOWN": "⚪"}.get(s, "⚪")
-
-
-def _overall_from(results: Iterable[object]) -> str:
-    """Compute overall status from individual results."""
-    def weight(st: str) -> int:
-        if st == "CRIT":
-            return 2
-        if st in ("WARN", "UNKNOWN"):
-            return 1
-        return 0
-
-    worst = -1
-    for r in results:
-        st = _status_str(getattr(r, "status", "UNKNOWN")).upper()
-        worst = max(worst, weight(st))
-    return {2: "CRIT", 1: "WARN", 0: "OK", -1: "UNKNOWN"}[worst]
 
 
 async def _run_and_persist(
