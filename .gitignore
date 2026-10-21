@@ -10,6 +10,8 @@ venv/
 sitewatcher/pyvenv.cfg
 
 # Secrets & local env
+*.web-secret
+.web-secret-*
 .env
 .env.*.local
 sitewatcher/data/config.yaml
