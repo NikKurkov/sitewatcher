@@ -16,6 +16,7 @@
 - Preserve IP-change baselines during temporary DNS failures; require completed, valid VirusTotal observations before reporting a clean result.
 - Isolate IP-change baselines by owner and ad hoc scans, preserving legacy cache migration without consuming another owner's change.
 - Fix same-day history filtering, lossless CSV keyword/port round trips, zero history retention and UTC maintenance scheduling.
+- Detect history transitions before filtering their status and order simultaneous events by insertion ID.
 - Test supported Python versions 3.12–3.14, including real loopback HTTPS/proxy and cancellation flows.
 - Require python-telegram-bot 22.4 or newer for native polling startup on Python 3.14; offload history cleanup and compaction so they do not block the Telegram event loop.
 - Exclude private YAML, environment files, runtime SQLite sidecars and cache archives from Docker builds; test the installed assets and build boundary with synthetic canaries.

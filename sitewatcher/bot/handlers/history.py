@@ -145,13 +145,13 @@ async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         },
     )
 
-    # Fetch raw rows (DESC by created_at)
+    # Fetch all statuses when detecting transitions, including intervening recoveries.
     rows = list(
         storage.iter_history(
             owner_id=owner_id,
             domain=domain,
             check=check,
-            statuses=statuses,
+            statuses=None if only_changes else statuses,
             since=since,
             limit=max(limit * 5, limit + 50) if only_changes else limit,  # wider window for 'changes'
         )
@@ -170,22 +170,18 @@ async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             by_pair.setdefault((r["domain"], r["check"]), []).append(r)
 
         selected: List[Row] = []
-        for _, grp in by_pair.items():
-            try:
-                grp_sorted = sorted(grp, key=lambda r: r["created_at"] or "")
-            except Exception:
-                grp_sorted = grp  # fallback
+        for grp in by_pair.values():
             prev: Optional[str] = None
-            for r in grp_sorted:
+            for r in sorted(grp, key=lambda r: (r["created_at"] or "", r["id"])):
                 st = r["status"].upper()
                 if prev is not None and st != prev:
                     selected.append(r)
                 prev = st
 
-        try:
-            rows = sorted(selected, key=lambda r: r["created_at"] or "", reverse=True)[:limit]
-        except Exception:
-            rows = selected[:limit]
+        rows = sorted(
+            (r for r in selected if r["status"].upper() in statuses),
+            key=lambda r: (r["created_at"] or "", r["id"]), reverse=True,
+        )[:limit]
 
         log.debug(
             "history.changes.selected",

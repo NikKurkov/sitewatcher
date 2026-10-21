@@ -573,8 +573,8 @@ def iter_history(
     """
     Yield last history rows for the owner with optional filters.
     Returned rows are sqlite3.Row with keys:
-      domain, check, status, message, metrics_json, created_at
-    Ordered by created_at DESC, limited by 'limit'.
+      id, domain, check, status, message, metrics_json, created_at
+    Ordered by created_at DESC, id DESC, limited by 'limit'.
     """
     _ensure_initialized()
     conn = _connect()
@@ -602,10 +602,10 @@ def iter_history(
             args.append(cutoff.astimezone(timezone.utc).replace(tzinfo=None).isoformat(sep=" "))
 
         sql = (
-            'SELECT domain, check_name AS "check", status, message, metrics_json, created_at '
+            'SELECT id, domain, check_name AS "check", status, message, metrics_json, created_at '
             "FROM history "
             f"WHERE {' AND '.join(where)} "
-            "ORDER BY created_at DESC "
+            "ORDER BY created_at DESC, id DESC "
             "LIMIT ?"
         )
         args.append(int(limit))
