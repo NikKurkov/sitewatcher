@@ -38,6 +38,7 @@ def run_bot(cfg: AppConfig) -> None:
     app = (
         Application.builder()
         .token(token)
+        .get_updates_proxy(os.getenv("TELEGRAM_PROXY"))
         .request(request)
         # ConversationHandler requires ordered updates.
         .concurrent_updates(False)
@@ -89,10 +90,10 @@ def run_bot(cfg: AppConfig) -> None:
         try:
             retention = int(getattr(getattr(cfg, "history", object()), "retention_days", 30))
             vacuum_weekly = bool(getattr(getattr(cfg, "history", object()), "vacuum_weekly", True))
-            deleted = storage.cleanup_history(retention)
+            deleted = await asyncio.to_thread(storage.cleanup_history, retention)
             # Sunday = 6
             if vacuum_weekly and datetime.now(timezone.utc).weekday() == 6:
-                storage.vacuum_and_optimize()
+                await asyncio.to_thread(storage.vacuum_and_optimize)
             log.info(
                 "maintenance.cleanup_history.done",
                 extra={"event": "maintenance.cleanup_history.done", "deleted": int(deleted), "retention_days": retention},

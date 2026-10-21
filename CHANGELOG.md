@@ -7,6 +7,7 @@
 - Add sanitized `doctor` diagnostics for local configuration, schema, database integrity and permissions.
 - Make storage updates atomic, preserve concurrent settings changes, and prevent completed jobs from restoring deleted domains.
 - Retry undelivered incident transitions and summaries without consuming their state; serialize concurrent delivery and respect alert toggles.
+- Apply the Telegram proxy to both ordinary Bot API calls and long polling.
 - Validate domain settings and YAML before use, preserve explicit zero values, and give safe field-specific error messages.
 - Fail closed on corrupt stored settings; allow an explicit full reset without exposing malformed content.
 - Bound page downloads before decompression, including redirect bodies, and reject incomplete content without reporting a clean result.
@@ -16,6 +17,7 @@
 - Isolate IP-change baselines by owner and ad hoc scans, preserving legacy cache migration without consuming another owner's change.
 - Fix same-day history filtering, lossless CSV keyword/port round trips, zero history retention and UTC maintenance scheduling.
 - Test supported Python versions 3.12–3.14, including real loopback HTTPS/proxy and cancellation flows.
+- Require python-telegram-bot 22.4 or newer for native polling startup on Python 3.14; offload history cleanup and compaction so they do not block the Telegram event loop.
 - Exclude private YAML, environment files, runtime SQLite sidecars and cache archives from Docker builds; test the installed assets and build boundary with synthetic canaries.
 
 ## 0.2.0 — 2026-09-30

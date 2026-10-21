@@ -56,7 +56,9 @@ To restore, stop the bot and viewer, retain the current database **and its sidec
 
 - Use one bot instance per database. The optional viewer is a separate read-only process.
 - Empty `TELEGRAM_ALLOWED_USER_IDS` intentionally permits everyone. Malformed nonempty values stop bot startup.
+- `TELEGRAM_PROXY` applies to both Bot API replies and `getUpdates` polling. It is separate from the HTTP-check proxy settings.
 - Daily history cleanup uses `history.cleanup_time` in UTC. `retention_days: 0` removes history older than the current time; it does not disable cleanup. Weekly compaction runs on Sunday in UTC.
+- Cleanup and compaction run in worker threads. Cancelling the scheduler does not interrupt a SQLite maintenance operation that has already started; allow it to finish before replacing the database.
 - Per-domain `interval_minutes: 0` pauses scheduled checks. Manual checks remain available. Explicit zero latency/alert thresholds are preserved.
 - Unknown YAML keys and invalid combinations are errors. `/cfg_set` and CSV imports validate overrides before saving; `/cfg_unset` also validates the settings that will be inherited.
 - `http.proxy` (or the `http.proxies` scheme map) configures the common HTTP client. `defaults.proxy` and domain overrides select a separate client for HTTP status, keyword and defacement checks. External API calls retain the common client. Clearing a domain proxy returns to that common client; connection limits apply to mapped proxies too.
