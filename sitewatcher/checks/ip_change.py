@@ -74,7 +74,18 @@ class IpChangeCheck(BaseCheck):
         )
 
         # Always resolve fresh IPs; cheap and reliable vs. DNS cache.
-        ips_v4, ips_v6 = await self._resolve_ips()
+        try:
+            ips_v4, ips_v6 = await self._resolve_ips()
+        except OSError as error:
+            log.warning(
+                "ipchange.resolve_failed",
+                extra={"event": "ipchange.resolve_failed", "domain": self.domain,
+                       "error": error.__class__.__name__},
+            )
+            return CheckOutcome(
+                self.name, Status.UNKNOWN, f"DNS lookup failed: {error.__class__.__name__}",
+                {"error": error.__class__.__name__, "baseline_preserved": prev is not None},
+            )
         log.info(
             "ipchange.resolved",
             extra={
@@ -181,11 +192,9 @@ class IpChangeCheck(BaseCheck):
         loop = asyncio.get_running_loop()
         try:
             infos = await loop.getaddrinfo(self.domain, 80, type=socket.SOCK_STREAM)
-        except Exception as e:
-            log.warning(
-                "ipchange.resolve_failed",
-                extra={"event": "ipchange.resolve_failed", "domain": self.domain, "error": e.__class__.__name__},
-            )
+        except socket.gaierror as error:
+            if error.errno not in {socket.EAI_NONAME, getattr(socket, "EAI_NODATA", None)}:
+                raise
             infos = []
 
         v4: set[str] = set()

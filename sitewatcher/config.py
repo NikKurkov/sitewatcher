@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import os
+import logging
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Literal, Union
 
@@ -18,6 +19,10 @@ from .utils.domains import normalize_domain
 
 class ConfigModel(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True, allow_inf_nan=False)
+
+
+class ConfigurationError(ValueError):
+    """Actionable configuration errors containing only application-defined messages."""
 
 
 def _validate_proxy(value: str | None) -> str | None:
@@ -322,7 +327,7 @@ class MalwareConfig(ConfigModel):
 class HistoryConfig(ConfigModel):
     """Retention and cleanup policy for history tables."""
     retention_days: int = 30          # keep last N days in history
-    cleanup_time: str = "03:30"       # HH:MM (local time) for daily cleanup job
+    cleanup_time: str = "03:30"       # HH:MM UTC for daily cleanup job
     vacuum_weekly: bool = True        # run VACUUM/PRAGMA optimize weekly (Sunday)
 
 
@@ -446,9 +451,24 @@ def validate_domain_override(
 
 def validation_message(error: Exception) -> str:
     """Render validation diagnostics without raw values, credentials, or unknown field names."""
+    if isinstance(error, ConfigurationError):
+        return str(error)
     if isinstance(error, ValidationError):
+        known_fields = set()
+        for model in globals().values():
+            if isinstance(model, type) and issubclass(model, ConfigModel):
+                known_fields.update(model.model_fields)
+            elif isinstance(model, type) and is_dataclass(model):
+                known_fields.update(item.name for item in fields(model))
+        messages = []
+        for item in error.errors(include_input=False):
+            location = ".".join(
+                str(part) if isinstance(part, int) or part in known_fields else "<field>"
+                for part in item["loc"]
+            )
+            messages.append(f"{location or '<settings>'}: {item['type']}")
         return "Invalid settings: " + "; ".join(
-            dict.fromkeys(item["type"] for item in error.errors(include_input=False))
+            dict.fromkeys(messages)
         )
     return "Invalid settings"
 
@@ -593,14 +613,30 @@ def validate_config(cfg: AppConfig) -> None:
         errors.append("malware.timeout_s must be > 0")
     if cfg.logging.destination not in {"console", "file"}:
         errors.append("logging.destination must be console or file")
+    levels = [cfg.logging.level, *cfg.logging.third_party_levels.values()]
+    if any(not isinstance(level, str) or level.strip().upper() not in logging.getLevelNamesMapping()
+           for level in levels):
+        errors.append("logging levels must be standard names such as DEBUG, INFO or WARNING")
+    if cfg.logging.file.interval <= 0:
+        errors.append("logging.file.interval must be > 0")
+    if cfg.logging.file.max_bytes < 0:
+        errors.append("logging.file.max_bytes must be >= 0")
+    if cfg.logging.file.backup_count < 0:
+        errors.append("logging.file.backup_count must be >= 0")
+    if cfg.logging.file.rotate == "time" and cfg.logging.file.when.strip().upper() not in {
+        "S", "M", "H", "D", "MIDNIGHT", *(f"W{day}" for day in range(7)),
+    }:
+        errors.append("logging.file.when must be S, M, H, D, MIDNIGHT or W0..W6")
+    if cfg.logging.destination == "file" and not cfg.logging.file.path.strip():
+        errors.append("logging.file.path must be nonempty")
 
     # Deface markers file (optional)
     if getattr(cfg.deface, "phrases_path", None):
         p = Path(cfg.deface.phrases_path)
         if not p.exists():
-            errors.append(f"deface.phrases_path does not exist: {p}")
+            errors.append("deface.phrases_path does not exist")
         elif not p.is_file():
-            errors.append(f"deface.phrases_path must be a file: {p}")
+            errors.append("deface.phrases_path must be a file")
 
     # Per-domain overrides (ports sanity)
     for i, dom in enumerate(cfg.domains):
@@ -621,4 +657,4 @@ def validate_config(cfg: AppConfig) -> None:
 
     if errors:
         lines = "\n  - " + "\n  - ".join(errors)
-        raise ValueError(f"Invalid configuration:{lines}")
+        raise ConfigurationError(f"Invalid configuration:{lines}")

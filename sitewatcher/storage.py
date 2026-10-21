@@ -57,6 +57,9 @@ CREATE TABLE IF NOT EXISTS history (
 CREATE INDEX IF NOT EXISTS idx_history_owner_domain_check_created
   ON history(owner_id, domain, check_name, created_at);
 
+CREATE INDEX IF NOT EXISTS idx_history_owner_domain_check_id
+  ON history(owner_id, domain, check_name, id DESC);
+
 CREATE TABLE IF NOT EXISTS whois_state (
   domain TEXT PRIMARY KEY,
   snapshot_json TEXT NOT NULL,
@@ -570,7 +573,9 @@ def iter_history(
 
         if since:
             where.append("created_at >= ?")
-            args.append(since.isoformat() if hasattr(since, "isoformat") else str(since))
+            # History uses SQLite UTC timestamps with a space, not ISO's "T" separator.
+            cutoff = since if since.tzinfo is not None else since.replace(tzinfo=timezone.utc)
+            args.append(cutoff.astimezone(timezone.utc).replace(tzinfo=None).isoformat(sep=" "))
 
         sql = (
             'SELECT domain, check_name AS "check", status, message, metrics_json, created_at '
@@ -595,6 +600,9 @@ def cleanup_history(retention_days: int, batch_size: int = 10_000) -> int:
     Delete history rows older than 'retention_days' days, in batches.
     Returns total deleted rows. Uses TEXT DATETIME format: created_at < datetime('now', ?).
     """
+    batch_size = int(batch_size)
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
     _ensure_initialized()
     retention_days = max(0, int(retention_days))
     cutoff = f"-{retention_days} days"

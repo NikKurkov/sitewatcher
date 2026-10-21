@@ -215,29 +215,47 @@ async def _flush_alert_summaries_job(context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     cfg: AppConfig = context.application.bot_data["cfg"]
-    pairs = deduper.flush_summaries(max_batch=20)
-    if not pairs:
+    if not cfg.alerts.enabled:
         return
-
-    # Send summary per key to its owner's chat
-    for key, text in pairs:
-        try:
-            chat_id = _resolve_alert_chat_id(context, update=None, cfg=cfg, owner_id=key.owner_id)
-            if not chat_id:
-                continue
-            await safe_send_message(
-                context.bot,
-                chat_id=chat_id,
-                text=text,
-                parse_mode=None,
-                disable_web_page_preview=True,
-            )
-            log.info(
-                "alert.summary.sent",
-                extra={"event": "alert.summary.sent", "owner_id": key.owner_id, "domain": key.domain},
-            )
-        except Exception as e:  # pragma: no cover
-            log.warning(
-                "Failed to flush alert summary for %s/%s: %s", key.owner_id, key.domain, e,
-                extra={"event": "alert.summary.error", "owner_id": key.owner_id, "domain": key.domain},
-            )
+    # Job invocations and ordinary alerts must not deliver the same pending count twice.
+    flush_lock = context.application.bot_data.setdefault("summary_flush_lock", asyncio.Lock())
+    async with flush_lock:
+        keys = deduper.pending_summaries()
+        for key in keys:
+            locks = context.application.bot_data.setdefault("alert_locks", {})
+            lock = locks.setdefault((key.owner_id, key.domain), asyncio.Lock())
+            async with lock:
+                try:
+                    if not storage.domain_exists(key.owner_id, key.domain):
+                        deduper.discard(key)
+                        continue
+                    if not storage.is_user_alerts_enabled(key.owner_id):
+                        continue
+                    chat_id = _resolve_alert_chat_id(context, update=None, cfg=cfg,
+                                                     owner_id=key.owner_id)
+                    if not chat_id:
+                        continue
+                    # An ordinary alert may have consumed these counts while waiting for its lock.
+                    summary = deduper.pending_summary(key)
+                    if summary is None:
+                        continue
+                    text, count = summary
+                    await safe_send_message(
+                        context.bot,
+                        chat_id=chat_id,
+                        text=text,
+                        parse_mode=None,
+                        disable_web_page_preview=True,
+                    )
+                    deduper.acknowledge_summary(key, count)
+                    log.info(
+                        "alert.summary.sent",
+                        extra={"event": "alert.summary.sent", "owner_id": key.owner_id,
+                               "domain": key.domain},
+                    )
+                except Exception as e:
+                    log.warning(
+                        "Failed to flush alert summary for %s/%s: %s", key.owner_id, key.domain, e,
+                        extra={"event": "alert.summary.error", "owner_id": key.owner_id,
+                               "domain": key.domain},
+                    )

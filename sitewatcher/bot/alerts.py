@@ -92,22 +92,31 @@ class AlertDeduper:
         """Commit dedupe state only after a successful delivery."""
         self._state[key] = _AlertRecord(last_sent_at=time.time(), last_text=text)
 
-    def flush_summaries(self, max_batch: int = 20) -> list[tuple[_AlertKey, str]]:
-        """Flush summary lines for keys with suppressions whose cooldown elapsed."""
-        out: list[tuple[_AlertKey, str]] = []
-        ts = time.time()
-        for key, rec in list(self._state.items()):
-            if rec.suppressed > 0 and (ts - rec.last_sent_at) >= self.cooldown:
-                msg = (
-                    f"{rec.suppressed} repetition(s) in last {self.cooldown}s "
-                    f"for owner {key.owner_id}, {key.domain} [{key.level}]"
-                )
-                rec.suppressed = 0
-                rec.last_sent_at = ts
-                out.append((key, msg))
-                if len(out) >= max_batch:
-                    break
-        return out
+    def pending_summaries(self) -> list[_AlertKey]:
+        """Return all ready keys so undeliverable owners cannot starve later summaries."""
+        return [key for key in self._state if self.pending_summary(key) is not None]
+
+    def discard(self, key: _AlertKey) -> None:
+        """Forget counters for a domain that is no longer monitored."""
+        self._state.pop(key, None)
+
+    def pending_summary(self, key: _AlertKey) -> tuple[str, int] | None:
+        """Prepare a summary; the returned count is acknowledged only after delivery."""
+        rec = self._state.get(key)
+        if rec is None or rec.suppressed <= 0 or time.time() - rec.last_sent_at < self.cooldown:
+            return None
+        return (
+            f"{rec.suppressed} repetition(s) in last {self.cooldown}s "
+            f"for owner {key.owner_id}, {key.domain} [{key.level}]",
+            rec.suppressed,
+        )
+
+    def acknowledge_summary(self, key: _AlertKey, delivered_count: int) -> None:
+        """Retain repetitions that arrived while the summary was being delivered."""
+        rec = self._state.get(key)
+        if rec is not None:
+            rec.suppressed = max(0, rec.suppressed - delivered_count)
+            rec.last_sent_at = time.time()
 
 
 def _parse_bad_checks_from_alert(text: str) -> set[str]:

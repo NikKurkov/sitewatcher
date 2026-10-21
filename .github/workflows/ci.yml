@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.12', '3.13']
+        python-version: ['3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v7
@@ -32,5 +32,18 @@ jobs:
       - uses: actions/checkout@v6
       - run: cp .env.example .env
       - run: docker compose config --quiet
+      - name: Seed synthetic build-context canaries
+        run: |
+          touch sitewatcher/data/docker-probe.yaml sitewatcher/data/docker-probe.sqlite
+          touch sitewatcher/data/docker-probe.db-wal sitewatcher/data/.env.docker-probe
       - run: docker compose build sitewatcher
       - run: docker compose run --rm sitewatcher sitewatcher check_all
+      - run: docker compose run --rm sitewatcher sitewatcher doctor --json
+      - name: Verify installed dashboard assets
+        run: >-
+          docker compose run --rm --workdir /tmp sitewatcher python -c
+          "from importlib.resources import files; from pathlib import Path;
+          assert not any('docker-probe' in str(path) for path in Path('/app').rglob('*'));
+          assert not Path('/app/.env').exists();
+          assert files('sitewatcher').joinpath('data/dashboard.html').is_file();
+          assert files('sitewatcher').joinpath('data/dashboard.css').is_file()"

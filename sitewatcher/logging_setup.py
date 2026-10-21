@@ -151,7 +151,9 @@ def setup_logging(logging_cfg: LoggingConfig | None) -> None:
     for logger_name, level in (defaults.third_party_levels | cfg["third_party_levels"]).items():
         if not logger_name:
             continue
-        logging.getLogger(logger_name).setLevel(level)
+        logging.getLogger(logger_name).setLevel(level.strip().upper())
+
+    logging.disable(logging.NOTSET)
 
     # Self-check line to confirm configuration at startup
     logging.getLogger("sitewatcher.logging").info(
@@ -170,7 +172,7 @@ def setup_logging(logging_cfg: LoggingConfig | None) -> None:
 # -------- Internal: config building --------
 
 def _build_dict_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
-    level = cfg["level"].upper()
+    level = cfg["level"].strip().upper()
     destination = cfg["destination"]
     fmt = cfg["format"]
 
@@ -249,7 +251,7 @@ def _build_dict_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 "formatter": "json" if fmt == "json" else "pretty",
                 "filters": ["struct"],
                 "filename": filename,
-                "when": cfg["file"]["when"],
+                "when": cfg["file"]["when"].strip().upper(),
                 "interval": int(cfg["file"]["interval"]),
                 "backupCount": int(cfg["file"]["backup_count"]),
                 "utc": bool(cfg["file"]["utc"]),

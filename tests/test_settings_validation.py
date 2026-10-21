@@ -87,3 +87,57 @@ def test_cfg_unset_cannot_expose_an_invalid_inherited_threshold(tmp_path, monkey
     asyncio.run(cmd_cfg_unset(update, context))
     assert storage.get_domain_override(1, "example.com") == original
     assert "Invalid" in replies[0]
+
+
+def test_safe_validation_message_identifies_known_field_without_values():
+    from pydantic import ValidationError
+    from sitewatcher.config import AppConfig, validation_message
+    import pytest
+
+    with pytest.raises(ValidationError) as caught:
+        AppConfig.model_validate({'defaults': {'http_timeout_s': 'private-secret-value'},
+                                  'private-secret-field': True})
+    message = validation_message(caught.value)
+    assert 'defaults.http_timeout_s' in message
+    assert 'int_parsing' in message
+    assert 'private-secret' not in message
+
+
+def test_runtime_validation_message_is_actionable_without_private_path(tmp_path):
+    from sitewatcher.config import AppConfig, validate_config, validation_message
+    import pytest
+
+    cfg = AppConfig()
+    cfg.deface.phrases_path = str(tmp_path / 'private-secret-path')
+    with pytest.raises(ValueError) as caught:
+        validate_config(cfg)
+    message = validation_message(caught.value)
+    assert 'deface.phrases_path' in message
+    assert 'does not exist' in message
+    assert 'private-secret-path' not in message
+
+
+@pytest.mark.parametrize('logging_settings', [
+    {'level': 'private-invalid-level'},
+    {'third_party_levels': {'private-logger': 'private-invalid-level'}},
+    {'file': {'interval': 0}}, {'file': {'max_bytes': -1}},
+    {'file': {'backup_count': -1}},
+    {'file': {'rotate': 'time', 'when': 'private-invalid-time'}},
+    {'destination': 'file', 'file': {'path': '   '}},
+])
+def test_invalid_logging_fails_before_runtime_without_echoing_values(logging_settings):
+    from sitewatcher.config import AppConfig, validate_config, validation_message
+    cfg = AppConfig.model_validate({'logging': logging_settings})
+    with pytest.raises(ValueError) as caught:
+        validate_config(cfg)
+    message = validation_message(caught.value)
+    assert 'logging' in message
+    assert 'private-' not in message
+
+
+def test_logging_standard_aliases_case_and_unlimited_size_are_valid():
+    from sitewatcher.config import AppConfig, validate_config
+    validate_config(AppConfig.model_validate({'logging': {
+        'level': ' debug ', 'third_party_levels': {'httpx': ' warn '},
+        'file': {'rotate': 'time', 'when': ' w6 ', 'max_bytes': 0, 'backup_count': 0},
+    }}))

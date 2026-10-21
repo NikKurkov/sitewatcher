@@ -8,7 +8,7 @@ SiteWatcher is a Python 3.12+ asynchronous website monitor with a Telegram inter
 - `sitewatcher/checks/`: monitoring checks implementing `BaseCheck.run()` and returning `CheckOutcome`.
 - `sitewatcher/dispatcher.py`: check orchestration; `config.py`: settings; `storage.py`: persistence.
 - `sitewatcher/bot/`: Telegram application, scheduling, alerts, and command handlers.
-- `sitewatcher/utils/`: shared helpers; `sitewatcher/data/`: packaged configuration example and defacement markers.
+- `sitewatcher/utils/`: shared helpers; `sitewatcher/data/`: packaged configuration example, dashboard HTML/CSS, and defacement markers.
 - `tests/`: pytest suite. `docs/`: design notes and implementation plans. Root PNG files are documentation assets.
 
 ## Build, Test, and Development Commands
@@ -32,7 +32,7 @@ Use four-space indentation, snake_case for modules/functions/variables, PascalCa
 
 ## Testing Guidelines
 
-Use `tests/test_<module>.py` and descriptive `test_<behavior>` functions. Mock network clients and Telegram calls; use temporary SQLite databases. Existing async tests use `asyncio.run()`. Tests must work without live network access or bot credentials. Add regression coverage for behavior changes, particularly owner isolation, scheduling, caching, and alerts. No numeric coverage threshold is configured. CI runs Ruff and pytest on Python 3.12 and 3.13, plus CLI and container smoke checks.
+Use `tests/test_<module>.py` and descriptive `test_<behavior>` functions. Mock network clients and Telegram calls; use temporary SQLite databases. Existing async tests use `asyncio.run()`. Tests must work without live network access or bot credentials. Add regression coverage for behavior changes, particularly owner isolation, scheduling, caching, and alerts. No numeric coverage threshold is configured. CI runs Ruff and pytest on Python 3.12, 3.13 and 3.14, plus CLI and container smoke checks.
 
 ## Commit & Pull Request Guidelines
 

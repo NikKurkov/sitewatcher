@@ -92,12 +92,19 @@ def _parse_int(s: str, *, min_value: Optional[int] = None, max_value: Optional[i
 
 
 def _parse_list_str(s: str) -> Optional[List[str]]:
-    """Parse comma-separated list of strings; None means 'not provided'."""
+    """Parse lossless JSON lists or legacy comma-separated keywords."""
     if s is None:
         return None
     t = s.strip()
     if t == "":
         return []
+    if t.startswith("["):
+        try:
+            values = json.loads(t)
+        except json.JSONDecodeError:
+            pass  # A legacy keyword can start with a literal bracket.
+        else:
+            return values
     return [x.strip() for x in t.split(",") if x.strip()]
 
 
@@ -136,13 +143,6 @@ def _flatten_for_export(override: Dict) -> Dict[str, str]:
     def b(v):  # bool to 'true'/'false'
         return "" if v is None else ("true" if bool(v) else "false")
 
-    def join(xs):
-        if xs is None:
-            return ""
-        if isinstance(xs, list):
-            return ",".join(str(x) for x in xs)
-        return str(xs)
-
     return {
         "checks.http_basic": b(checks.get("http_basic")),
         "checks.tls_cert": b(checks.get("tls_cert")),
@@ -155,10 +155,10 @@ def _flatten_for_export(override: Dict) -> Dict[str, str]:
         "checks.ip_change": b(checks.get("ip_change")),
         "checks.malware": b(checks.get("malware")),
         "checks.ports": b(checks.get("ports")),
-        "keywords": join(override.get("keywords")),
+        "keywords": (json.dumps(override["keywords"], ensure_ascii=False)
+                     if override.get("keywords") is not None else ""),
         "ports": (json.dumps(override["ports"], ensure_ascii=False)
-                  if any(isinstance(port, dict) for port in (override.get("ports") or []))
-                  else join(override.get("ports"))),
+                  if override.get("ports") is not None else ""),
         "http_timeout_s": str(override["http_timeout_s"]) if override.get("http_timeout_s") is not None else "",
         "latency_warn_ms": str(override["latency_warn_ms"]) if override.get("latency_warn_ms") is not None else "",
         "latency_crit_ms": str(override["latency_crit_ms"]) if override.get("latency_crit_ms") is not None else "",
@@ -242,9 +242,9 @@ def _build_override_from_row(row: Dict[str, str], *, mode: str) -> Dict:
         ov["proxy"] = proxy  # may be None to clear
     else:
         # merge: only include fields explicitly provided and non-empty
-        if kws is not None and len(kws) > 0:
+        if kws is not None and (len(kws) > 0 or row.get("keywords", "").strip() == "[]"):
             ov["keywords"] = kws
-        if ports is not None and len(ports) > 0:
+        if ports is not None and (len(ports) > 0 or row.get("ports", "").strip() == "[]"):
             ov["ports"] = ports
         if proxy_raw != "":
             ov["proxy"] = proxy

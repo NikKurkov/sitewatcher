@@ -139,3 +139,40 @@ def test_invalid_stored_override_is_ignored_and_can_be_replaced(database, raw):
     assert storage.get_domain_override(1, "example.com") is None
     storage.unset_domain_override(1, "example.com", "checks.ping")
     assert storage.set_domain_override(1, "example.com", {"ports": [443]}) == {"ports": [443]}
+
+
+@pytest.mark.parametrize('cutoff', [
+    '2026-10-21T12:00:00+00:00', '2026-10-21T15:00:00+03:00', '2026-10-21T12:00:00',
+])
+def test_history_since_uses_utc_and_includes_matching_rows_on_same_day(database, cutoff):
+    from datetime import datetime
+
+    for owner in (1, 2):
+        storage.save_history(owner, 'example.com', 'ping', 'OK', 'recent', {})
+    with closing(sqlite3.connect(database)) as conn, conn:
+        conn.execute("UPDATE history SET created_at='2026-10-21 12:30:00'")
+    storage.save_history(1, 'old.example', 'ping', 'OK', 'old', {})
+    with closing(sqlite3.connect(database)) as conn, conn:
+        conn.execute("UPDATE history SET created_at='2026-10-21 11:59:59' "
+                     "WHERE domain='old.example'")
+    rows = list(storage.iter_history(1, since=datetime.fromisoformat(cutoff)))
+    assert len(rows) == 1 and rows[0]['domain'] == 'example.com'
+
+
+@pytest.mark.parametrize('batch_size', [0, -1])
+def test_cleanup_rejects_nonpositive_batch_size(database, batch_size):
+    with pytest.raises(ValueError, match='batch_size'):
+        storage.cleanup_history(30, batch_size=batch_size)
+
+
+def test_cleanup_deletes_old_history_in_batches_and_preserves_fresh_rows(database):
+    storage.save_history(1, 'fresh.example', 'ping', 'OK', 'fresh', {})
+    for _ in range(5):
+        storage.save_history(1, 'old.example', 'ping', 'OK', 'old', {})
+    with closing(sqlite3.connect(database)) as conn, conn:
+        conn.execute("UPDATE history SET created_at=datetime('now', '-31 days') "
+                     "WHERE domain='old.example'")
+    assert storage.cleanup_history(30, batch_size=2) == 5
+    assert storage.last_results(1, 'old.example') == []
+    assert len(storage.last_results(1, 'fresh.example')) == 1
+    assert storage.domain_exists(1, 'old.example')

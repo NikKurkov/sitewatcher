@@ -18,6 +18,7 @@ sitewatcher/data/*.yaml
 # Databases & local caches
 *.db
 *.db-shm
+*.db-wal
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm

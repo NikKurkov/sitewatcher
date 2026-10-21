@@ -24,7 +24,7 @@ from .checks.tls_cert import TlsCertCheck
 from .checks.whois_info import WhoisInfoCheck
 from .checks.malware_scan import MalwareScanCheck, _VTConfig
 from .utils.rate_limit import MultiWindowRateLimiter, Window
-from .config import AppConfig, ResolvedSettings, resolve_settings
+from .config import AppConfig, ResolvedSettings, resolve_settings, _validate_proxy
 
 
 log = logging.getLogger(__name__)
@@ -70,6 +70,8 @@ class Dispatcher:
     def __init__(self, cfg: AppConfig, max_concurrency: int = 10) -> None:
         self.cfg = cfg
         self._client: Optional[httpx.AsyncClient] = None
+        self._proxy_clients: dict[str, httpx.AsyncClient] = {}
+        self._http_client_kwargs: dict = {}
         self._default_per_domain_concurrency = max(1, int(max_concurrency))
         # Shared VT rate limiter (process-local for this Dispatcher lifetime)
         self._vt_limiter: Optional[MultiWindowRateLimiter] = None  # NEW
@@ -107,6 +109,7 @@ class Dispatcher:
             trust_env=True,
             headers={"User-Agent": "sitewatcher/0.2 (+https://github.com/NikKurkov/sitewatcher)"},
         )
+        self._http_client_kwargs = {"http2": True, **client_kwargs}
         if proxies:
             if isinstance(proxies, str):
                 client_kwargs["proxy"] = proxies
@@ -123,9 +126,12 @@ class Dispatcher:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
-        if self._client:
-            await self._client.aclose()
-            self._client = None
+        clients = list(self._proxy_clients.values())
+        if self._client is not None:
+            clients.append(self._client)
+        self._proxy_clients.clear()
+        self._client = None
+        await asyncio.gather(*(client.aclose() for client in clients))
 
     # ---------- public API ----------
 
@@ -337,17 +343,28 @@ class Dispatcher:
         """Instantiate enabled checks based on resolved settings."""
         assert self._client is not None
 
+        target_client = self._client
+        proxy = _validate_proxy(settings.proxy)
+        if proxy and any(
+            getattr(settings.checks, name, False) for name in ("http_basic", "keywords", "deface")
+        ):
+            if proxy not in self._proxy_clients:
+                self._proxy_clients[proxy] = httpx.AsyncClient(
+                    proxy=proxy, **self._http_client_kwargs,
+                )
+            target_client = self._proxy_clients[proxy]
+
         out: List = []
 
         if getattr(settings.checks, "http_basic", False):
             out.append(
                 HttpBasicCheck(
                     settings.name,
-                    client=self._client,
+                    client=target_client,
                     timeout_s=settings.http_timeout_s,
                     latency_warn_ms=settings.latency_warn_ms,
                     latency_crit_ms=settings.latency_crit_ms,
-                    proxy=settings.proxy,
+                    proxy=None,
                 )
             )
 
@@ -358,7 +375,7 @@ class Dispatcher:
             out.append(
                 KeywordsCheck(
                     settings.name,
-                    client=self._client,
+                    client=target_client,
                     timeout_s=settings.http_timeout_s,
                     keywords=settings.keywords,
                 )
@@ -382,7 +399,7 @@ class Dispatcher:
             else:
                 log.debug("DefaceCheck: no phrases_path configured; using built-in defaults")
 
-            out.append(DefaceCheck(settings.name, client=self._client, timeout_s=timeout_s, markers=markers))
+            out.append(DefaceCheck(settings.name, client=target_client, timeout_s=timeout_s, markers=markers))
         else:
             log.debug("DefaceCheck: disabled for %s", settings.name)
 

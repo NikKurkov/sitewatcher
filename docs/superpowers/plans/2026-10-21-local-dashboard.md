@@ -23,12 +23,21 @@
 
 ## Tasks
 
-- [ ] **1. Owner-scoped snapshots** — `reporting.py`, `tests/test_reporting.py`; implement exact spec contract with read-only consistent SQL queries and freshness tests.
-- [ ] **2. Local HTTP boundary** — `web.py`, `tests/test_web.py`; real loopback tests, safe headers, fixed owner, readonly endpoints and clean lifecycle.
-- [ ] **3. Dashboard and CLI** — `dashboard.py`, packaged HTML/CSS, `main.py`, packaging metadata, UI/CLI tests; keyboard/no-JS functionality, responsive layout, safe escaping.
+- [x] **1. Owner-scoped snapshots** — `reporting.py`, `tests/test_reporting.py`; implement exact spec contract with read-only consistent SQL queries and freshness tests.
+- [x] **2. Local HTTP boundary** — `web.py`, `tests/test_web.py`; real loopback tests, safe headers, fixed owner, readonly endpoints and clean lifecycle.
+- [x] **3. Dashboard and CLI** — `dashboard.py`, packaged HTML/CSS, `main.py`, packaging metadata, UI/CLI tests; keyboard/no-JS functionality, responsive layout, safe escaping.
 - [ ] **4. Product verification** — wheel/container/browser smoke, measured scheduler/storage workloads, full tests on both Python versions, independent review, docs and local commits.
 
 ## Execution Record
 
 - User explicitly authorized autonomous design/implementation without review pauses; no approval requested.
 - Reliability checkpoint `b469df7`: 190 tests pass on Python 3.12/3.13, Ruff clean.
+
+- Phase2 implemented: owner-scoped consistent snapshots, loopback HTTP/JSON, native HTML/CSS and explicit-owner CLI. Auto-refresh can be paused while reading.
+- Real Chromium verification: 1440/390/320px, no horizontal page overflow; expansion, search/filter, accessible names and refresh pause passed.
+- Native HTTPX integration: two local CONNECT proxies and TLS origin verified target/global routing and cancellation cleanup.
+- Fresh full verification: 332 tests on Python 3.12, 3.13 and 3.14; Ruff/diff clean before final review corrections.
+- Installed wheel assets and local socket smoke passed outside source checkout. Docker synthetic private-config/cache canaries excluded; installed dashboard/config assets present.
+- Read performance: added latest-ID index and native seeks, with read-only legacy fallback. Three bounded reads (including index metadata), no per-domain queries. Synthetic 4.36M histories: snapshot median 346.59 -> 25.34ms, index +151MiB/+14.4% storage, writes +7-8%/~20-24us per 3-result batch in warm temporary storage.
+- Ten-minute synthetic concurrency run: six readers, background writer, 500 visible domains/240k starting history rows; no errors, final integrity OK. First 573s recorded 9,366 reads/5,114 writes, read p50 234.8ms/p95 274.4ms. One-hour indexed run in progress.
+- Final review found explicit empty port CSV overrides were lost in merge imports; reproduced and fixed with JSON list cells, preserving legacy comma input and blank-cell behavior.

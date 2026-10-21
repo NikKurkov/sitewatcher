@@ -75,3 +75,48 @@ def test_invalid_nonempty_check_flag_does_not_silently_change_import(database):
     report = import_domains_csv(1, csv_data(http_timeout_s="3", **{"checks.ping": "treu"}))
     assert report.skipped == 1 and report.errors
     assert storage.get_domain_override(1, "example.com") is None
+
+
+@pytest.mark.parametrize('mode', ['merge', 'replace'])
+def test_keyword_values_survive_csv_roundtrip_without_splitting_or_trimming(database, mode):
+    original = ['hello, world', 'line one\nline two', '  whitespace  ', 'quote " и ; emoji 😀', '']
+    storage.set_domain_override(1, 'example.com', {'keywords': original})
+    data = export_domains_csv(1)
+    storage.unset_domain_override(1, 'example.com', 'keywords')
+    report = import_domains_csv(1, data, mode=mode)
+    assert report.updated == 1 and report.errors == []
+    assert storage.get_domain_override(1, 'example.com')['keywords'] == original
+
+
+def test_legacy_comma_separated_keywords_remain_supported(database):
+    report = import_domains_csv(1, csv_data(keywords='hello, world, пример'))
+    assert report.updated == 1
+    assert storage.get_domain_override(1, 'example.com')['keywords'] == ['hello', 'world', 'пример']
+
+
+def test_exported_empty_keywords_can_clear_existing_values_in_merge_mode(database):
+    storage.set_domain_override(1, 'example.com', {'keywords': []})
+    data = export_domains_csv(1)
+    storage.set_domain_override(1, 'example.com', {'keywords': ['remove']})
+    report = import_domains_csv(1, data)
+    assert report.updated == 1 and report.errors == []
+    assert storage.get_domain_override(1, 'example.com')['keywords'] == []
+
+
+def test_legacy_keyword_can_start_with_literal_brackets(database):
+    report = import_domains_csv(1, csv_data(keywords='[sale], another'))
+    assert report.updated == 1 and report.errors == []
+    assert storage.get_domain_override(1, 'example.com')['keywords'] == ['[sale]', 'another']
+
+
+def test_empty_port_override_roundtrips_without_activating_global_targets(database):
+    from sitewatcher.config import AppConfig, resolve_settings
+    cfg = AppConfig()
+    storage.add_domain(1, 'example.com')
+    storage.set_domain_override(1, 'example.com', {'checks': {'ports': True}, 'ports': []})
+    exported = export_domains_csv(1)
+    report = import_domains_csv(2, exported, cfg=cfg)
+    assert not report.errors
+    override = storage.get_domain_override(2, 'example.com')
+    assert override['ports'] == []
+    assert resolve_settings(cfg, 'example.com', override).ports == []

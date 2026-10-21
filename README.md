@@ -46,6 +46,8 @@ The bot starts with built-in settings. An optional YAML file can be supplied wit
 
 Set `TELEGRAM_PROXY` for the bot connection. Set `http.proxy` in YAML for HTTP requests made by the checks. Set `TELEGRAM_ALERT_CHAT_ID` to send alerts to a fixed chat, otherwise they go to the user's most recent chat. VirusTotal needs `malware.vt_api_key` in YAML and the malware check enabled; its free-tier request limits are configurable. Protect that YAML file as a secret.
 
+Unknown configuration keys, invalid thresholds, and malformed allowlists are rejected at startup. An empty `TELEGRAM_ALLOWED_USER_IDS` allows everyone; a private bot needs an explicit comma-separated list of positive user IDs. Domain overrides are validated before being saved. An explicit `0` keeps its documented meaning rather than selecting a default.
+
 For optional colored console logs, install `pip install -e '.[rich]'` and set `logging.pretty.use_rich: true` in YAML.
 
 ## Bot commands
@@ -71,9 +73,32 @@ A per-domain `interval_minutes` override applies to all enabled checks for that 
 sitewatcher scan example.com --only http_basic,tls_cert
 sitewatcher check_domain example.com --owner 123456789 --force
 sitewatcher check_all --owner 123456789
+sitewatcher doctor
+sitewatcher doctor --json
 ```
 
 `scan` does not add a domain, save monitoring history, or send alerts. Some checks maintain their own local caches. `check_domain` and `check_all` save results. Use `--config path/to/config.yaml` with any command.
+
+`doctor` checks configuration, database schema/integrity and local permissions without initializing a database, running network checks, or contacting Telegram. Its exit code is `0` when the installation is ready and `1` when action is needed. JSON output contains credential presence flags, never their values. Before opening the viewer on a new installation, initialize storage by adding a domain through the bot or running `check_all`. A missing database with a writable parent is a valid fresh-install state for `doctor`.
+
+## Local web dashboard
+
+Run this alongside the bot, with the same `DATABASE_PATH` and YAML configuration:
+
+```bash
+sitewatcher web --owner 123456789 --port 8080
+# Open http://127.0.0.1:8080
+```
+
+Use your Telegram user ID for `--owner`. The dashboard shows only that owner's saved results; it does not run checks or modify domains. Search and filter domains, expand their checks, or read `/api/status` as JSON. Overdue results are marked explicitly, paused domains retain their saved state, and all timestamps use UTC. Apply “Pause refresh” while reading details to stop the automatic 30-second refresh. `/healthz` tests whether saved state is readable; it does not certify that monitored sites are healthy.
+
+The server binds to IPv4 loopback only. For a Python installation on another Linux host, keep the server running there and forward its port from your computer:
+
+```bash
+ssh -N -L 8080:127.0.0.1:8080 your-server
+```
+
+Then open the same local URL. Port `0` selects an available port and prints the actual URL. No Telegram token is required for the dashboard. Local processes can access this view; it has no separate login and is intended for a trusted local session or SSH tunnel.
 
 ## Run as a service
 
@@ -98,6 +123,12 @@ WantedBy=multi-user.target
 
 Use a single bot instance against the database. Back up the SQLite database and your YAML and `.env` files. The RKN index can be rebuilt. Checks that query public services need network access; ping may require operating-system ICMP permissions.
 
+Alert delivery failures leave the pending state available for the next scheduler tick. Worsening states and recovery bypass the repeat cooldown; repeated alerts at the same severity honor it. Missing or failed checks produce an unknown result rather than a clean bill of health. Recovery requires recent enabled checks.
+
+The IP-change baseline now lives in the main database by default, including Docker's persistent volume. To retain an existing standalone baseline, set `ipchange.db_path` to its old path; otherwise the first run establishes a new baseline. WHOIS/RDAP uses the configured database and can use port 43 for supported Russian TLDs when `whois.fallback_whois_if_missing_expiry` is enabled. DNSBL coverage depends on resolver responses; lookup failures are reported as unknown.
+
+See [operations and recovery](docs/operations.md) for backups, troubleshooting and upgrade verification.
+
 ## Development
 
 ```bash
@@ -106,4 +137,4 @@ ruff check sitewatcher tests
 pytest
 ```
 
-GitHub Actions runs these checks on Python 3.12 and 3.13 for pushes and pull requests. Tests use temporary databases and do not require a bot token or live network.
+GitHub Actions runs these checks on Python 3.12, 3.13 and 3.14 for pushes and pull requests. Tests use temporary databases and do not require a bot token or live network.

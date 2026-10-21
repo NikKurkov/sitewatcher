@@ -29,10 +29,11 @@ from .utils.results import (
 # ---------- CLI parsing ----------
 
 def _parse_args() -> argparse.Namespace:
-    """Parse CLI arguments for bot/one-shot checks."""
+    """Parse monitoring, diagnostics and local dashboard arguments."""
     p = argparse.ArgumentParser(description="sitewatcher CLI")
-    p.add_argument("mode", choices=["bot", "check_all", "check_domain", "scan", "doctor"], help="Run mode")
+    p.add_argument("mode", choices=["bot", "check_all", "check_domain", "scan", "doctor", "web"], help="Run mode")
     p.add_argument("--json", action="store_true", help="Print doctor diagnostics as JSON")
+    p.add_argument("--port", type=int, default=8080, help="Local dashboard port (web mode)")
     p.add_argument("name", nargs="?", help="Domain for 'check_domain' or 'scan'")
     p.add_argument("--config", default=None, help="Path to config.yaml")
     p.add_argument("--force", action="store_true", help="Ignore cache and run all checks live")
@@ -45,7 +46,7 @@ def _parse_args() -> argparse.Namespace:
         "--owner",
         type=int,
         default=None,
-        help="Telegram user id to act on (required for check_domain; optional for check_all).",
+        help="Telegram user ID (required for check_domain and web; optional for check_all).",
     )
     return p.parse_args()
 
@@ -190,6 +191,16 @@ def main() -> None:
         validate_config(cfg)
     except (OSError, ValueError) as error:
         raise SystemExit(validation_message(error)) from None
+    if args.mode == "web":
+        if args.owner is None or args.owner <= 0:
+            raise SystemExit("web requires --owner with a positive Telegram user ID")
+        from .web import run_web
+
+        try:
+            run_web(cfg, args.owner, port=args.port)
+        except (OSError, ValueError):
+            raise SystemExit("Cannot start local dashboard; check --port and whether it is already in use") from None
+        return
     setup_logging(cfg.logging)
 
     log = logging.getLogger("sitewatcher.main")

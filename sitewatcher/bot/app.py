@@ -71,7 +71,7 @@ def run_bot(cfg: AppConfig) -> None:
     register_jobs(app, cooldown=cooldown)
 
     # ---- Maintenance: daily history cleanup ----
-    from datetime import time as dtime, datetime
+    from datetime import time as dtime, datetime, timezone
     from .. import storage  # local import to avoid cycles at module import time
 
     def _parse_hhmm(s: str) -> dtime:
@@ -79,19 +79,19 @@ def run_bot(cfg: AppConfig) -> None:
         try:
             hh, mm = [int(x) for x in str(s or "03:30").split(":", 1)]
             if 0 <= hh <= 23 and 0 <= mm <= 59:
-                return dtime(hour=hh, minute=mm)
+                return dtime(hour=hh, minute=mm, tzinfo=timezone.utc)
         except Exception:
             pass
-        return dtime(hour=3, minute=30)
+        return dtime(hour=3, minute=30, tzinfo=timezone.utc)
 
     async def _job_cleanup_history(context):
         """APScheduler job: purge old history and optionally VACUUM on Sundays."""
         try:
-            retention = int(getattr(getattr(cfg, "history", object()), "retention_days", 30) or 30)
+            retention = int(getattr(getattr(cfg, "history", object()), "retention_days", 30))
             vacuum_weekly = bool(getattr(getattr(cfg, "history", object()), "vacuum_weekly", True))
             deleted = storage.cleanup_history(retention)
             # Sunday = 6
-            if vacuum_weekly and datetime.now().weekday() == 6:
+            if vacuum_weekly and datetime.now(timezone.utc).weekday() == 6:
                 storage.vacuum_and_optimize()
             log.info(
                 "maintenance.cleanup_history.done",
