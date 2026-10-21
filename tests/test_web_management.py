@@ -102,7 +102,8 @@ def test_parser_rejects_duplicate_fields_oversized_bodies_and_bad_encoding(manag
     for body in [f'csrf_token={csrf}&domain=a.example&domain=b.example',
                  f'csrf_token={csrf}&domain=%FF']:
         assert request(server, '/domains/add', method='POST', body=body)[0] == 400
-    assert request(server, '/domains/add', method='POST', body='x' * (1024 * 1024 + 1))[0] == 413
+    assert request(server, '/domains/add', method='POST', body='',
+                   headers={'Content-Length': str(1024 * 1024 + 1)})[0] == 413
     assert storage.list_domains(1) == ['one.example']
 
 

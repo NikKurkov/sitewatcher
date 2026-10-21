@@ -130,3 +130,19 @@ def test_new_csv_domain_rolls_back_when_its_settings_cannot_be_saved(database):
         import_domains_csv(2, csv_data(domain='paused.example', interval_minutes='0'))
     assert not storage.domain_exists(2, 'paused.example')
     assert 2 not in storage.list_users()
+
+
+def test_merge_import_rejects_settings_changed_after_validation(database, monkeypatch):
+    storage.set_domain_override(1, 'example.com', {'latency_warn_ms': 1000, 'latency_crit_ms': 3000})
+    original = storage.set_domain_override
+
+    def concurrent_change(owner, domain, patch, **kwargs):
+        original(owner, domain, {'latency_crit_ms': 1500})
+        return original(owner, domain, patch, **kwargs)
+
+    monkeypatch.setattr(storage, 'set_domain_override', concurrent_change)
+    report = import_domains_csv(1, csv_data(latency_warn_ms='2000'), mode='merge')
+    assert report.skipped == 1 and report.updated == 0
+    assert storage.get_domain_override(1, 'example.com') == {
+        'latency_warn_ms': 1000, 'latency_crit_ms': 1500,
+    }

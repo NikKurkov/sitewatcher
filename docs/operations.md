@@ -37,7 +37,7 @@ Docker images include application code and packaged examples only. Private YAML,
 - Domain check selectors support inherit/on/off. Blank numeric/list fields inherit; `[]` explicitly clears keyword/port lists. `interval_minutes: 0` pauses a domain. Reset removes every per-domain override.
 - A stale edit is rejected. Use “Reload saved settings” before editing again; repeated submission cannot silently overwrite concurrent changes.
 - Proxy input stays blank. “Clear domain override” selects the common HTTP client, which may still use a global proxy; global proxy configuration is not changed by the form.
-- CSV exports may contain proxy credentials. Imports apply valid rows independently, retain domains absent from the file and display added/updated/skipped counts. On errors, reselect the file or paste again; private CSV content is not redisplayed.
+- CSV exports may contain proxy credentials. Imports apply valid rows independently, reject concurrently changed merge targets, retain domains absent from the file and display added/updated/skipped counts. On errors, reselect the file or paste again; private CSV content is not redisplayed.
 - One web manual-check batch can run at a time. Other requests remain available. No separate scheduler or notification sender runs in the web process. A running bot sees newly saved states on its next tick.
 - Day/Night/System is a non-sensitive browser cookie. A small optional script changes the theme without discarding drafts; without JavaScript, theme links reload the saved page.
 - The process has no login: loopback/SSH access is the trust boundary. Same-origin validation and CSRF tokens prevent another website submitting mutations. Use `--read-only` when only viewing is intended; never expose the port publicly.

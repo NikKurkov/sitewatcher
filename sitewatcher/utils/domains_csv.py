@@ -315,28 +315,29 @@ def import_domains_csv(owner_id: int, data: bytes, *, mode: str = "merge", cfg: 
             report.errors.append(msg)
             continue
 
-        # Build override, with field-level validation
+        # Validate against the same revision that will be written atomically.
         try:
+            existed = storage.domain_exists(owner_id, domain)
+            current = storage.get_domain_override(owner_id, domain) if mode == "merge" and existed else None
             override = _build_override_from_row(data_map, mode=mode)
             validate_domain_override(
-                cfg if cfg is not None else AppConfig(), domain, override,
-                storage.get_domain_override(owner_id, domain) if mode == "merge" else None,
+                cfg if cfg is not None else AppConfig(), domain, override, current,
             )
+            if override:
+                storage.set_domain_override(
+                    owner_id, domain, override, replace=(mode == "replace"), create_missing=True,
+                    create_only=not existed,
+                    expected_revision=storage.domain_override_revision(current)
+                    if mode == "merge" and existed else None,
+                )
+            elif not existed:
+                storage.add_domain(owner_id, domain)
         except ValueError as e:
             report.skipped += 1
             msg = f"line {line_no}: {domain}: {validation_message(e)}"
             report.details.append(RowResult(domain=domain, status="skipped", error=msg))
             report.errors.append(msg)
             continue
-
-        # Apply to storage
-        existed = storage.domain_exists(owner_id, domain)
-        if override:
-            storage.set_domain_override(
-                owner_id, domain, override, replace=(mode == "replace"), create_missing=True,
-            )
-        elif not existed:
-            storage.add_domain(owner_id, domain)
 
         if not existed:
             report.added += 1
