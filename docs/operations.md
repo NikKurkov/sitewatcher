@@ -40,9 +40,8 @@ from contextlib import closing
 from pathlib import Path
 
 source, target = map(Path, sys.argv[1:])
-if target.exists():
-    raise SystemExit("Choose a new backup filename")
 with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as db:
+    target.touch(mode=0o600, exist_ok=False)  # private file; refuses an existing destination
     with closing(sqlite3.connect(target)) as backup:
         db.backup(backup)
         assert backup.execute("PRAGMA integrity_check").fetchone() == ("ok",)
