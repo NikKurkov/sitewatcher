@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import sqlite3
 import logging
@@ -506,9 +507,16 @@ def _store_domain_override(conn: sqlite3.Connection, owner_id: int, domain: str,
     )
 
 
+def domain_override_revision(data: dict | None) -> str:
+    """Fingerprint an override for optimistic form writes without exposing its values."""
+    payload = json.dumps(data or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def set_domain_override(
     owner_id: int, domain: str, patch: dict, *, replace: bool = False,
-    create_missing: bool = False,
+    create_missing: bool = False, create_only: bool = False,
+    expected_revision: str | None = None,
 ) -> dict:
     """Atomically merge settings; explicit creation includes the domain in the same transaction."""
     _ensure_initialized()
@@ -524,6 +532,16 @@ def set_domain_override(
                 dst[k] = v
 
     with _write_connection() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM domains WHERE owner_id=? AND name=?", (int(owner_id), domain),
+        ).fetchone()
+        if create_only and exists:
+            raise ValueError("Domain already exists")
+        if expected_revision is not None:
+            if not exists or domain_override_revision(
+                _read_domain_override(conn, owner_id, domain)
+            ) != expected_revision:
+                raise ValueError("Settings changed; reload this page before saving")
         if create_missing:
             conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES(?)", (int(owner_id),))
             conn.execute("INSERT OR IGNORE INTO domains(owner_id,name) VALUES(?,?)",

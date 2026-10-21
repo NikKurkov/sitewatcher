@@ -2,13 +2,14 @@
 
 ## Project Structure & Module Organization
 
-SiteWatcher is a Python 3.12+ asynchronous website monitor with a Telegram interface and SQLite storage. Keep it deployable as one process without external services beyond the APIs it queries.
+SiteWatcher is a Python 3.12+ asynchronous website monitor with a Telegram interface and SQLite storage.
 
 - `sitewatcher/main.py`: CLI entry point.
 - `sitewatcher/checks/`: monitoring checks implementing `BaseCheck.run()` and returning `CheckOutcome`.
 - `sitewatcher/dispatcher.py`: check orchestration; `config.py`: settings; `storage.py`: persistence.
 - `sitewatcher/bot/`: Telegram application, scheduling, alerts, and command handlers.
-- `sitewatcher/utils/`: shared helpers; `sitewatcher/data/`: packaged configuration example, dashboard HTML/CSS, and defacement markers.
+- `sitewatcher/utils/`: shared helpers; `sitewatcher/data/`: packaged configuration example, dashboard assets, and defacement markers.
+- `sitewatcher/web.py`, `dashboard.py`, `management.py`: browser workspace and native forms.
 - `tests/`: pytest suite. `docs/`: design notes and implementation plans. Root PNG files are documentation assets.
 
 ## Build, Test, and Development Commands

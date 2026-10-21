@@ -43,7 +43,7 @@ where = ["."]
 include = ["sitewatcher*"]
 
 [tool.setuptools.package-data]
-sitewatcher = ["data/deface_markers.txt", "data/config.yaml.example", "data/dashboard.html", "data/dashboard.css"]
+sitewatcher = ["data/deface_markers.txt", "data/config.yaml.example", "data/dashboard.html", "data/dashboard.css", "data/theme.js"]
 
 [tool.ruff]
 line-length = 100

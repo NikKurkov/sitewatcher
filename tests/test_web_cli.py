@@ -52,3 +52,44 @@ def test_web_cli_requires_explicit_owner(tmp_path):
     run = subprocess.run([sys.executable, "-m", "sitewatcher.main", "web"], cwd=tmp_path,
                          capture_output=True, text=True)
     assert run.returncode != 0 and "web requires --owner" in run.stderr
+
+
+@pytest.mark.parametrize('read_only', [False, True])
+def test_fresh_web_installation_and_readonly_fallback(tmp_path, read_only):
+    path = tmp_path / 'fresh.sqlite'
+    env = os.environ.copy()
+    env['DATABASE_PATH'] = str(path)
+    env.pop('TELEGRAM_TOKEN', None)
+    args = [sys.executable, '-m', 'sitewatcher.main', 'web', '--owner', '7', '--port', '0']
+    if read_only:
+        args.append('--read-only')
+    process = subprocess.Popen(args, cwd=tmp_path, env=env, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True)
+    try:
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdout, selectors.EVENT_READ)
+            assert selector.select(timeout=5)
+            url = urlsplit(process.stdout.readline().strip())
+        with closing(HTTPConnection(url.hostname, url.port, timeout=3)) as client:
+            client.request('GET', '/')
+            response = client.getresponse()
+            body = response.read()
+            assert response.status == (503 if read_only else 200)
+            assert (b'/domains/new' in body) is not read_only
+        assert path.exists() is not read_only
+    finally:
+        process.send_signal(signal.SIGTERM)
+        _, error = process.communicate(timeout=5)
+    assert process.returncode == 0, error
+
+
+def test_web_startup_database_error_is_sanitized(tmp_path):
+    path = tmp_path / 'private-database.sqlite'
+    path.write_bytes(b'private corrupted data')
+    env = os.environ.copy()
+    env['DATABASE_PATH'] = str(path)
+    run = subprocess.run([sys.executable, '-m', 'sitewatcher.main', 'web', '--owner', '7', '--port', '0'],
+                         cwd=tmp_path, env=env, capture_output=True, text=True, timeout=5)
+    assert run.returncode != 0 and 'Cannot start local dashboard' in run.stderr
+    assert 'Traceback' not in run.stderr and 'private corrupted data' not in run.stderr
+    assert path.read_bytes() == b'private corrupted data'

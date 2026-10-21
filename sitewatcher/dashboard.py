@@ -5,6 +5,7 @@ import html
 from datetime import datetime, timezone
 from importlib.resources import files
 from string import Template
+from urllib.parse import urlencode
 
 
 FILTERS = {
@@ -12,6 +13,19 @@ FILTERS = {
     "crit": "Critical", "unknown": "No data", "paused": "Paused", "stale": "Overdue",
 }
 _LABELS = {"OK": "Healthy", "WARN": "Warning", "CRIT": "Critical", "UNKNOWN": "No data"}
+
+
+def _theme(value: str) -> str:
+    return value if value in {"light", "dark", "system"} else "system"
+
+
+def theme_controls(theme: str, next_path: str = "/") -> str:
+    links = []
+    for mode, label in (("light", "Day"), ("dark", "Night"), ("system", "System")):
+        query = html.escape(urlencode({"mode": mode, "next": next_path}), quote=True)
+        current = ' aria-current="true"' if mode == _theme(theme) else ''
+        links.append(f'<a href="/theme?{query}" data-theme-choice="{mode}"{current}>{label}</a>')
+    return '<nav class="theme-controls" aria-label="Color theme">' + ''.join(links) + '</nav>'
 
 
 def _badge(status: str) -> str:
@@ -33,7 +47,7 @@ def _time(value: str | None) -> str:
     return f'<time datetime="{html.escape(value, quote=True)}">{label}</time>'
 
 
-def _domain_card(domain: dict) -> str:
+def _domain_card(domain: dict, csrf_token: str | None = None) -> str:
     checks = []
     for check in domain["checks"]:
         freshness = '<span class="tag overdue">Overdue</span>' if check["stale"] else ""
@@ -55,6 +69,21 @@ def _domain_card(domain: dict) -> str:
         '<th scope="col">Result</th><th scope="col">Checked</th></tr></thead>'
         f'<tbody>{"".join(checks)}</tbody></table>'
     ) if checks else '<p class="empty-checks">No enabled checks with results.</p>'
+    controls = ""
+    if csrf_token is not None:
+        from .management import domain_action
+        query = html.escape(urlencode({"domain": domain["name"]}), quote=True)
+        controls = ('<nav class="domain-actions" aria-label="Manage domain">'
+                    f'<a href="/domains/edit?{query}">Edit settings</a>'
+                    f'<a href="/domains/history?{query}">History</a>' +
+                    domain_action('check', domain['name'], 'Run checks', csrf_token) +
+                    domain_action('resume' if domain['paused'] else 'pause', domain['name'],
+                                  'Resume' if domain['paused'] else 'Pause', csrf_token) +
+                    f'<a href="/domains/delete?{query}">Remove</a></nav>'
+                    '<details class="reset-confirm"><summary>Reset settings to inherited values'
+                    '</summary><p>This removes all per-domain overrides, including the proxy.</p>' +
+                    domain_action('reset', domain['name'], 'Reset all overrides', csrf_token) +
+                    '</details>')
     next_due = 'Paused' if domain["paused"] else _time(domain["next_due_at"])
     return f'''<details class="domain-card">
       <summary>
@@ -65,13 +94,14 @@ def _domain_card(domain: dict) -> str:
       </summary>
       <div class="domain-details">
         <div class="detail-heading"><h3>Latest checks</h3><p>Next due: {next_due}</p></div>
-        {error}<div class="table-scroll">{check_table}</div>
+        {error}<div class="table-scroll">{check_table}</div>{controls}
       </div>
     </details>'''
 
 
 def render_dashboard(snapshot: dict, query: str = "", status: str = "all", *,
-                     auto_refresh: bool = True) -> str:
+                     auto_refresh: bool = True, csrf_token: str | None = None,
+                     notice: str = "", theme: str = "system") -> str:
     """Render one owner-scoped snapshot with server-side search and filters."""
     if status not in FILTERS:
         raise ValueError("Unknown status filter")
@@ -88,19 +118,34 @@ def render_dashboard(snapshot: dict, query: str = "", status: str = "all", *,
     selected.sort(key=lambda domain: (
         {"CRIT": 0, "WARN": 1, "UNKNOWN": 2, "OK": 3}.get(domain["overall"], 2), domain["name"],
     ))
-    content = "\n".join(_domain_card(domain) for domain in selected)
+    content = "\n".join(_domain_card(domain, csrf_token) for domain in selected)
     if not content:
         message = "No domains match your filters." if snapshot["summary"]["total"] else "No domains yet."
+        guidance = ('<a href="/domains/new">Add your first domain</a> to start monitoring.'
+                    if csrf_token is not None else
+                    'Manage domains in your Telegram bot. Try <code>/add example.com</code>.')
         content = f'''<div class="empty-state"><span class="empty-icon" aria-hidden="true">◎</span>
-          <h2>{message}</h2><p>Manage domains in your Telegram bot. Try <code>/add example.com</code>.</p>
+          <h2>{message}</h2><p>{guidance}</p>
           <a href="/">Reset filters</a></div>'''
     options = "".join(
         f'<option value="{key}"{" selected" if key == status else ""}>{label}</option>'
         for key, label in FILTERS.items()
     )
+    management = ""
+    if csrf_token is not None:
+        from .management import domain_action
+        management = ('<nav class="management-toolbar" aria-label="Manage workspace">'
+                      '<a class="button-link" href="/domains/new">Add domain</a>'
+                      '<a href="/import">Import CSV</a><a href="/export.csv">Export CSV</a>'
+                      '<a href="/workspace">Workspace settings</a>' +
+                      domain_action('check', '*', 'Run all checks', csrf_token) + '</nav>')
     summary = snapshot["summary"]
     template = Template(files("sitewatcher").joinpath("data/dashboard.html").read_text(encoding="utf-8"))
     return template.substitute(
+        theme=_theme(theme), theme_controls=theme_controls(theme), management=management,
+        notice=f'<p class="notice" role="status">{html.escape(notice)}</p>' if notice else '',
+        footer=('Read-only view · Monitoring continues in your Telegram bot.'
+                if csrf_token is None else 'Scheduled monitoring continues in your Telegram bot.'),
         query=html.escape(query, quote=True), status_options=options, domains=content,
         total=summary["total"], healthy=summary["ok"], problems=summary["crit"] + summary["warn"],
         paused=summary["paused"], overdue=summary["stale"], shown=len(selected),

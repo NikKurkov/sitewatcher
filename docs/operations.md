@@ -15,7 +15,7 @@ sitewatcher web --owner 123456789 --port 8080
 
 The second command runs real probes and saves results; omit it when only diagnosing local storage. `doctor` makes no network calls or application-data writes. Normal SQLite reads may create or update WAL/SHM reader metadata beside an existing database; they retain SQLite's protection against concurrent checkpoints. Its successful result does not verify a Telegram token, proxy, public API, or firewall. Check a saved result and an authorized Telegram interaction separately when deploying.
 
-The web view reads existing state and requires an explicit owner. `/healthz` returns 503 for an unavailable/incompatible database. It can still return 200 when monitored domains are down. The server has no write routes or remote bind option.
+The web workspace requires an explicit owner and normally allows domain management. Use `--read-only` for a viewing-only process. Normal mode initializes storage on startup; GET/HEAD do not change monitoring rows. `/healthz` returns 503 for an unavailable/incompatible database. It can still return 200 when monitored domains are down. Management uses protected POST forms; the server has no remote bind option. Manual web checks save results, while the bot remains responsible for scheduled checks and Telegram delivery.
 
 For a Linux Docker installation, run a separate temporary web process using the bot's data volume and host networking:
 
@@ -30,6 +30,17 @@ docker run --rm --network host \
 This leaves the bot running and binds the viewer to host loopback. Supply the same `--config` path if the bot uses custom YAML; that file must also be mounted into the viewer. Host networking here requires Linux. For another host, use the SSH tunnel shown in the README.
 
 Docker images include application code and packaged examples only. Private YAML, environment files, SQLite files/sidecars and compressed caches are excluded from the build context. Mount custom configuration at runtime rather than baking it into an image.
+
+## Web management
+
+- Choose the same owner ID and YAML as the bot. Existing settings are shared through SQLite; the next scheduler tick reads them.
+- Domain check selectors support inherit/on/off. Blank numeric/list fields inherit; `[]` explicitly clears keyword/port lists. `interval_minutes: 0` pauses a domain. Reset removes every per-domain override.
+- A stale edit is rejected. Use “Reload saved settings” before editing again; repeated submission cannot silently overwrite concurrent changes.
+- Proxy input stays blank. “Clear domain override” selects the common HTTP client, which may still use a global proxy; global proxy configuration is not changed by the form.
+- CSV exports may contain proxy credentials. Imports apply valid rows independently, retain domains absent from the file and display added/updated/skipped counts. On errors, reselect the file or paste again; private CSV content is not redisplayed.
+- One web manual-check batch can run at a time. Other requests remain available. No separate scheduler or notification sender runs in the web process. A running bot sees newly saved states on its next tick.
+- Day/Night/System is a non-sensitive browser cookie. A small optional script changes the theme without discarding drafts; without JavaScript, theme links reload the saved page.
+- The process has no login: loopback/SSH access is the trust boundary. Same-origin validation and CSRF tokens prevent another website submitting mutations. Use `--read-only` when only viewing is intended; never expose the port publicly.
 
 ## Back up and restore
 
@@ -53,11 +64,11 @@ PY
 
 Keep `.env` and custom YAML separately with restrictive permissions. `/export_csv` backs up domain settings only; it does not include history, alert state, or shared caches. Its keyword/port cells use JSON when needed; ordinary comma-separated keyword input remains accepted.
 
-To restore, stop the bot and viewer, retain the current database **and its sidecars together** in a rollback directory, place the verified backup at `DATABASE_PATH`, and restore file ownership. Start with `doctor`, then restart the bot. Do not overlay an old database while a process still has it open. RKN indexes can be rebuilt; a configured standalone WHOIS/IP-change database needs its own backup if retaining that state matters.
+To restore, stop the bot and web process, retain the current database **and its sidecars together** in a rollback directory, place the verified backup at `DATABASE_PATH`, and restore file ownership. Start with `doctor`, then restart the bot. Do not overlay an old database while a process still has it open. RKN indexes can be rebuilt; a configured standalone WHOIS/IP-change database needs its own backup if retaining that state matters.
 
 ## Configuration and maintenance
 
-- Use one bot instance per database. The optional viewer is a separate read-only process.
+- Use one bot instance per database. The optional web process can manage that owner; `--read-only` disables management.
 - Empty `TELEGRAM_ALLOWED_USER_IDS` intentionally permits everyone. Malformed nonempty values stop bot startup.
 - `TELEGRAM_PROXY` applies to both Bot API replies and `getUpdates` polling. It is separate from the HTTP-check proxy settings.
 - Daily history cleanup uses `history.cleanup_time` in UTC. `retention_days: 0` removes history older than the current time; it does not disable cleanup. Weekly compaction runs on Sunday in UTC.

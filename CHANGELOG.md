@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add browser management for domains, inherited settings, live checks, history, owner alerts and CSV, with typed deletion confirmation and an explicit `--read-only` fallback.
+- Protect web mutations with strict same-origin POST/CSRF validation, bounded native form parsing and atomic duplicate/stale-edit guards.
+- Add persistent Day/Night/System themes; a small optional script preserves unsaved forms while switching.
+
 - Add a Docker image and Compose setup for one-command startup with persistent SQLite data.
 - Add a loopback-only, read-only web dashboard with fixed owner isolation, search, status filters, saved check details and JSON output. No frontend framework or runtime dependency is required.
 - Add sanitized `doctor` diagnostics for local configuration, schema, database integrity and permissions; retain native SQLite reader locks during concurrent checkpoints.

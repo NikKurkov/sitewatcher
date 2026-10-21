@@ -1,10 +1,11 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="$theme">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   $refresh_meta
-  <meta name="color-scheme" content="light">
+  <meta name="color-scheme" content="light dark">
+  <script src="/theme.js" defer></script>
   <title>SiteWatcher — Monitoring</title>
   <link rel="stylesheet" href="/style.css">
 </head>
@@ -13,6 +14,7 @@
   <header class="topbar"><div class="topbar-inner">
     <a class="brand" href="/" aria-label="SiteWatcher home"><span class="brand-mark" aria-hidden="true">◉</span>SiteWatcher</a>
     <span class="workspace">Monitoring workspace</span>
+    $theme_controls
     <span class="local-label"><span class="dot" aria-hidden="true"></span>Local view</span>
   </div></header>
   <main>
@@ -20,6 +22,8 @@
       <p class="intro">Saved check results, incidents and the next checks due.</p></div>
       <div class="refresh-state"><span class="refresh-dot" aria-hidden="true"></span><span>Updated $generated<small>$refresh_label</small></span></div>
     </div>
+    $notice
+    $management
     <section class="metrics" aria-label="Monitoring summary">
       <a class="metric" href="/"><span>Total domains</span><strong>$total</strong><small>Your monitoring inventory</small></a>
       <a class="metric metric-ok" href="/?status=ok"><span>Healthy</span><strong>$healthy</strong><small>Latest state is clear</small></a>
@@ -38,7 +42,7 @@
       <div class="list-heading"><span>Showing $shown of $total domains</span><span>All times UTC</span></div>
       <div class="domain-list">$domains</div>
     </section>
-    <footer><span>Read-only view · Monitoring continues in your Telegram bot.</span><span>SiteWatcher</span></footer>
+    <footer><span>$footer</span><span>SiteWatcher</span></footer>
   </main>
 </body>
 </html>

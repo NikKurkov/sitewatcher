@@ -21,7 +21,7 @@ def server(tmp_path, monkeypatch):
         connection.executemany('INSERT INTO domains(owner_id,name) VALUES(?,?)',
                                [(1, 'owner-one.example'), (2, 'private-owner-two.example')])
         connection.commit()
-    httpd = create_server(AppConfig(), 1, port=0)
+    httpd = create_server(AppConfig(), 1, port=0, read_only=True)
     thread = threading.Thread(target=httpd.serve_forever, kwargs={'poll_interval': 0.01})
     thread.start()
     yield httpd

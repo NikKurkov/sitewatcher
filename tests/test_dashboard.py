@@ -26,7 +26,7 @@ def test_dashboard_renders_accessible_saved_results_without_javascript(snapshot)
     assert "offline.example" in page and "healthy.example" in page
     assert "HTTP 503 &lt;unavailable&gt;" in page
     assert "<details" in page and "<summary" in page
-    assert '<form method="get"' in page and '<script' not in page
+    assert '<form method="get"' in page and '<script src="/theme.js" defer></script>' in page
     assert 'content="30"' in page and '/style.css' in page
 
 
@@ -42,7 +42,8 @@ def test_dashboard_escapes_stored_names_and_check_messages(snapshot):
     snapshot["domains"][0]["name"] = '<img src=x onerror="alert(1)">'
     snapshot["domains"][0]["checks"][0]["message"] = '<script>alert(2)</script>'
     page = render_dashboard(snapshot)
-    assert "<img" not in page and "<script" not in page
+    assert "<img" not in page and "<script>" not in page
+    assert page.count("<script") == 1
     assert "&lt;img" in page and "&lt;script&gt;" in page
 
 

@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import logging
 import json
+import sqlite3
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -33,6 +34,7 @@ def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="sitewatcher CLI")
     p.add_argument("mode", choices=["bot", "check_all", "check_domain", "scan", "doctor", "web"], help="Run mode")
     p.add_argument("--json", action="store_true", help="Print doctor diagnostics as JSON")
+    p.add_argument("--read-only", action="store_true", help="Disable web management; viewing only")
     p.add_argument("--port", type=int, default=8080, help="Local dashboard port (web mode)")
     p.add_argument("name", nargs="?", help="Domain for 'check_domain' or 'scan'")
     p.add_argument("--config", default=None, help="Path to config.yaml")
@@ -174,6 +176,8 @@ async def _cmd_check_one(
 def main() -> None:
     """Entrypoint for `python -m sitewatcher.main`."""
     args = _parse_args()
+    if args.read_only and args.mode != "web":
+        raise SystemExit("--read-only is supported by web")
     if args.mode == "doctor":
         from .diagnostics import diagnose, format_diagnostics
 
@@ -197,9 +201,9 @@ def main() -> None:
         from .web import run_web
 
         try:
-            run_web(cfg, args.owner, port=args.port)
-        except (OSError, ValueError):
-            raise SystemExit("Cannot start local dashboard; check --port and whether it is already in use") from None
+            run_web(cfg, args.owner, port=args.port, read_only=args.read_only)
+        except (OSError, ValueError, sqlite3.Error):
+            raise SystemExit("Cannot start local dashboard; check database permissions and --port") from None
         return
     setup_logging(cfg.logging)
 
