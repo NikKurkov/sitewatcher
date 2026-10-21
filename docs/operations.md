@@ -1,5 +1,8 @@
 # Operations and recovery
 
+See the [dated verification report](verification-2026-10-21.md) for installation,
+recovery and measured performance evidence.
+
 ## Verify an installation
 
 Use the same working directory, `DATABASE_PATH`, configuration and account as the bot:
@@ -10,7 +13,7 @@ sitewatcher check_all --owner 123456789 --only http_basic,tls_cert
 sitewatcher web --owner 123456789 --port 8080
 ```
 
-The second command runs real probes and saves results; omit it when only diagnosing local storage. `doctor` makes no network calls. Its successful result does not verify a Telegram token, proxy, public API, or firewall. Check a saved result and an authorized Telegram interaction separately when deploying.
+The second command runs real probes and saves results; omit it when only diagnosing local storage. `doctor` makes no network calls or application-data writes. Normal SQLite reads may create or update WAL/SHM reader metadata beside an existing database; they retain SQLite's protection against concurrent checkpoints. Its successful result does not verify a Telegram token, proxy, public API, or firewall. Check a saved result and an authorized Telegram interaction separately when deploying.
 
 The web view reads existing state and requires an explicit owner. `/healthz` returns 503 for an unavailable/incompatible database. It can still return 200 when monitored domains are down. The server has no write routes or remote bind option.
 
@@ -60,6 +63,7 @@ To restore, stop the bot and viewer, retain the current database **and its sidec
 - Daily history cleanup uses `history.cleanup_time` in UTC. `retention_days: 0` removes history older than the current time; it does not disable cleanup. Weekly compaction runs on Sunday in UTC.
 - Cleanup and compaction run in worker threads. Cancelling the scheduler does not interrupt a SQLite maintenance operation that has already started; allow it to finish before replacing the database.
 - Per-domain `interval_minutes: 0` pauses scheduled checks. Manual checks remain available. Explicit zero latency/alert thresholds are preserved.
+- `/history changes` finds transitions before applying the requested status filter, so recovery does not hide a later incident. It examines a bounded recent window of at most 1,000 rows; select a domain/check or increase `limit` (maximum 200) to inspect a more focused stream.
 - Unknown YAML keys and invalid combinations are errors. `/cfg_set` and CSV imports validate overrides before saving; `/cfg_unset` also validates the settings that will be inherited.
 - `http.proxy` (or the `http.proxies` scheme map) configures the common HTTP client. `defaults.proxy` and domain overrides select a separate client for HTTP status, keyword and defacement checks. External API calls retain the common client. Clearing a domain proxy returns to that common client; connection limits apply to mapped proxies too.
 - `http.max_response_bytes` limits page downloads for HTTP status, keyword and defacement checks (default 8 MiB). Both downloaded and decoded bytes count across redirects. Oversized, incomplete or unsupported compressed bodies are unknown rather than inspected partially; an observed HTTP error status remains an error. Gzip and deflate are supported. This setting does not limit external feeds or reputation APIs.
