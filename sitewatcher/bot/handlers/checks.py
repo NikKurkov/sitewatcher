@@ -36,9 +36,9 @@ async def cmd_check_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     cfg: AppConfig = context.application.bot_data["cfg"]
     owner_id = update.effective_user.id
 
-    raw = context.args[0].strip().lower()
-    force = raw in ("--force", "-f", "force")
-    name = normalize_domain(context.args[1] if force and len(context.args) > 1 else raw)
+    force = _parse_force(context.args)
+    names = [arg for arg in context.args if not _parse_force([arg])]
+    name = normalize_domain(names[0] if names else "")
     if not name or not DOMAIN_RE.fullmatch(name):
         await update.message.reply_text("Enter a valid domain, for example /check example.com")
         return
