@@ -8,14 +8,13 @@ from urllib.parse import urlencode, urlsplit
 
 from django.conf import settings
 from django.http import Http404, HttpResponse, JsonResponse
-from django.middleware.csrf import get_token
+from django.shortcuts import render
 from django.views.decorators.http import require_http_methods, require_POST, require_safe
 
 from sitewatcher import storage
 from sitewatcher.config import AppConfig, ChecksModel
-from sitewatcher.dashboard import FILTERS, render_dashboard
+from sitewatcher.dashboard import FILTERS
 from sitewatcher.dispatcher import Dispatcher
-from sitewatcher.management import render_management
 from sitewatcher.reporting import SnapshotError, build_snapshot
 from sitewatcher.utils.domains import normalize_domain
 from sitewatcher.utils.domains_csv import export_domains_csv, import_domains_csv
@@ -23,6 +22,8 @@ from sitewatcher.web_actions import (
     LIST_FIELDS, NUMERIC_FIELDS, act_on_domain, history_context, save_domain, settings_context,
 )
 from .accounts import owner_required
+from .analytics import domain_report, overview_report
+from .presentation import domain_form_context, local_time, report_context
 
 # ponytail: one process-local manual run; run a single web process, use a job queue to scale.
 _check_lock = Lock()
@@ -48,10 +49,16 @@ def _private(response):
     return response
 
 
-def _html(request, page, *, status=200):
-    # Transitional escaped renderer; every form uses Django's session-bound CSRF token.
-    page = page.replace('name="csrf_token"', 'name="csrfmiddlewaretoken"')
-    return _private(HttpResponse(page, status=status, content_type='text/html; charset=utf-8'))
+def _render(request, template, context, *, status=200):
+    context['read_only'] = settings.SITEWATCHER_READ_ONLY
+    return _private(render(request, 'sitewatcher/' + template + '.html', context, status=status))
+
+
+def _period(request):
+    days = int(request.GET.get('days', '1'))
+    if days not in {1, 7, 30}:
+        raise ValueError('Invalid period')
+    return days
 
 
 def _query(request):
@@ -70,14 +77,41 @@ def _existing(owner_id, raw):
 def _page(request, view, domain='', *, error='', values=None, status=200):
     owner_id = request.workspace.owner_id
     cfg = settings.SITEWATCHER_CONFIG
+    context = {'domain': domain}
     if view in {'add', 'edit'}:
-        context = settings_context(cfg, owner_id, domain if view == 'edit' else None)
+        try:
+            context = settings_context(cfg, owner_id, domain if view == 'edit' else None)
+        except ValueError:
+            if view == 'edit' and not storage.domain_exists(owner_id, domain):
+                raise Http404('Domain not found') from None
+            return _private(HttpResponse('Settings unavailable; reload the page', status=400))
     elif view == 'history':
-        context = {'domain': domain, 'rows': history_context(owner_id, domain)}
+        try:
+            report = domain_report(owner_id, domain, days=_period(request),
+                                   timezone=request.workspace.timezone)
+        except ValueError:
+            if not storage.domain_exists(owner_id, domain):
+                raise Http404('Domain not found') from None
+            return _private(HttpResponse('Invalid request', status=400))
+        snapshot = build_snapshot(cfg, owner_id)
+        row = next((row for row in snapshot['domains'] if row['name'] == domain), None)
+        if row is None:
+            raise Http404('Domain not found')
+        _row_context(row, request.workspace.timezone)
+        try:
+            history = history_context(owner_id, domain)
+        except ValueError:
+            raise Http404('Domain not found') from None
+        for item in history:
+            item['observed'] = local_time(item['created_at'], request.workspace.timezone)
+        return _render(request, 'domain_detail', {'report': report_context(report), 'row': row,
+                                                 'history': history})
     elif view == 'workspace':
-        context = {'alerts_enabled': storage.is_user_alerts_enabled(owner_id)}
-    else:
-        context = {'domain': domain}
+        context['alerts_enabled'] = storage.is_user_alerts_enabled(owner_id)
+    if view == 'add' and values is None:
+        context['values'].update({
+            f'check.{key}': 'on' if key in {'http_basic', 'tls_cert'} else 'off'
+            for key in ChecksModel.model_fields})
     if values is not None:
         context['values'] = {**context.get('values', {}), **values, 'proxy': ''}
         context['domain'] = values.get('domain', domain)
@@ -85,9 +119,20 @@ def _page(request, view, domain='', *, error='', values=None, status=200):
             context['revision'] = values['revision']
         if view == 'import':
             context['mode'] = values.get('mode', 'merge')
-    return _html(request, render_management(view, context, get_token(request), error=error,
-                                           theme=request.COOKIES.get('sitewatcher_theme', 'light')),
-                 status=status)
+    context.update(view=view, error=error)
+    if view in {'add', 'edit'}:
+        domain_form_context(context, error)
+    return _render(request, 'domain_form' if view in {'add', 'edit'} else 'management',
+                   context, status=status)
+
+
+def _row_context(row, zone):
+    row['state'] = ('paused' if row['paused'] else row['overall'].lower())
+    row['label'] = {'paused': 'Paused', 'crit': 'Critical', 'warn': 'Warning',
+                    'ok': 'Healthy', 'unknown': 'No data'}[row['state']]
+    row['observed'] = local_time(row['last_checked_at'], zone)
+    for check in row['checks']:
+        check['observed'] = local_time(check['checked_at'], zone)
 
 
 @owner_required
@@ -98,13 +143,28 @@ def dashboard(request):
         status = query.get('status', 'all')
         if status not in FILTERS:
             raise ValueError('Invalid filter')
-        snapshot = build_snapshot(settings.SITEWATCHER_CONFIG, request.workspace.owner_id)
-        return _html(request, render_dashboard(
-            snapshot, query=query.get('q', ''), status=status,
-            auto_refresh=query.get('refresh', 'on') != 'off',
-            csrf_token=None if settings.SITEWATCHER_READ_ONLY else get_token(request),
-            notice=query.get('notice', ''), theme=request.COOKIES.get('sitewatcher_theme', 'light'),
-        ))
+        owner_id, zone = request.workspace.owner_id, request.workspace.timezone
+        snapshot = build_snapshot(settings.SITEWATCHER_CONFIG, owner_id)
+        report = overview_report(owner_id, days=_period(request), timezone=zone)
+        reports = {item['domain']: report_context(item) for item in report['domains']}
+        rows = snapshot['domains']
+        attention = sum(row['overall'] in {'CRIT', 'WARN'} and not row['paused'] for row in rows)
+        last = max((row['last_checked_at'] for row in rows if row['last_checked_at']), default=None)
+        for row in rows:
+            _row_context(row, zone)
+            row['report'] = reports.get(row['name'])
+        rows.sort(key=lambda row: ({'crit': 0, 'warn': 1, 'unknown': 2, 'ok': 3,
+                                    'paused': 4}[row['state']], row['name']))
+        search = query.get('q', '').strip()
+        filtered = [row for row in rows if search.lower() in row['name'] and (
+            status == 'all' or status == 'problems' and row['overall'] in {'CRIT', 'WARN'}
+            or status in {'paused', 'stale'} and row[status]
+            or row['overall'].lower() == status)]
+        return _render(request, 'overview', {'rows': filtered, 'total': len(rows),
+            'attention': attention, 'summary': snapshot['summary'], 'report': report,
+            'healthy': sum(row['state'] == 'ok' for row in rows),
+            'observed': local_time(last, zone), 'query': search, 'status': status,
+            'filters': FILTERS.items(), 'notice': query.get('notice', '')})
     except ValueError:
         return _private(HttpResponse('Invalid request', status=400))
     except SnapshotError:
@@ -252,7 +312,6 @@ def legacy_asset(request, name):
                         content_type=mime + '; charset=utf-8')
 
 
-@owner_required
 @require_safe
 def theme(request):
     try:
@@ -261,7 +320,7 @@ def theme(request):
         parsed = urlsplit(target)
         if (mode not in {'light', 'dark'} or parsed.scheme or parsed.netloc or parsed.fragment
                 or parsed.path not in {'/', '/domains/new', '/domains/edit', '/domains/delete',
-                                       '/domains/history', '/workspace', '/import'}
+                                       '/domains/history', '/workspace', '/import', '/login/', '/password/'}
                 or any(ord(char) < 32 or char == chr(92) for char in target)):
             raise ValueError('Invalid theme')
     except ValueError:

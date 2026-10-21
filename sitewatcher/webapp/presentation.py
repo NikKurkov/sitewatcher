@@ -1,0 +1,79 @@
+"""Small presentation adapters for the bounded analytics DTOs and native forms."""
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+
+from sitewatcher.management import _CHECK_LABELS
+from sitewatcher.web_actions import NUMERIC_FIELDS
+
+
+def local_time(value, zone):
+    if not value:
+        return None
+    try:
+        stamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return {'iso': stamp.isoformat(), 'label': stamp.astimezone(ZoneInfo(zone)).strftime(
+        '%d %b %Y, %H:%M %Z')}
+
+
+def chart_context(points, metric):
+    """Position occupied buckets on their actual axis; gaps start a new segment."""
+    maximum = max((point[metric] for point in points if point.get(metric) is not None),
+                  default=0) or 1
+    segments, dots, current, previous = [], [], [], None
+    for point in points:
+        value, index = point.get(metric), point['index']
+        if value is None:
+            if current:
+                segments.append(' '.join(current))
+            current, previous = [], None
+            continue
+        if previous is not None and index != previous + 1:
+            segments.append(' '.join(current))
+            current = []
+        x, y = index * 1000 / 119, 150 - (value / maximum) * 132
+        current.append(f'{x:.2f},{y:.2f}')
+        dots.append({'x': x, 'y': y})
+        previous = index
+    if current:
+        segments.append(' '.join(current))
+    return {'segments': segments, 'dots': dots, 'maximum': maximum}
+
+
+def report_context(report):
+    report['observed'] = local_time(report.get('latest_observed_at'), report['timezone'])
+    report['start'] = local_time(report['window_start'], report['timezone'])
+    report['end'] = local_time(report['window_end'], report['timezone'])
+    report['chart'] = chart_context(report['buckets'], 'latency_ms')
+    for bucket in report['buckets']:
+        bucket['x'] = bucket['index'] * 10
+        bucket['state'] = ('failed' if bucket['failed'] else 'successful'
+                           if bucket['successful'] else 'unknown')
+    return report
+
+
+def domain_form_context(context, error):
+    values = context['values']
+    checks = []
+    for name in context['check_names']:
+        key = f'check.{name}'
+        checks.append({'name': key, 'label': 'Website availability' if name == 'http_basic'
+                       else _CHECK_LABELS.get(name, name), 'value': values.get(key, ''),
+                       'default': 'On' if context['effective']['checks'][name] else 'Off'})
+    context['basic_checks'] = [c for c in checks if c['name'] in {'check.http_basic', 'check.tls_cert'}]
+    context['advanced_checks'] = [c for c in checks if c not in context['basic_checks']]
+    labels = ['Check interval (minutes)', 'Request timeout (seconds)',
+              'Slow response warning (ms)', 'Slow response critical (ms)',
+              'Certificate warning (days before expiry)']
+    numeric = [{'name': key, 'label': label, 'value': values.get(key, ''),
+                'minimum': 1 if key == 'http_timeout_s' else 0,
+                'error': 'Check this value.' if key in error else '',
+                'default': context['effective'].get(key)}
+               for key, label in zip(NUMERIC_FIELDS, labels, strict=True)]
+    context['interval'] = numeric[0]
+    context['numeric_fields'] = numeric[1:]
+    context['advanced_error'] = bool(error)
+    return context

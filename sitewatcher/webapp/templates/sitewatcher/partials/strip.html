@@ -1,0 +1,4 @@
+<svg class="history-strip" viewBox="0 0 1200 20" preserveAspectRatio="none" role="img" aria-label="HTTP observations: {{ item.totals.successful }} successful, {{ item.totals.failed }} failed, {{ item.totals.unknown }} unknown. Empty space means no observations.">
+<rect class="strip-background" width="1200" height="20" rx="3" />
+{% for bucket in item.buckets %}<rect class="strip-{{ bucket.state }}" x="{{ bucket.x }}" width="7" height="20" rx="2"><title>{{ bucket.label }}: {{ bucket.successful }} successful, {{ bucket.failed }} failed, {{ bucket.unknown }} unknown</title></rect>{% endfor %}
+</svg>

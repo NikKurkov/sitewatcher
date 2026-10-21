@@ -1,11 +1,23 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="{% if request.COOKIES.sitewatcher_theme == 'dark' %}dark{% else %}light{% endif %}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SiteWatcher</title>
+  <meta name="color-scheme" content="light dark">
+  <title>{% block title %}SiteWatcher{% endblock %}</title>
   <link rel="stylesheet" href="{% url 'asset' 'workspace.css' %}">
   <script defer src="{% url 'asset' 'theme.js' %}"></script>
 </head>
-<body>{% block content %}{% endblock %}</body>
-</html>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="topbar"><div class="topbar-inner">
+  <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">◉</span> SiteWatcher</a>
+  {% if user.is_authenticated %}<nav class="main-nav" aria-label="Main navigation"><a href="/" {% if request.path == '/' %}aria-current="page"{% endif %}>Overview</a><a href="/workspace" {% if request.path == '/workspace' %}aria-current="page"{% endif %}>Settings</a></nav>{% endif %}
+  <form class="theme-controls" method="get" action="/theme">
+    <span aria-hidden="true">☀</span><input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <button class="theme-switch" type="submit" name="mode" value="{% if request.COOKIES.sitewatcher_theme == 'dark' %}light{% else %}dark{% endif %}" role="switch" aria-label="Dark theme" aria-checked="{% if request.COOKIES.sitewatcher_theme == 'dark' %}true{% else %}false{% endif %}"><span></span></button><span aria-hidden="true">☾</span>
+  </form>
+</div></header>
+<main id="content" tabindex="-1" class="workspace {% block main_class %}{% endblock %}">{% block content %}{% endblock %}</main>
+<footer class="footer"><span>SiteWatcher <span aria-hidden="true">·</span> Website monitoring</span>{% if request.workspace %}<span>Times in {{ request.workspace.timezone }}</span>{% endif %}</footer>
+</body></html>

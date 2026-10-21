@@ -1,0 +1,5 @@
+<nav class="periods" aria-label="History period">
+<a href="?{% if report.domain %}domain={{ report.domain|urlencode }}&amp;{% endif %}{% if query %}q={{ query|urlencode }}&amp;{% endif %}{% if status %}status={{ status }}&amp;{% endif %}days=1" {% if report.days == 1 %}aria-current="page"{% endif %}>24h</a>
+<a href="?{% if report.domain %}domain={{ report.domain|urlencode }}&amp;{% endif %}{% if query %}q={{ query|urlencode }}&amp;{% endif %}{% if status %}status={{ status }}&amp;{% endif %}days=7" {% if report.days == 7 %}aria-current="page"{% endif %}>7d</a>
+<a href="?{% if report.domain %}domain={{ report.domain|urlencode }}&amp;{% endif %}{% if query %}q={{ query|urlencode }}&amp;{% endif %}{% if status %}status={{ status }}&amp;{% endif %}days=30" {% if report.days == 30 %}aria-current="page"{% endif %}>30d</a>
+</nav>

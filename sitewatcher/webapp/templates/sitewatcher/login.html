@@ -1,9 +1,4 @@
 {% extends 'sitewatcher/base.html' %}
-{% block content %}
-<main><h1>Sign in to SiteWatcher</h1>
-<form method="post">{% csrf_token %}{{ form.as_p }}
-<input type="hidden" name="next" value="{{ next }}">
-<button type="submit">Sign in</button></form>
-<p>For local password recovery, run <code>sitewatcher password</code> on the server.</p>
-</main>
-{% endblock %}
+{% block title %}Sign in · SiteWatcher{% endblock %}
+{% block main_class %}auth-page{% endblock %}
+{% block content %}<section class="panel auth-panel"><div class="auth-mark" aria-hidden="true">◉</div><p class="eyebrow">Your monitoring workspace</p><h1>Welcome back</h1><p class="subtitle">Sign in to SiteWatcher.</p><form method="post">{% csrf_token %}{{ form.as_p }}<input type="hidden" name="next" value="{{ next }}"><button class="primary" type="submit">Sign in</button></form><p class="field-help recovery">Forgot your password? Contact the person who manages this installation.</p></section>{% endblock %}
