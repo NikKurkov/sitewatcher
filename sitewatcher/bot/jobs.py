@@ -166,7 +166,7 @@ async def _run_checks_for_all_domains(
                         return
                     if selected:
                         results = await d.run_for(owner_id, domain, only_checks=selected, use_cache=False, run_id=run_id)
-                        storage.save_histories(owner_id, domain, results, create_missing=False)
+                        storage.save_histories(owner_id, domain, results, create_missing=False, source="scheduled")
                     elif not warmup:
                         # Retry undelivered state changes on the next tick, without extra probes.
                         results = _complete_results(cfg, owner_id, domain, [])

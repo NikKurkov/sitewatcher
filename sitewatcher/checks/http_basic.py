@@ -85,7 +85,8 @@ class HttpBasicCheck(BaseCheck):
         except BodyReadError as e:
             return CheckOutcome(
                 self.name, Status.CRIT if e.status_code >= 400 else Status.UNKNOWN, str(e),
-                {"status_code": e.status_code, "max_response_bytes": self.max_response_bytes},
+                {"status_code": e.status_code, "max_response_bytes": self.max_response_bytes,
+                 "availability": "unavailable" if e.status_code >= 400 else "unknown"},
             )
         except httpx.RequestError as e:
             elapsed_ms = int((time.perf_counter() - start1) * 1000)
@@ -104,7 +105,8 @@ class HttpBasicCheck(BaseCheck):
                 check=self.name,
                 status=Status.CRIT,
                 message=f"request error: {e.__class__.__name__}",
-                metrics={"latency_ms_initial": elapsed_ms, "url": origin_url},
+                metrics={"latency_ms_initial": elapsed_ms, "url": origin_url,
+                         "availability": "unavailable"},
             )
 
         elapsed1_ms = int((time.perf_counter() - start1) * 1000)
@@ -170,7 +172,8 @@ class HttpBasicCheck(BaseCheck):
             except BodyReadError as e:
                 return CheckOutcome(
                     self.name, Status.CRIT if e.status_code >= 400 else Status.UNKNOWN, str(e),
-                    {"status_code": e.status_code, "max_response_bytes": self.max_response_bytes},
+                    {"status_code": e.status_code, "max_response_bytes": self.max_response_bytes,
+                     "availability": "unavailable" if e.status_code >= 400 else "unknown"},
                 )
             except httpx.RequestError as e:
                 redirect_error = e.__class__.__name__
@@ -231,6 +234,11 @@ class HttpBasicCheck(BaseCheck):
                 "latency_ms_total": total_ms,
                 "origin_url": origin_url,
                 "redirect_error": redirect_error,
+                "availability": (
+                    "unavailable" if final_code >= 400 or redirect_error else "available"
+                ),
+                **({"response_latency_ms": total_ms}
+                   if final_code < 400 and not redirect_error else {}),
             },
         )
 

@@ -54,9 +54,9 @@ def test_cli_check_domain_runs_and_saves(monkeypatch, capsys):
             return [CheckOutcome("http_basic", Status.OK, "healthy", {})]
 
     monkeypatch.setattr("sitewatcher.main.Dispatcher", FakeDispatcher)
-    monkeypatch.setattr(storage, "save_histories", lambda *args: None)
     asyncio.run(_cmd_check_one(AppConfig(), 42, "example.com", only=None, use_cache=True, run_id="run-42"))
 
+    assert storage.last_results(42, "example.com")[0]["source"] == "manual"
     assert "example.com" in capsys.readouterr().out
     assert seen == [{"only_checks": None, "use_cache": True, "run_id": "run-42"}]
 

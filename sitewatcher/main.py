@@ -78,7 +78,7 @@ async def _run_and_persist(
             use_cache=use_cache,
             run_id=run_id,
         )
-    storage.save_histories(owner_id, domain, results)
+    storage.save_histories(owner_id, domain, results, source="manual")
     return results
 
 

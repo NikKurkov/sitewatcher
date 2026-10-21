@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS history (
   status TEXT NOT NULL,
   message TEXT NOT NULL,
   metrics_json TEXT,
+  source TEXT NOT NULL DEFAULT 'legacy',
   created_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY(owner_id, domain) REFERENCES domains(owner_id, name) ON DELETE CASCADE
 );
@@ -133,6 +134,12 @@ def _ensure_initialized(db_path: Path | None = None) -> None:
         return
     with closing(_connect(db_path)) as conn:
         conn.executescript(SCHEMA_SQL)
+        # Serialize the additive migration across bot/web workers starting together.
+        conn.execute("BEGIN IMMEDIATE")
+        with conn:
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(history)")}
+            if "source" not in columns:
+                conn.execute("ALTER TABLE history ADD COLUMN source TEXT NOT NULL DEFAULT 'legacy'")
     _INITIALIZED_PATHS.add(db_path)
 
 
@@ -267,32 +274,37 @@ def save_history(
     metrics: Dict[str, Any],
     *,
     create_missing: bool = True,
+    source: str = "legacy",
 ) -> None:
     _save_history_rows(
-        owner_id, domain, [(check_name, status, message, metrics)], create_missing=create_missing,
+        owner_id, domain, [(check_name, status, message, metrics)],
+        create_missing=create_missing, source=source,
     )
 
 
 def save_histories(
     owner_id: int, domain: str, results: list, *, create_missing: bool = True,
+    source: str = "legacy",
 ) -> None:
     """Persist a domain run in one SQLite transaction."""
     _save_history_rows(owner_id, domain, [
         (result.check, result.status, result.message, result.metrics)
         for result in results if not getattr(result, "cached", False)
-    ], create_missing=create_missing)
+    ], create_missing=create_missing, source=source)
 
 
 def _save_history_rows(
-    owner_id: int, domain: str, results: list, *, create_missing: bool,
+    owner_id: int, domain: str, results: list, *, create_missing: bool, source: str,
 ) -> None:
+    if source not in {"legacy", "scheduled", "manual"}:
+        raise ValueError("Invalid history source")
     _ensure_initialized()
     domain = (domain or "").strip().lower()
     if not domain or not results:
         return
     rows = [
         (int(owner_id), domain, check, getattr(status, "value", str(status)), message,
-         json.dumps(metrics, ensure_ascii=False, default=str))
+         json.dumps(metrics, ensure_ascii=False, default=str), source)
         for check, status, message, metrics in results
     ]
     with _write_connection() as conn:
@@ -306,8 +318,9 @@ def _save_history_rows(
         ).fetchone():
             return
         conn.executemany(
-            "INSERT INTO history(owner_id, domain, check_name, status, message, metrics_json, created_at) "
-            "VALUES (?,?,?,?,?,?,datetime('now'))",
+            "INSERT INTO history(owner_id, domain, check_name, status, message, "
+            "metrics_json, source, created_at) "
+            "VALUES (?,?,?,?,?,?,?,datetime('now'))",
             rows,
         )
     log.debug("history.saved", extra={"owner_id": owner_id, "domain": domain, "count": len(rows)})

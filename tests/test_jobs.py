@@ -63,3 +63,4 @@ def test_warmup_sets_baseline_and_next_tick_skips_recent_result(tmp_path, monkey
     assert ran == [["ping"]]
     assert storage.get_alert_state(1, "example.com")["last_overall"] == "OK"
     assert len(storage.last_results(1, "example.com")) == 1
+    assert storage.last_results(1, "example.com")[0]["source"] == "scheduled"

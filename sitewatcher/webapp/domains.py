@@ -35,7 +35,7 @@ async def _check_domains(cfg: AppConfig, owner_id: int, names: list[str]) -> Non
                 continue
             async with asyncio.timeout(cfg.scheduler.domain_timeout_s or 120):
                 results = await dispatcher.run_for(owner_id, name, use_cache=False)
-            storage.save_histories(owner_id, name, results, create_missing=False)
+            storage.save_histories(owner_id, name, results, create_missing=False, source="manual")
 
 
 def run_manual_checks(cfg: AppConfig, owner_id: int, names: list[str]) -> None:

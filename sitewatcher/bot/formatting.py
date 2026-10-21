@@ -51,7 +51,7 @@ def _persist_results(owner_id: int, domain: str, results: Iterable, persist: boo
         CheckOutcome(r.check, r.status, _strip_cached_suffix(r.message), r.metrics, r.cached)
         for r in results
     ]
-    storage.save_histories(owner_id, domain, cleaned, create_missing=False)
+    storage.save_histories(owner_id, domain, cleaned, create_missing=False, source="manual")
 
 
 # ------------------------------- public API -------------------------------

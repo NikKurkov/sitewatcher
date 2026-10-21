@@ -87,4 +87,5 @@ def test_owned_check_honors_force_before_or_after_domain(monkeypatch, args, use_
     asyncio.run(checks.cmd_check_domain(update, context))
     assert calls == [(7, 'example.com', {'use_cache': use_cache})]
     assert len(storage.last_results(7, 'example.com')) == 1
+    assert storage.last_results(7, 'example.com')[0]['source'] == 'manual'
     notify.assert_awaited_once()
