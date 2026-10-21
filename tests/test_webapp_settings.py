@@ -259,3 +259,53 @@ def test_doctor_reads_private_token_without_database_initialization(tmp_path, mo
     assert not report['ok']
     assert '0600' in format_diagnostics(report)
     assert 'private_token' not in format_diagnostics(report)
+
+
+@pytest.mark.parametrize('reader', ['telegram', 'web', 'doctor'])
+def test_private_secret_fifo_is_rejected_without_waiting_for_a_writer(tmp_path, reader):
+    import os
+    import subprocess
+    import sys
+
+    database = tmp_path / 'absent.db'
+    suffix = '.web-secret' if reader == 'web' else '.telegram-token'
+    private_path = database.with_name(database.name + suffix)
+    os.mkfifo(private_path, mode=0o600)
+    config = tmp_path / 'checks.yaml'
+    config.write_text('{}')
+    program = '''
+import sys
+from sitewatcher import storage
+if sys.argv[1] == 'doctor':
+    from sitewatcher.diagnostics import diagnose, format_diagnostics
+    report = diagnose(sys.argv[2])
+    assert not report['ok']
+    assert not report['telegram']['token_present']
+    assert 'error' in report['telegram']
+    print(format_diagnostics(report))
+else:
+    from sitewatcher.telegram_connection import load_bot_token
+    from sitewatcher.webapp.bootstrap import load_secret_key
+    try:
+        if sys.argv[1] == 'web':
+            load_secret_key(storage.DEFAULT_DB)
+        else:
+            load_bot_token()
+    except ValueError as error:
+        print(str(error))
+    else:
+        raise AssertionError('A FIFO must never be accepted as a secret file')
+assert not storage.DEFAULT_DB.exists()
+'''
+    environment = {**os.environ, 'DATABASE_PATH': str(database)}
+    environment.pop('TELEGRAM_TOKEN', None)
+    environment.pop('SITEWATCHER_WEB_SECRET_KEY', None)
+    try:
+        result = subprocess.run([sys.executable, '-c', program, reader, str(config)],
+                                env=environment, capture_output=True, text=True, timeout=3)
+    except subprocess.TimeoutExpired:
+        pytest.fail(f'{reader} reader blocked on a FIFO with no writer')
+    assert result.returncode == 0, result.stderr
+    assert '0600' in result.stdout
+    assert str(private_path) not in result.stdout + result.stderr
+    assert 'Traceback' not in result.stderr

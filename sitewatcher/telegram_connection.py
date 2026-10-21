@@ -33,7 +33,7 @@ def load_bot_token() -> str | None:
     if explicit:
         return explicit
     try:
-        fd = os.open(token_path(), os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(token_path(), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
         return None
     except OSError:
