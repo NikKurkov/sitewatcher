@@ -6,7 +6,8 @@ from dataclasses import asdict
 
 from . import storage
 from .config import (
-    AppConfig, ChecksModel, resolve_settings, validate_domain_override, validation_message,
+    AppConfig, ChecksModel, ConfigurationError, resolve_settings, validate_domain_override,
+    validation_message,
 )
 from .utils.domains import normalize_domain
 from .utils.secrets import redact_configuration
@@ -94,13 +95,19 @@ def save_domain(cfg: AppConfig, owner_id: int, form: dict[str, str], *, create: 
         for key in NUMERIC_FIELDS:
             value = form.get(key, '').strip()
             if value:
-                override[key] = int(value)
+                try:
+                    override[key] = int(value)
+                except ValueError:
+                    raise ConfigurationError(f'{key}: Enter a whole number.') from None
         for key in LIST_FIELDS:
             value = form.get(key, '').strip()
             if value:
-                parsed = json.loads(value)
+                try:
+                    parsed = json.loads(value)
+                except (ValueError, RecursionError):
+                    raise ConfigurationError(f'{key}: Enter a valid JSON list.') from None
                 if not isinstance(parsed, list):
-                    raise ValueError('Expected a list')
+                    raise ConfigurationError(f'{key}: Enter a valid JSON list.')
                 override[key] = parsed
         mode = form.get('proxy_mode', 'keep')
         if mode == 'keep':
@@ -112,10 +119,10 @@ def save_domain(cfg: AppConfig, owner_id: int, form: dict[str, str], *, create: 
         elif mode == 'set':
             proxy = form.get('proxy', '').strip()
             if not proxy:
-                raise ValueError('Missing proxy')
+                raise ConfigurationError('proxy: Enter a proxy URL.')
             override['proxy'] = proxy
         elif mode != 'inherit':
-            raise ValueError('Invalid proxy mode')
+            raise ConfigurationError('proxy_mode: Choose a valid proxy action.')
         validated = validate_domain_override(cfg, domain, override)
         storage.set_domain_override(
             owner_id, domain, validated, replace=True, create_missing=create,

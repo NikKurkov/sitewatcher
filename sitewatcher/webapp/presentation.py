@@ -20,7 +20,7 @@ def local_time(value, zone):
 
 
 def chart_context(points, metric):
-    """Position occupied buckets on their actual axis; gaps start a new segment."""
+    """Position bucket starts within 120 equal intervals; gaps start a new segment."""
     maximum = max((point[metric] for point in points if point.get(metric) is not None),
                   default=0) or 1
     segments, dots, current, previous = [], [], [], None
@@ -34,7 +34,7 @@ def chart_context(points, metric):
         if previous is not None and index != previous + 1:
             segments.append(' '.join(current))
             current = []
-        x, y = index * 1000 / 119, 150 - (value / maximum) * 132
+        x, y = index * 1000 / 120, 150 - (value / maximum) * 132
         current.append(f'{x:.2f},{y:.2f}')
         dots.append({'x': x, 'y': y})
         previous = index
@@ -57,6 +57,20 @@ def report_context(report):
 
 def domain_form_context(context, error):
     values = context['values']
+    messages = {
+        **dict.fromkeys(NUMERIC_FIELDS, 'Check this value.'),
+        'keywords': 'Enter a valid JSON list of keywords.',
+        'ports': 'Enter a valid JSON list of TCP ports (1–65535).',
+        'proxy': 'Enter a supported proxy URL with a host.',
+        'proxy_mode': 'Choose a valid proxy action.',
+    }
+    field_errors = {key: message for key, message in messages.items()
+                    if key + ':' in error or key + '.' in error}
+    if error in {'Invalid domain', 'Domain already exists'}:
+        field_errors['domain'] = ('This domain is already monitored.'
+                                  if error == 'Domain already exists'
+                                  else 'Enter a valid hostname, such as example.com.')
+    context['field_errors'] = field_errors
     checks = []
     for name in context['check_names']:
         key = f'check.{name}'
@@ -70,7 +84,7 @@ def domain_form_context(context, error):
               'Certificate warning (days before expiry)']
     numeric = [{'name': key, 'label': label, 'value': values.get(key, ''),
                 'minimum': 1 if key == 'http_timeout_s' else 0,
-                'error': 'Check this value.' if key in error else '',
+                'error': field_errors.get(key, ''),
                 'default': context['effective'].get(key)}
                for key, label in zip(NUMERIC_FIELDS, labels, strict=True)]
     context['interval'] = numeric[0]

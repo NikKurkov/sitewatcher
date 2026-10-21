@@ -72,7 +72,7 @@ def test_chart_gaps_break_paths_and_unknown_latency():
     chart = chart_context(points, 'latency_ms')
     assert len(chart['segments']) == 3
     assert len(chart['dots']) == 5
-    assert chart['dots'][2]['x'] == pytest.approx(3 * 1000 / 119)
+    assert chart['dots'][2]['x'] == pytest.approx(3 * 1000 / 120)
     assert chart_context([], 'latency_ms')['segments'] == []
 
 
@@ -157,3 +157,56 @@ def test_observation_labels_include_local_timezone():
     from sitewatcher.webapp.presentation import local_time
     stamp = local_time('2026-10-22T12:00:00Z', 'Europe/Moscow')
     assert stamp == {'iso': '2026-10-22T12:00:00+00:00', 'label': '22 Oct 2026, 15:00 MSK'}
+
+
+@pytest.mark.parametrize('days', [1, 7, 30])
+def test_latency_bucket_starts_align_with_the_true_window(days):
+    from datetime import datetime, timedelta, timezone
+    from sitewatcher.webapp.presentation import chart_context
+    start = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    duration = timedelta(days=days)
+    points = [{'index': index, 'start_at': start + index * duration / 120, 'latency_ms': 100}
+              for index in [0, 60, 119]]
+    chart = chart_context(points, 'latency_ms')
+    for point, dot in zip(points, chart['dots'], strict=True):
+        assert dot['x'] / 1000 == pytest.approx((point['start_at'] - start) / duration)
+    assert chart['dots'][-1]['x'] < 1000
+
+
+@pytest.mark.parametrize(('field', 'value', 'extra'), [
+    ('domain', 'not a hostname', {}),
+    ('domain', 'duplicate.example', {}),
+    ('keywords', '[', {}),
+    ('ports', '{"unsafe-input-name": 1}', {}),
+    ('ports', '[70000]', {}),
+    ('proxy', '', {'proxy_mode': 'set'}),
+    ('proxy', 'bad://user:private-password@example.com', {'proxy_mode': 'set'}),
+    ('proxy_mode', 'unsafe-input-name', {}),
+    ('interval_minutes', 'no-number', {}),
+])
+def test_native_form_errors_identify_fields_without_exposing_proxy(owner, client, field, value, extra):
+    from html.parser import HTMLParser
+    storage.add_domain(41, 'duplicate.example')
+    response = client.post('/domains/add', {
+        'domain': 'draft.example', field: value, **extra}, HTTP_HOST='localhost')
+    assert response.status_code == 400
+    body = response.content.decode()
+    class FormTags(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.tags = {}
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if 'id' in attrs:
+                self.tags[attrs['id']] = attrs
+    parsed = FormTags()
+    parsed.feed(body)
+    assert parsed.tags[field].get('aria-invalid') == 'true'
+    assert field + '-error' in parsed.tags[field].get('aria-describedby', '').split()
+    assert field + '-error' in parsed.tags
+    assert parsed.tags['proxy']['value'] == ''
+    assert 'private-password' not in body
+    # Draft content stays in its input, never in generated validation messages.
+    error_summary = body.split('role="alert">')[1].split('</div>')[0]
+    assert 'unsafe-input-name' not in error_summary
+    assert not storage.domain_exists(41, 'draft.example')
