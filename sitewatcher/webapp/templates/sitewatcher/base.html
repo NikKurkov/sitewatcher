@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  {% if public_view %}<meta name="robots" content="noindex,nofollow,noarchive"><meta name="referrer" content="no-referrer">{% endif %}
   <meta name="color-scheme" content="light dark">
   <title>{% block title %}SiteWatcher{% endblock %}</title>
   <link rel="stylesheet" href="{% url 'asset' 'workspace.css' %}">
@@ -11,13 +12,13 @@
 <body>
 <a class="skip-link" href="#content">Skip to content</a>
 <header class="topbar"><div class="topbar-inner">
-  <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">◉</span> SiteWatcher</a>
-  {% if user.is_authenticated %}<nav class="main-nav" aria-label="Main navigation"><a href="/" {% if request.path == '/' %}aria-current="page"{% endif %}>Overview</a><a href="/workspace" {% if request.path == '/workspace' or request.path == '/settings' %}aria-current="page"{% endif %}>Settings</a></nav>{% endif %}
-  <form class="theme-controls" method="get" action="/theme">
-    <span aria-hidden="true">☀</span><input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <a class="brand" href="{% if public_view %}?days={{ report.days }}{% else %}/{% endif %}"><span class="brand-mark" aria-hidden="true">◉</span> SiteWatcher</a>
+  {% if user.is_authenticated and not public_view %}<nav class="main-nav" aria-label="Main navigation"><a href="/" {% if request.path == '/' %}aria-current="page"{% endif %}>Overview</a><a href="/workspace" {% if request.path == '/workspace' or request.path == '/settings' %}aria-current="page"{% endif %}>Settings</a></nav>{% endif %}
+  <form class="theme-controls" method="get" action="{% if public_view %}{% else %}/theme{% endif %}">
+    <span aria-hidden="true">☀</span>{% if public_view %}<input type="hidden" name="days" value="{{ report.days }}">{% else %}<input type="hidden" name="next" value="{{ request.get_full_path }}">{% endif %}
     <button class="theme-switch" type="submit" name="mode" value="{% if request.COOKIES.sitewatcher_theme == 'dark' %}light{% else %}dark{% endif %}" role="switch" aria-label="Dark theme" aria-checked="{% if request.COOKIES.sitewatcher_theme == 'dark' %}true{% else %}false{% endif %}"><span></span></button><span aria-hidden="true">☾</span>
   </form>
 </div></header>
 <main id="content" tabindex="-1" class="workspace {% block main_class %}{% endblock %}">{% block content %}{% endblock %}</main>
-<footer class="footer"><span>SiteWatcher <span aria-hidden="true">·</span> Website monitoring</span>{% if request.workspace %}<span>Times in {{ request.workspace.timezone }}</span>{% endif %}</footer>
+<footer class="footer"><span>SiteWatcher <span aria-hidden="true">·</span> Website monitoring</span>{% if public_view %}<span>Times in {{ public_timezone }}</span>{% elif request.workspace %}<span>Times in {{ request.workspace.timezone }}</span>{% endif %}</footer>
 </body></html>

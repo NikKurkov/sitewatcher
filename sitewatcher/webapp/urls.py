@@ -5,7 +5,7 @@ from django.http import Http404, HttpResponse, JsonResponse
 from django.urls import path
 from django.views.decorators.http import require_safe
 
-from . import auth_views, domains, preferences
+from . import auth_views, domains, preferences, public
 
 ASSETS = {
     'workspace.css': 'text/css; charset=utf-8',
@@ -33,6 +33,7 @@ urlpatterns = [
     path('logout/', auth_views.OwnerLogoutView.as_view(), name='logout'),
     path('password/', auth_views.OwnerPasswordChangeView.as_view(), name='password_change'),
     path('healthz', health, name='health'),
+    path('settings/public', public.publication, name='public_settings'),
     path('assets/<str:name>', asset, name='asset'),
 ]
 

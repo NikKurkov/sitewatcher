@@ -44,6 +44,8 @@ def chart_context(points, metric):
 
 
 def report_context(report):
+    known = report['totals']['successful'] + report['totals']['failed']
+    report['totals']['failure_percent'] = report['totals']['failed'] / known * 100 if known else None
     report['observed'] = local_time(report.get('latest_observed_at'), report['timezone'])
     report['start'] = local_time(report['window_start'], report['timezone'])
     report['end'] = local_time(report['window_end'], report['timezone'])

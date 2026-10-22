@@ -31,7 +31,7 @@ def _destination(cfg, owner_id):
 
 
 @sensitive_variables('token')
-def _render(request, form=None, *, error='', notice='', chats=None, status=200):
+def _render(request, form=None, *, error='', notice='', chats=None, status=200, public_link=''):
     owner_id = request.workspace.owner_id
     destination, source = _destination(settings.SITEWATCHER_CONFIG, owner_id)
     if form is None:
@@ -53,6 +53,9 @@ def _render(request, form=None, *, error='', notice='', chats=None, status=200):
         'destination': destination, 'destination_source': source,
         'alerts_enabled': storage.is_user_alerts_enabled(owner_id),
         'error': error, 'notice': notice, 'chats': chats or [],
+        'public_link': public_link,
+        'publication_domains': [{'name': name, 'selected': name in request.workspace.public_domains}
+                                for name in storage.list_domains(owner_id)],
     }, status=status)
     response['Cache-Control'] = 'no-store'
     return response

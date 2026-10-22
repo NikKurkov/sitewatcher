@@ -9,3 +9,19 @@ document.addEventListener('submit', (event) => {
   button.setAttribute('aria-checked', String(mode === 'dark'));
   button.value = mode === 'dark' ? 'light' : 'dark';
 });
+
+// The full bearer link is available only in the immediate publication response.
+document.addEventListener('click', async (event) => {
+  const button = event.target.closest('.copy-public-link');
+  if (!button) return;
+  const input = document.getElementById(button.dataset.copyTarget);
+  const status = button.parentElement.querySelector('[data-copy-status]');
+  input.focus();
+  input.select();
+  try {
+    await navigator.clipboard.writeText(input.value);
+    status.textContent = 'Public link copied.';
+  } catch {
+    status.textContent = 'Link selected. Press Ctrl+C or use your device’s Copy action.';
+  }
+});

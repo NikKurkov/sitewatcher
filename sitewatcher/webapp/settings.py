@@ -18,6 +18,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'sitewatcher.webapp.middleware.SecurityHeadersMiddleware',
+    'sitewatcher.webapp.middleware.PublicStatusMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'sitewatcher.webapp.middleware.ManagementBodyMiddleware',

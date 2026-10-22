@@ -1586,3 +1586,29 @@ input[type=file] {
   padding: 0;
   margin-bottom: 20px;
 }
+
+.public-component-heading,.public-component-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.public-component-summary {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 16px;
+}
+.public-component-summary strong { color: var(--text); font-size: 20px; }
+.public-component-chart { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 22px; }
+.publication-settings { margin-top: 22px; margin-bottom: 22px; }
+.publication-settings fieldset { border: 0; padding: 0; margin: 18px 0; min-width: 0; }
+.publication-settings legend { font-weight: 600; }
+.publication-settings textarea { margin-top: 10px; }
+.copy-public-link { margin-top: 12px; }
+
+.publication-domains { display: grid; gap: 8px; margin-top: 16px; }
+.publication-domains label { display: flex; gap: 12px; align-items: center; min-height: 44px; }
+.publication-domains input { width: 20px; min-height: 20px; height: 20px; flex-shrink: 0; }
+.publication-domains span { overflow-wrap: anywhere; }

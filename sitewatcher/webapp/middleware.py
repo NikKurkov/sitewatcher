@@ -29,7 +29,7 @@ class ManagementBodyMiddleware:
         if request.method == 'POST' and request.path in {
             '/domains/new', '/domains/edit', '/domains/add', '/domains/save',
             '/domains/delete', '/domains/pause', '/domains/resume', '/domains/reset',
-            '/domains/check', '/workspace', '/settings', '/alerts', '/import',
+            '/domains/check', '/workspace', '/settings', '/settings/public', '/alerts', '/import',
         }:
             try:
                 length = request.META.get('CONTENT_LENGTH', '')
@@ -48,3 +48,53 @@ class ManagementBodyMiddleware:
             except (ValueError, UnicodeError, RecursionError):
                 return HttpResponse('Invalid request', status=400)
         return self.get_response(request)
+
+
+class PublicStatusMiddleware:
+    """Handle bearer URLs before sessions, CSRF and Django exception/path logging.
+
+    Retain the original path only long enough to extract the capability, then redact
+    request metadata before any application work. This deliberately bypasses owner
+    middleware: public GET/HEAD must never create sessions or mutate monitoring data.
+    Bootstrap disables Uvicorn access logs; an upstream proxy needs the same policy.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if not request.path_info.startswith('/status/'):
+            return self.get_response(request)
+        import re
+        from django.core.exceptions import DisallowedHost, TooManyFieldsSent
+        from django.http import HttpResponse, QueryDict
+        from .public import status
+
+        query_string = request.META.get('QUERY_STRING', '')
+        match = re.fullmatch(r'/status/([A-Za-z0-9_-]{43})/(data)?', request.path_info)
+        request.path = request.path_info = '/status/[redacted]/'
+        for key in ('PATH_INFO', 'RAW_URI', 'REQUEST_URI', 'QUERY_STRING', 'HTTP_REFERER'):
+            request.META.pop(key, None)
+        # ASGI exception reporters can include the raw scope; never retain bearer paths there.
+        if hasattr(request, 'scope'):
+            request.scope = {**request.scope, 'path': request.path,
+                             'raw_path': request.path.encode(), 'query_string': b''}
+        try:
+            request.get_host()  # The owner CommonMiddleware is intentionally bypassed.
+            request.GET = QueryDict(query_string, encoding=request.encoding)
+            response = status(request, match[1], data=bool(match[2])) if match else HttpResponse(
+                'Not found', status=404)
+        except DisallowedHost:
+            response = HttpResponse('Invalid host', status=400)
+        except TooManyFieldsSent:
+            response = HttpResponse('Not found', status=404)
+        except Exception as error:
+            import logging
+            logging.getLogger(__name__).warning('Public status unavailable (%s)', type(error).__name__)
+            # No traceback or exception text: dependencies can include a bearer URL in errors.
+            response = HttpResponse('Public status temporarily unavailable', status=503)
+        response['Cache-Control'] = 'no-store'
+        response['Referrer-Policy'] = 'no-referrer'
+        response['X-Robots-Tag'] = 'noindex, nofollow, noarchive'
+        response['X-Frame-Options'] = 'DENY'
+        return response
