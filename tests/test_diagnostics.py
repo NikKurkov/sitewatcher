@@ -280,3 +280,12 @@ def test_diagnostics_reader_blocks_checkpoint_until_integrity_check_finishes(
     assert report['ok'] and report['database']['integrity'] == 'ok'
     with closing(original_connect(path)) as connection:
         assert connection.execute('PRAGMA quick_check').fetchall() == [('ok',)]
+
+
+def test_doctor_rejects_unsupported_sqlite_analytics(monkeypatch):
+    from sitewatcher import diagnostics
+    monkeypatch.setattr(diagnostics.sqlite3, 'sqlite_version_info', (3, 34, 1))
+    result = diagnostics.diagnose()
+    assert result['ok'] is False
+    assert result['analytics']['ok'] is False
+    assert 'SQLite 3.35' in result['analytics']['error']

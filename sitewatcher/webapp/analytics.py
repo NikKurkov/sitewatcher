@@ -61,8 +61,9 @@ def _invalid_json_constant(value: str):
 
 def _classification(raw: str | None) -> tuple[str, float | None]:
     try:
-        # Match SQLite JSON1's rejection of non-standard NaN/Infinity literals.
-        metrics = json.loads(raw, parse_constant=_invalid_json_constant)
+        # Match SQLite JSON1: reject NaN/Infinity and keep the first duplicate key.
+        metrics = json.loads(raw, parse_constant=_invalid_json_constant,
+                             object_pairs_hook=lambda pairs: dict(reversed(pairs)))
     except (ValueError, TypeError, RecursionError):
         return 'unknown', None
     if not isinstance(metrics, dict):
@@ -207,9 +208,10 @@ def _cached_report(owner_id: int, domain: str | None, days: int, timezone: str) 
         if cached and cached[0] > now:
             _CACHE.move_to_end(key)
             return deepcopy(cached[2])
-    result = _aggregate(owner_id, domain, window)
-    size = len(json.dumps(result, allow_nan=False).encode('utf-8'))
-    with _CACHE_LOCK:
+        # ponytail: serialize cold builds for this single-owner installation; use
+        # per-key locks only if measured multi-workspace contention warrants them.
+        result = _aggregate(owner_id, domain, window)
+        size = len(json.dumps(result, allow_nan=False).encode('utf-8'))
         for stale in [key for key, entry in _CACHE.items() if entry[0] <= now]:
             del _CACHE[stale]
         if size <= 4 * 1024 * 1024:

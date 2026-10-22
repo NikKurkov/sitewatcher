@@ -223,7 +223,7 @@ def test_latest_observation_breaks_same_second_ties_by_history_id(database, monk
     assert report()['latest_availability'] == 'unavailable'
 
 
-@pytest.mark.parametrize('module', ['sitewatcher.web', 'sitewatcher.webapp.domains'])
+@pytest.mark.parametrize('module', ['sitewatcher.webapp.domains'])
 def test_web_manual_measurements_stamp_manual_provenance(database, monkeypatch, module):
     from importlib import import_module
     from sitewatcher.config import AppConfig
@@ -294,3 +294,37 @@ def test_report_cache_expires_and_remains_bounded(database, monkeypatch):
         analytics.overview_report(owner, days=1, timezone='UTC')
     assert len(analytics._CACHE) <= 8
     assert sum(item[1] for item in analytics._CACHE.values()) <= 4 * 1024 * 1024
+
+
+def test_duplicate_json_keys_match_sqlite_first_value(database):
+    observation({'final_code': 200})
+    with storage._write_connection() as conn:
+        conn.execute("UPDATE history SET metrics_json=?", ('{"final_code":200,"final_code":503}',))
+    result = report()
+    assert result['totals']['successful'] == 1
+    assert result['latest_availability'] == 'available'
+
+
+def test_concurrent_cold_reports_build_once(database, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from sitewatcher.webapp import analytics
+    entered, release = Event(), Event()
+    aggregate = analytics._aggregate
+    calls = []
+    def slow(*args):
+        calls.append(args)
+        entered.set()
+        assert release.wait(3)
+        return aggregate(*args)
+    monkeypatch.setattr(analytics, '_aggregate', slow)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(report)
+        assert entered.wait(3)
+        second = pool.submit(report)
+        # Both calls overlap while the first aggregation is blocked.
+        import time
+        time.sleep(0.1)
+        release.set()
+        assert first.result() == second.result()
+    assert len(calls) == 1

@@ -78,7 +78,7 @@ def migrate_web_database() -> None:
 
 def run_asgi(cfg: AppConfig, *, port: int = 8080, read_only: bool = False,
              owner_id: int | None = None) -> None:
-    """Serve one loopback process; --owner asserts a binding and never authenticates."""
+    """Serve one process; explicit container binding never changes authentication."""
     import signal
     import socket
 
@@ -87,6 +87,9 @@ def run_asgi(cfg: AppConfig, *, port: int = 8080, read_only: bool = False,
 
     if type(port) is not int or not 0 <= port <= 65535:
         raise ValueError('Port must be an integer between 0 and 65535')
+    bind = os.getenv('SITEWATCHER_WEB_BIND', '127.0.0.1')
+    if bind not in {'127.0.0.1', '0.0.0.0'}:
+        raise ValueError('Web bind must be 127.0.0.1 or 0.0.0.0')
     configure_web(cfg, read_only=read_only)
     migrate_web_database()
     if owner_id is not None:
@@ -97,8 +100,8 @@ def run_asgi(cfg: AppConfig, *, port: int = 8080, read_only: bool = False,
     application = get_asgi_application()
     previous_handler = signal.signal(signal.SIGTERM, signal.default_int_handler)
     try:
-        with socket.create_server(('127.0.0.1', port)) as listener:
-            print(f'http://127.0.0.1:{listener.getsockname()[1]}', flush=True)
+        with socket.create_server((bind, port)) as listener:
+            print(f'http://{bind}:{listener.getsockname()[1]}', flush=True)
             uvicorn.run(application, fd=listener.fileno(), access_log=False, lifespan='off',
                         log_level='warning')
     except KeyboardInterrupt:

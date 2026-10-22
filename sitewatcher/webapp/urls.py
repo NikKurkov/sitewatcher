@@ -15,6 +15,22 @@ ASSETS = {
 
 @require_safe
 def health(request):
+    import sqlite3
+    from contextlib import closing
+    from sitewatcher import storage
+
+    try:
+        # A read-only connection neither initializes storage nor recreates a lost database.
+        with closing(sqlite3.connect(storage.DEFAULT_DB.resolve().as_uri() + '?mode=ro',
+                                     uri=True, timeout=1)) as connection:
+            for table, columns in (
+                ('domains', 'owner_id,name'), ('history', 'source,metrics_json'),
+                ('webapp_workspace', 'owner_id,public_enabled'),
+                ('auth_user', 'password'), ('django_session', 'session_key'),
+            ):
+                connection.execute(f'SELECT {columns} FROM {table} LIMIT 0')
+    except (sqlite3.Error, OSError):
+        return JsonResponse({'status': 'unavailable'}, status=503)
     return JsonResponse({'status': 'ok'})
 
 
@@ -37,7 +53,7 @@ urlpatterns = [
     path('assets/<str:name>', asset, name='asset'),
 ]
 
-# Keep the transitional renderer's explicit POST actions inside the authenticated router.
+# Explicit owner routes and native POST actions.
 urlpatterns += [
     path('domains/new', domains.management, {'view': 'add'}),
     path('domains/edit', domains.management, {'view': 'edit'}),
@@ -48,8 +64,6 @@ urlpatterns += [
     path('import', domains.management, {'view': 'import'}),
     path('export.csv', domains.export),
     path('theme', domains.theme),
-    path('style.css', domains.legacy_asset, {'name': 'style.css'}),
-    path('theme.js', domains.legacy_asset, {'name': 'theme.js'}),
 ]
 urlpatterns += [path('domains/' + route, domains.action, {'operation': operation})
                 for route, operation in [('add', 'add'), ('save', 'save'), ('pause', 'pause'),

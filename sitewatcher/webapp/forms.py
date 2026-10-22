@@ -2,6 +2,7 @@
 from email import policy
 from email.parser import BytesParser
 from urllib.parse import parse_qs
+from zoneinfo import available_timezones
 
 from django import forms
 from django.contrib.auth.forms import AuthenticationForm
@@ -48,7 +49,11 @@ def parse_management_form(content_type: str, body: bytes) -> dict[str, str]:
 class WorkspacePreferencesForm(forms.Form):
     """Validate optional patches so a timezone save never resets Telegram settings."""
     timezone = forms.CharField(label='Timezone', max_length=64, required=False,
-                               help_text='Use an IANA name such as Europe/Moscow or America/New_York.')
+                               help_text='Dates and times use your selected timezone.',
+                               widget=forms.Select(choices=[
+                                   (zone, zone.replace('_', ' ').replace('/', ' / '))
+                                   for zone in sorted(available_timezones())
+                                   if not zone.startswith(('posix/', 'right/'))]))
     enabled = forms.ChoiceField(label='Telegram notifications', required=False,
                                choices=[('on', 'Enabled'), ('off', 'Disabled')])
     chat_id = forms.IntegerField(label='Chat ID', required=False,
@@ -66,7 +71,7 @@ class WorkspacePreferencesForm(forms.Form):
             try:
                 ZoneInfo(value)
             except (ValueError, ZoneInfoNotFoundError):
-                raise ValidationError('Choose a valid IANA timezone, for example Europe/Moscow.') from None
+                raise ValidationError('Choose a valid timezone from the list.') from None
         return value
 
     def clean_enabled(self):

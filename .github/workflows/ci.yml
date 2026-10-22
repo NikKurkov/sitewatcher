@@ -30,20 +30,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - run: cp .env.example .env
       - run: docker compose config --quiet
       - name: Seed synthetic build-context canaries
         run: |
           touch sitewatcher/data/docker-probe.yaml sitewatcher/data/docker-probe.sqlite
           touch sitewatcher/data/docker-probe.db-wal sitewatcher/data/.env.docker-probe
-      - run: docker compose build sitewatcher
-      - run: docker compose run --rm sitewatcher sitewatcher check_all
-      - run: docker compose run --rm sitewatcher sitewatcher doctor --json
-      - name: Verify installed dashboard assets
+          touch sitewatcher/data/docker-probe.web-secret sitewatcher/data/docker-probe.telegram-token
+      - run: docker compose build web
+      - run: docker compose run --rm web sitewatcher check_all
+      - run: docker compose run --rm web sitewatcher doctor --json
+      - name: Verify installed authenticated workspace and partials
         run: >-
-          docker compose run --rm --workdir /tmp sitewatcher python -c
-          "from importlib.resources import files; from pathlib import Path;
+          docker compose run --rm --workdir /tmp web python -c
+          "import os; from pathlib import Path;
+          assert os.getuid() != 0;
           assert not any('docker-probe' in str(path) for path in Path('/app').rglob('*'));
           assert not Path('/app/.env').exists();
-          assert files('sitewatcher').joinpath('data/dashboard.html').is_file();
-          assert files('sitewatcher').joinpath('data/dashboard.css').is_file()"
+          from sitewatcher.webapp.bootstrap import configure_web, migrate_web_database;
+          from sitewatcher.config import AppConfig;
+          configure_web(AppConfig()); migrate_web_database();
+          from django.test import Client;
+          from django.template.loader import render_to_string;
+          assert 'No data' in render_to_string('sitewatcher/partials/chart.html');
+          c=Client(); assert c.get('/', HTTP_HOST='localhost').status_code == 302;
+          assert c.get('/assets/workspace.css', HTTP_HOST='localhost').status_code == 200;
+          assert c.get('/healthz', HTTP_HOST='localhost').status_code == 200"

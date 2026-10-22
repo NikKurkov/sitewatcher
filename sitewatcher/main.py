@@ -34,8 +34,10 @@ def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="sitewatcher CLI")
     p.add_argument("mode", choices=["bot", "worker", "check_all", "check_domain", "scan", "doctor", "web", "setup", "password"], help="Run mode")
     p.add_argument("--json", action="store_true", help="Print doctor diagnostics as JSON")
-    p.add_argument("--read-only", action="store_true", help="Disable web management; viewing only")
-    p.add_argument("--port", type=int, default=8080, help="Local dashboard port (web mode)")
+    p.add_argument("--no-scheduler", action="store_true",
+                   help="Bot commands only; use alongside a separate worker")
+    p.add_argument("--read-only", action="store_true", help="Disable owner mutations; sign-in is still required")
+    p.add_argument("--port", type=int, default=8080, help="Web port (loopback by default)")
     p.add_argument("name", nargs="?", help="Domain for 'check_domain' or 'scan'")
     p.add_argument("--config", default=None, help="Path to config.yaml")
     p.add_argument("--force", action="store_true", help="Ignore cache and run all checks live")
@@ -189,6 +191,8 @@ async def _cmd_check_one(
 def main() -> None:
     """Entrypoint for `python -m sitewatcher.main`."""
     args = _parse_args()
+    if args.no_scheduler and args.mode != "bot":
+        raise SystemExit("--no-scheduler is supported by bot")
     if args.read_only and args.mode != "web":
         raise SystemExit("--read-only is supported by web")
     if args.mode == "doctor":
@@ -257,6 +261,8 @@ def main() -> None:
     run_id = _new_run_id()
 
     if args.mode == "bot":
+        if args.no_scheduler:
+            cfg.scheduler.enabled = False
         log.info("cli.bot.start", extra={"event": "cli.bot.start", "run_id": run_id})
         run_bot(cfg)
         return

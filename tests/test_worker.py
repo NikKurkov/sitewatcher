@@ -601,3 +601,13 @@ def test_sqlite_failure_during_shutdown_preserves_cancellation_and_stops_worker(
             pass
 
     asyncio.run(scenario())
+
+
+def test_bot_command_only_cli_disables_scheduler(monkeypatch):
+    from sitewatcher import main
+    import sys
+    monkeypatch.setattr(sys, 'argv', ['sitewatcher', 'bot', '--no-scheduler'])
+    received = []
+    monkeypatch.setattr(main, 'run_bot', lambda cfg: received.append(cfg.scheduler.enabled))
+    main.main()
+    assert received == [False]

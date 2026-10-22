@@ -34,6 +34,7 @@ Workspace.objects.create(user=user, owner_id=7)
     env = os.environ.copy()
     env["DATABASE_PATH"] = str(path)
     env.pop("TELEGRAM_TOKEN", None)
+    env['SITEWATCHER_WEB_BIND'] = '0.0.0.0'
     provision = subprocess.run([sys.executable, '-c', setup], cwd=tmp_path,
                                env={**env, 'TEST_PASSWORD': password}, capture_output=True, text=True)
     assert provision.returncode == 0, provision.stderr
@@ -47,7 +48,7 @@ Workspace.objects.create(user=user, owner_id=7)
             for _ in range(10):
                 assert selector.select(timeout=5), "web command did not publish its local URL"
                 line = process.stdout.readline()
-                if line.startswith("http://127.0.0.1:"):
+                if line.startswith("http://0.0.0.0:"):
                     url = urlsplit(line.strip())
                     break
                 if not line and process.poll() is not None:
@@ -56,7 +57,7 @@ Workspace.objects.create(user=user, owner_id=7)
         import http.cookiejar
         import urllib.request
         opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-        base = f'http://{url.netloc}'
+        base = f'http://127.0.0.1:{url.port}'
         with opener.open(base + '/') as response:
             assert response.url.endswith('/login/?next=/')
             page = response.read()

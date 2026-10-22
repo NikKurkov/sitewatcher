@@ -4,8 +4,9 @@
   --surface: #fff;
   --surface-soft: #f8faf9;
   --text: #243630;
-  --muted: #64766f;
+  --muted: #607269;
   --line: #dfe7e2;
+  --input-line: #7e9085;
   --green: #16754e;
   --green-soft: #e9f5ee;
   --red: #b33e3a;
@@ -24,6 +25,7 @@
   --text: #e3ece6;
   --muted: #a0b5a9;
   --line: #304438;
+  --input-line: #738d7c;
   --green: #84d7aa;
   --green-soft: #233d2f;
   --red: #f69e96;
@@ -1612,3 +1614,9 @@ input[type=file] {
 .publication-domains label { display: flex; gap: 12px; align-items: center; min-height: 44px; }
 .publication-domains input { width: 20px; min-height: 20px; height: 20px; flex-shrink: 0; }
 .publication-domains span { overflow-wrap: anywhere; }
+
+input, select, textarea { border-color: var(--input-line); }
+.refresh-controls { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-bottom:16px; font-size:13px; }
+.refresh-controls label { display:flex; align-items:center; gap:6px; }
+.refresh-controls [hidden] { display:none; }
+.refresh-controls input { width:auto; }

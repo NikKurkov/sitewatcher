@@ -1,11 +1,46 @@
+x-runtime: &runtime
+  image: sitewatcher:local
+  build: .
+  environment: &environment
+    DATABASE_PATH: /data/sitewatcher.db
+  volumes:
+    - sitewatcher-data:/data
+
 services:
-  sitewatcher:
-    build: .
-    env_file: .env
+  setup:
+    <<: *runtime
+    profiles: [tools]
+    command: [sitewatcher, setup]
+    stdin_open: true
+    tty: true
+  web:
+    <<: *runtime
+    command: [sitewatcher, web]
     environment:
-      DATABASE_PATH: /data/sitewatcher.db
-    volumes:
-      - sitewatcher-data:/data
+      <<: *environment
+      SITEWATCHER_WEB_BIND: 0.0.0.0
+      SITEWATCHER_WEB_ALLOWED_HOSTS: 127.0.0.1,localhost,${SITEWATCHER_WEB_ALLOWED_HOSTS:-}
+      SITEWATCHER_WEB_HTTPS: ${SITEWATCHER_WEB_HTTPS:-0}
+      SITEWATCHER_WEB_TRUST_PROXY: ${SITEWATCHER_WEB_TRUST_PROXY:-0}
+    ports:
+      - '127.0.0.1:${SITEWATCHER_PORT:-8080}:8080'
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8080/healthz", timeout=3)']
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+  worker:
+    <<: *runtime
+    command: [sitewatcher, worker]
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+  bot:
+    <<: *runtime
+    profiles: [telegram]
+    command: [sitewatcher, bot, --no-scheduler]
     restart: unless-stopped
 
 volumes:

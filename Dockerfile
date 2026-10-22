@@ -14,4 +14,4 @@ RUN pip install --no-cache-dir . \
     && chown sitewatcher:sitewatcher /data
 
 USER sitewatcher
-CMD ["sitewatcher", "bot"]
+CMD ["sitewatcher", "web"]

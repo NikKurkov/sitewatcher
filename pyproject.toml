@@ -1,7 +1,7 @@
 [project]
 name = "sitewatcher"
 version = "0.2.0"
-description = "Lightweight async website monitoring bot (Telegram)"
+description = "Private website monitoring workspace with optional Telegram alerts"
 authors = [{ name = "Nikolay Kurkov", email = "nikkurkov@gmail.com" }]
 requires-python = ">=3.12"
 
@@ -47,9 +47,9 @@ where = ["."]
 include = ["sitewatcher*"]
 
 [tool.setuptools.package-data]
-sitewatcher = ["data/deface_markers.txt", "data/config.yaml.example", "data/dashboard.html", "data/dashboard.css", "data/theme.js"]
+sitewatcher = ["data/deface_markers.txt", "data/config.yaml.example"]
 
-"sitewatcher.webapp" = ["templates/sitewatcher/*.html", "static/sitewatcher/*"]
+"sitewatcher.webapp" = ["templates/sitewatcher/*.html", "templates/sitewatcher/partials/*.html", "static/sitewatcher/*"]
 
 [tool.ruff]
 line-length = 100

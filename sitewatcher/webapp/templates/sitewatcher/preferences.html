@@ -8,7 +8,7 @@
 <form class="panel form-section preferences-form" method="post" action="/settings">{% csrf_token %}
 <fieldset {% if read_only %}disabled{% endif %}>
 <legend>Workspace preferences</legend>
-<div class="field"><label for="{{ form.timezone.id_for_label }}">{{ form.timezone.label }}</label>{{ form.timezone }}{% if form.timezone.errors %}<div id="id_timezone_error">{% for error in form.timezone.errors %}<p class="field-error">{{ error }}</p>{% endfor %}</div>{% endif %}<p id="id_timezone_helptext" class="field-help">{{ form.timezone.help_text }} Saved check times remain in UTC.</p></div>
+<div class="field"><label for="{{ form.timezone.id_for_label }}">{{ form.timezone.label }}</label>{{ form.timezone }}{% if form.timezone.errors %}<div id="id_timezone_error">{% for error in form.timezone.errors %}<p class="field-error">{{ error }}</p>{% endfor %}</div>{% endif %}<p id="id_timezone_helptext" class="field-help">{{ form.timezone.help_text }}</p></div>
 <div class="field"><label for="{{ form.enabled.id_for_label }}">{{ form.enabled.label }}</label>{{ form.enabled }}{% if form.enabled.errors %}<div id="id_enabled_error">{% for error in form.enabled.errors %}<p class="field-error">{{ error }}</p>{% endfor %}</div>{% endif %}<p class="field-help">Scheduled checks keep running when notifications are disabled. Keep the monitoring process running to check your sites automatically.</p></div>
 <h2>Telegram connection</h2>
 <p>{% if token_present %}<strong>Bot token configured</strong>{% else %}<strong>Telegram is not connected</strong>{% endif %}. Website monitoring works without Telegram.</p>

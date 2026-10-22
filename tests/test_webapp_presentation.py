@@ -245,3 +245,58 @@ def test_measurement_age_handles_future_and_corrupt_timestamps():
         body = render_to_string('sitewatcher/partials/time.html',
                                 {'stamp': local_time(invalid, 'Europe/Moscow')})
         assert 'Not checked yet' in body and 'ago' not in body
+
+
+def test_overview_latency_refresh_and_native_timezone_choices(owner, client):
+    storage.add_domain(41, 'one.example')
+    storage.save_history(41, 'one.example', 'http_basic', 'OK', '',
+                         {'final_code': 200, 'response_latency_ms': 125})
+    body = get(client, '/').content.decode()
+    assert 'Average response' in body and '125 ms' in body
+    assert 'data-auto-refresh' in body and 'Refresh now' in body
+    body = get(client, '/settings').content.decode()
+    assert '<select name="timezone"' in body
+    assert 'Moscow' in body and 'Dates and times use your selected timezone.' in body
+    assert 'data-auto-refresh' not in body and 'IANA' not in body
+
+
+def test_legacy_guarantees_native_forms_escape_and_readonly(owner, client, settings):
+    storage.add_domain(41, 'one.example')
+    response = get(client, '/?q=%22%3E%3Cscript%3E')
+    assert b'<script>' not in response.content and b'&lt;script&gt;' in response.content
+    assert get(client, '/?status=bad').status_code == 400
+    for route in ('/domains/new', '/domains/edit?domain=one.example',
+                  '/domains/delete?domain=one.example', '/import', '/settings'):
+        body = get(client, route).content.decode()
+        assert 'csrfmiddlewaretoken' in body
+        assert 'http-equiv="refresh"' not in body and '<script>' not in body
+        assert 'data-auto-refresh' not in body
+    settings.SITEWATCHER_READ_ONLY = True
+    assert b'/domains/new' not in get(client, '/').content
+    assert client.post('/domains/pause', {'domain': 'one.example'},
+                       HTTP_HOST='localhost').status_code == 405
+
+
+def test_overview_shows_per_domain_latency_and_reading_order(owner, client):
+    storage.add_domain(41, 'fast.example')
+    storage.add_domain(41, 'empty.example')
+    storage.save_history(41, 'fast.example', 'http_basic', 'OK', '',
+                         {'final_code': 200, 'response_latency_ms': 125})
+    body = get(client, '/').content.decode()
+    assert body.index('<h1>Overview') < body.index('data-auto-refresh')
+    table = body[body.index('<tbody>'):body.index('</tbody>')]
+    assert 'Average response: 125 ms' in table
+    assert 'No latency data' in table
+    assert 'Just now' in table and '0 minutes ago' not in table
+
+
+@pytest.mark.parametrize('route', ['/', '/api/status', '/healthz', '/assets/workspace.css'])
+def test_get_head_parity_retains_private_security_headers(owner, client, route):
+    response = get(client, route)
+    head = client.head(route, HTTP_HOST='localhost')
+    assert response.status_code == head.status_code == 200
+    assert head.content == b''
+    assert head['Content-Type'] == response['Content-Type']
+    assert head['Cache-Control'] == 'no-store'
+    assert head['X-Frame-Options'] == 'DENY'
+    assert 'Access-Control-Allow-Origin' not in head

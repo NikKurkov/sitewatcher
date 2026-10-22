@@ -71,6 +71,14 @@ def diagnose(config_path=None) -> dict:
     except ValueError:
         access = {'ok': False, 'mode': 'invalid', 'count': 0,
                   'error': 'TELEGRAM_ALLOWED_USER_IDS must contain positive numeric user IDs'}
+    try:
+        with closing(sqlite3.connect(':memory:')) as connection:
+            json1 = connection.execute("SELECT json_valid('{}')").fetchone()[0] == 1
+        analytics = {'ok': sqlite3.sqlite_version_info >= (3, 35, 0) and json1}
+    except sqlite3.Error:
+        analytics = {'ok': False}
+    if not analytics['ok']:
+        analytics['error'] = 'Analytics requires SQLite 3.35 or newer with JSON1 support'
     database = _database_report()
     telegram = {'token_present': False, 'access': access}
     try:
@@ -79,9 +87,11 @@ def diagnose(config_path=None) -> dict:
         telegram['error'] = ('Telegram token file is invalid or unreadable; '
                              'check its contents and mode 0600 permissions.')
     return {
-        'ok': config['ok'] and database['ok'] and access['ok'] and 'error' not in telegram,
+        'ok': config['ok'] and database['ok'] and access['ok'] and analytics['ok']
+              and 'error' not in telegram,
         'python': platform.python_version(),
         'sqlite': sqlite3.sqlite_version,
+        'analytics': analytics,
         'config': config,
         'database': database,
         'telegram': telegram,
@@ -97,6 +107,7 @@ def format_diagnostics(report: dict) -> str:
     lines = [
         'Diagnostics: ' + ('OK' if report['ok'] else 'FAILED'),
         f"Python: {report['python']}; SQLite: {report['sqlite']}",
+        'Analytics: ' + ('OK' if report['analytics']['ok'] else report['analytics']['error']),
         'Configuration: ' + ('OK' if config['ok'] else config['error']),
         f"Database: {database['path']} ({'existing' if database['exists'] else 'not created'})",
         f"Database parent writable: {'yes' if database['parent_writable'] else 'no'}",

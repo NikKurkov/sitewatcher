@@ -25,3 +25,23 @@ document.addEventListener('click', async (event) => {
     status.textContent = 'Link selected. Press Ctrl+C or use your device’s Copy action.';
   }
 });
+
+// Refresh only read pages, preserving scroll and never interrupting a draft or disclosure.
+const refresh = document.querySelector('[data-auto-refresh]');
+if (refresh) {
+  const enabled = refresh.querySelector('[data-refresh-enabled]');
+  refresh.querySelector('[data-refresh-option]').hidden = false;
+  try { enabled.checked = sessionStorage.getItem('refresh') !== 'off'; } catch {}
+  enabled.addEventListener('change', () => {
+    try { sessionStorage.setItem('refresh', enabled.checked ? 'on' : 'off'); } catch {}
+  });
+  let draft = false;
+  document.querySelector('.filter-form')?.addEventListener('input', () => { draft = true; });
+  document.querySelector('.filter-form')?.addEventListener('change', () => { draft = true; });
+  setInterval(() => {
+    if (enabled.checked && !document.hidden && !draft && !document.querySelector('details[open]')
+        && !document.activeElement.matches('input,select,textarea,button,[contenteditable]')) {
+      location.reload();
+    }
+  }, 60000);
+}

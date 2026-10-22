@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-from importlib.resources import files
 from threading import Lock
 from urllib.parse import urlencode, urlsplit
 
@@ -13,7 +12,6 @@ from django.views.decorators.http import require_http_methods, require_POST, req
 
 from sitewatcher import storage
 from sitewatcher.config import AppConfig, ChecksModel
-from sitewatcher.dashboard import FILTERS
 from sitewatcher.dispatcher import Dispatcher
 from sitewatcher.reporting import SnapshotError, build_snapshot
 from sitewatcher.utils.domains import normalize_domain
@@ -134,6 +132,11 @@ def _row_context(row, zone):
     for check in row['checks']:
         check['observed'] = local_time(check['checked_at'], zone)
 
+
+FILTERS = {
+    "all": "All domains", "problems": "Problems", "ok": "Healthy", "warn": "Warnings",
+    "crit": "Critical", "unknown": "No data", "paused": "Paused", "stale": "Overdue",
+}
 
 @owner_required
 @require_safe
@@ -302,14 +305,6 @@ def export(request):
                                 content_type='text/csv; charset=utf-8', headers={
                                     'Content-Disposition': 'attachment; filename="sitewatcher-domains.csv"',
                                 }))
-
-
-@require_safe
-def legacy_asset(request, name):
-    asset, mime = {'style.css': ('dashboard.css', 'text/css'),
-                   'theme.js': ('theme.js', 'application/javascript')}[name]
-    return HttpResponse(files('sitewatcher').joinpath('data', asset).read_bytes(),
-                        content_type=mime + '; charset=utf-8')
 
 
 @require_safe

@@ -2,8 +2,16 @@
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from sitewatcher.management import _CHECK_LABELS
 from sitewatcher.web_actions import NUMERIC_FIELDS
+
+
+_CHECK_LABELS = {
+    'http_basic': 'HTTP availability', 'tls_cert': 'TLS certificate',
+    'keywords': 'Required keywords', 'deface': 'Defacement markers',
+    'ping': 'Ping reachability', 'rkn_block': 'RKN blocking', 'ports': 'TCP ports',
+    'whois': 'Domain registration', 'ip_blacklist': 'IP blocklists',
+    'ip_change': 'IP address changes', 'malware': 'Malware detection',
+}
 
 
 def local_time(value, zone):
@@ -16,8 +24,9 @@ def local_time(value, zone):
         label = stamp.astimezone(ZoneInfo(zone)).strftime('%d %b %Y, %H:%M %Z')
     except (ValueError, TypeError, AttributeError, OverflowError):
         return None
+    age = (datetime.now(timezone.utc) - stamp).total_seconds()
     return {'iso': stamp.isoformat(), 'label': label, 'value': stamp,
-            'future': stamp > datetime.now(timezone.utc)}
+            'future': age < 0, 'just_now': 0 <= age < 60}
 
 
 def chart_context(points, metric):

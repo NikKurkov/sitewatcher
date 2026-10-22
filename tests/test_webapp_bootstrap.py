@@ -142,3 +142,27 @@ assert before == after
         capture_output=True, text=True, timeout=30,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_health_checks_monitoring_and_web_schema_without_disclosure(web_database, client):
+    from sitewatcher import storage
+    with storage._write_connection() as conn:
+        conn.execute('ALTER TABLE domains RENAME TO unavailable_domains')
+    try:
+        response = client.get('/healthz', HTTP_HOST='localhost')
+        assert response.status_code == 503
+        assert response.json() == {'status': 'unavailable'}
+        assert b'domains' not in response.content
+    finally:
+        with storage._write_connection() as conn:
+            conn.execute('ALTER TABLE unavailable_domains RENAME TO domains')
+
+
+def test_health_does_not_create_a_missing_database(web_database, client, monkeypatch, tmp_path):
+    from sitewatcher import storage
+    path = tmp_path / 'missing.sqlite'
+    with monkeypatch.context() as patch:
+        patch.setattr(storage, 'DEFAULT_DB', path)
+        response = client.get('/healthz', HTTP_HOST='localhost')
+        assert response.status_code == 503
+        assert not path.exists()
