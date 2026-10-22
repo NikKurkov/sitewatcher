@@ -77,12 +77,18 @@ def _page(request, view, domain='', *, error='', values=None, status=200):
     cfg = settings.SITEWATCHER_CONFIG
     context = {'domain': domain}
     if view in {'add', 'edit'}:
+        reset_revision = storage.domain_reset_revision(owner_id, domain) if view == 'edit' else ''
         try:
             context = settings_context(cfg, owner_id, domain if view == 'edit' else None)
         except ValueError:
             if view == 'edit' and not storage.domain_exists(owner_id, domain):
                 raise Http404('Domain not found') from None
+            if view == 'edit':
+                return _render(request, 'domain_recovery', {
+                    'domain': domain, 'reset_revision': reset_revision,
+                })
             return _private(HttpResponse('Settings unavailable; reload the page', status=400))
+        context['reset_revision'] = reset_revision
     elif view == 'history':
         try:
             report = domain_report(owner_id, domain, days=_period(request),
@@ -128,6 +134,8 @@ def _row_context(row, zone):
     row['state'] = ('paused' if row['paused'] else row['overall'].lower())
     row['label'] = {'paused': 'Paused', 'crit': 'Critical', 'warn': 'Warning',
                     'ok': 'Healthy', 'unknown': 'No data'}[row['state']]
+    if row['error']:
+        row['state'], row['label'] = 'warn', 'Settings error'
     row['observed'] = local_time(row['last_checked_at'], zone)
     for check in row['checks']:
         check['observed'] = local_time(check['checked_at'], zone)
@@ -151,7 +159,8 @@ def dashboard(request):
         report = overview_report(owner_id, days=_period(request), timezone=zone)
         reports = {item['domain']: report_context(item) for item in report['domains']}
         rows = snapshot['domains']
-        attention = sum(row['overall'] in {'CRIT', 'WARN'} and not row['paused'] for row in rows)
+        attention = sum(bool(row['error']) or (row['overall'] in {'CRIT', 'WARN'}
+                                              and not row['paused']) for row in rows)
         last = max((row['last_checked_at'] for row in rows if row['last_checked_at']), default=None)
         for row in rows:
             _row_context(row, zone)
@@ -160,7 +169,7 @@ def dashboard(request):
                                     'paused': 4}[row['state']], row['name']))
         search = query.get('q', '').strip()
         filtered = [row for row in rows if search.lower() in row['name'] and (
-            status == 'all' or status == 'problems' and row['overall'] in {'CRIT', 'WARN'}
+            status == 'all' or status == 'problems' and (row['error'] or row['overall'] in {'CRIT', 'WARN'})
             or status in {'paused', 'stale'} and row[status]
             or row['overall'].lower() == status)]
         return _render(request, 'overview', {'rows': filtered, 'total': len(rows),
@@ -213,7 +222,9 @@ def _act(request, action, form):
             finally:
                 _check_lock.release()
             return _redirect('Checks completed; results saved')
-        act_on_domain(cfg, owner_id, action, domain)
+        if action == 'reset' and not form.get('revision'):
+            raise ValueError('Reset requires the current settings revision')
+        act_on_domain(cfg, owner_id, action, domain, revision=form.get('revision'))
         return _redirect('Domain updated')
     if action == 'alerts':
         if form.get('enabled') not in {'on', 'off'}:
@@ -245,6 +256,8 @@ def _mutate(request, action):
         allowed.update(f'check.{name}' for name in ChecksModel.model_fields)
     elif action == 'delete':
         allowed.add('confirm')
+    elif action == 'reset':
+        allowed.add('revision')
     elif action == 'alerts':
         allowed = {'enabled'}
     elif action == 'import':
@@ -256,6 +269,9 @@ def _mutate(request, action):
     try:
         return _act(request, action, form)
     except ValueError as error:
+        if action == 'reset' and str(error) == 'Settings changed; reload this page before saving':
+            return _private(HttpResponse('Settings changed; reload the domain before resetting',
+                                         status=409))
         view = {'add': 'add', 'save': 'edit', 'import': 'import'}.get(action)
         if view:
             return _page(request, view, form.get('domain', ''), error=str(error),

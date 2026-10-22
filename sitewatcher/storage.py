@@ -569,12 +569,35 @@ def set_domain_override(
     return current
 
 
-def unset_domain_override(owner_id: int, domain: str, key: str | None) -> None:
+def _domain_reset_revision(conn: sqlite3.Connection, owner_id: int, domain: str) -> str:
+    row = conn.execute(
+        "SELECT data_json FROM domain_overrides WHERE owner_id=? AND domain=?",
+        (int(owner_id), domain),
+    ).fetchone()
+    # Fingerprint the raw value so even malformed JSON can be reset without exposing it.
+    return hashlib.sha256(repr(row[0] if row else None).encode("utf-8")).hexdigest()
+
+
+def domain_reset_revision(owner_id: int, domain: str) -> str:
+    _ensure_initialized()
+    with closing(_connect()) as conn:
+        return _domain_reset_revision(conn, owner_id, domain)
+
+
+def unset_domain_override(
+    owner_id: int, domain: str, key: str | None, *, expected_revision: str | None = None,
+) -> None:
     _ensure_initialized()
     domain = (domain or "").strip().lower()
     if not domain:
         return
     with _write_connection() as conn:
+        if expected_revision is not None and (
+            not conn.execute("SELECT 1 FROM domains WHERE owner_id=? AND name=?",
+                             (int(owner_id), domain)).fetchone()
+            or _domain_reset_revision(conn, owner_id, domain) != expected_revision
+        ):
+            raise ValueError("Settings changed; reload this page before saving")
         if key is None:
             conn.execute(
                 "DELETE FROM domain_overrides WHERE owner_id=? AND domain=?", (int(owner_id), domain),

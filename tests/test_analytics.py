@@ -309,7 +309,19 @@ def test_concurrent_cold_reports_build_once(database, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
     from sitewatcher.webapp import analytics
-    entered, release = Event(), Event()
+    entered, release, second_at_lock = Event(), Event(), Event()
+    cache_lock = analytics._CACHE_LOCK
+
+    class ObservedLock:
+        def __enter__(self):
+            if entered.is_set():
+                second_at_lock.set()
+            return cache_lock.__enter__()
+
+        def __exit__(self, *args):
+            return cache_lock.__exit__(*args)
+
+    monkeypatch.setattr(analytics, '_CACHE_LOCK', ObservedLock())
     aggregate = analytics._aggregate
     calls = []
     def slow(*args):
@@ -322,9 +334,10 @@ def test_concurrent_cold_reports_build_once(database, monkeypatch):
         first = pool.submit(report)
         assert entered.wait(3)
         second = pool.submit(report)
-        # Both calls overlap while the first aggregation is blocked.
-        import time
-        time.sleep(0.1)
-        release.set()
+        try:
+            # Prove the second caller reached the locked cold-build boundary.
+            assert second_at_lock.wait(3)
+        finally:
+            release.set()
         assert first.result() == second.result()
     assert len(calls) == 1

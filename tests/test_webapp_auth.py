@@ -328,3 +328,53 @@ def test_cli_auth_database_failure_is_generic(web_database, monkeypatch):
     with pytest.raises(SystemExit, match='Cannot update local account') as error:
         main.main()
     assert 'internal database details' not in str(error.value)
+
+
+@pytest.mark.parametrize('trust_proxy', [False, True])
+def test_production_uvicorn_boundary_preserves_peer_and_login_limit(
+        owner, password, monkeypatch, trust_proxy):
+    """Changing the production adapter's proxy default must not let XFF evade Axes."""
+    import asyncio
+    import io
+
+    import httpx
+    import uvicorn
+    from axes.models import AccessAttempt
+    from django.core.handlers.asgi import ASGIRequest
+    from sitewatcher.config import AppConfig
+    from sitewatcher.webapp import bootstrap
+
+    monkeypatch.setenv('SITEWATCHER_WEB_TRUST_PROXY', '1' if trust_proxy else '0')
+    observed = []
+
+    def serve(application, **options):
+        async def boundary(scope, receive, send):
+            request = ASGIRequest(scope, io.BytesIO())
+            observed.append((request.META['REMOTE_ADDR'], request.is_secure()))
+            await application(scope, receive, send)
+
+        config = uvicorn.Config(boundary, **options)
+        config.load()
+
+        async def exercise():
+            transport = httpx.ASGITransport(app=config.loaded_app, client=('127.0.0.1', 42123))
+            async with httpx.AsyncClient(transport=transport, base_url='http://localhost') as browser:
+                for attempt in range(6):
+                    headers = {'x-forwarded-for': f'198.51.100.{attempt + 1}',
+                               'x-forwarded-proto': 'https', 'referer': 'https://localhost/'}
+                    assert (await browser.get('/login/', headers=headers)).status_code == 200
+                    result = await browser.post('/login/', headers=headers, data={
+                        'username': owner.user.username,
+                        'password': password if attempt == 5 else 'wrong-synthetic-password',
+                        'csrfmiddlewaretoken': browser.cookies['csrftoken'],
+                    })
+                    if attempt < 4:
+                        assert result.status_code == 200
+                    else:
+                        assert result.status_code == 429
+        asyncio.run(exercise())
+
+    monkeypatch.setattr(uvicorn, 'run', serve)
+    bootstrap.run_asgi(AppConfig(), port=0)
+    assert set(observed) == {('127.0.0.1', trust_proxy)}
+    assert set(AccessAttempt.objects.values_list('ip_address', flat=True)) == {'127.0.0.1'}

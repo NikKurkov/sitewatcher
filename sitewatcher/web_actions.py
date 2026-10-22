@@ -135,7 +135,9 @@ def save_domain(cfg: AppConfig, owner_id: int, form: dict[str, str], *, create: 
     return domain
 
 
-def act_on_domain(cfg: AppConfig, owner_id: int, action: str, domain: str) -> None:
+def act_on_domain(
+    cfg: AppConfig, owner_id: int, action: str, domain: str, *, revision: str | None = None,
+) -> None:
     """Apply an explicit management action without running checks or sending messages."""
     domain = _domain(owner_id, domain)
     try:
@@ -143,7 +145,7 @@ def act_on_domain(cfg: AppConfig, owner_id: int, action: str, domain: str) -> No
             storage.remove_domain(owner_id, domain)
         elif action == 'reset':
             validate_domain_override(cfg, domain, {})
-            storage.unset_domain_override(owner_id, domain, None)
+            storage.unset_domain_override(owner_id, domain, None, expected_revision=revision)
         elif action in ('pause', 'resume'):
             current = storage.get_domain_override(owner_id, domain) or {}
             revision = storage.domain_override_revision(current)

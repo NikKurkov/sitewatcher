@@ -1,7 +1,0 @@
-{% extends 'sitewatcher/base.html' %}
-{% block content %}
-<main><h1>SiteWatcher</h1>
-<a href="{% url 'password_change' %}">Change password</a>
-<form method="post" action="{% url 'logout' %}">{% csrf_token %}
-<button type="submit">Sign out</button></form></main>
-{% endblock %}

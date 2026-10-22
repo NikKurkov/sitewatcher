@@ -59,7 +59,7 @@ def test_detail_percent_sources_timezone_and_bounded_chart(owner, client):
     assert '3 manual' in body and '0 scheduled' in body and '0 legacy' in body
     assert 'View chart data' in body and '<svg' in body
     assert 'Successful checks' in body and 'continuous uptime' in body
-    assert 'private diagnostic' not in body.split('Recent check history')[0]
+    assert 'private diagnostic' not in body.split('Latest monitoring checks')[0]
     assert 'Europe/Moscow' in body
     for invalid in ['0', '365', 'nope']:
         assert get(client, '/domains/history?domain=one.example&days=' + invalid).status_code == 400

@@ -59,7 +59,10 @@ def test_authenticated_crud_history_and_owner_isolation(owner, client):
 
 def test_pause_resume_reset_notifications_and_csv(owner, client):
     for action in ('pause', 'resume', 'reset'):
-        assert post(client, '/domains/' + action, {'domain': 'one.example'}).status_code == 303
+        fields = {'domain': 'one.example'}
+        if action == 'reset':
+            fields['revision'] = storage.domain_reset_revision(31, 'one.example')
+        assert post(client, '/domains/' + action, fields).status_code == 303
         override = storage.get_domain_override(31, 'one.example') or {}
         assert (override.get('interval_minutes') == 0) == (action == 'pause')
     assert post(client, '/workspace', {'enabled': 'off'}).status_code == 303
@@ -240,3 +243,79 @@ def test_csv_upload_size_and_duplicate_file_fields_are_rejected(owner, client):
                                                     SimpleUploadedFile('two.csv', b'domain')]})
     assert response.status_code == 400
     assert storage.list_domains(31) == ['one.example']
+
+
+def test_corrupt_settings_owner_recovery_is_explicit_scoped_and_preserves_history(
+        owner, client, settings):
+    raw = '{corrupt-private-canary'
+    storage.save_history(31, 'one.example', 'http_basic', 'OK', 'old result', {})
+    storage.set_domain_override(31, 'one.example', {})
+    with storage._write_connection() as conn:
+        conn.execute('UPDATE domain_overrides SET data_json=? WHERE owner_id=31', (raw,))
+
+    def saved_raw():
+        from contextlib import closing
+        with closing(storage._connect()) as conn:
+            return conn.execute('SELECT data_json FROM domain_overrides WHERE owner_id=31').fetchone()[0]
+
+    for path in ('/', '/domains/history?domain=one.example', '/domains/edit?domain=one.example'):
+        response = client.get(path, HTTP_HOST='localhost')
+        assert response.status_code == 200
+        assert b'Invalid domain settings' in response.content
+        assert b'No checks enabled' not in response.content
+        assert raw.encode() not in response.content
+        assert saved_raw() == raw
+    revision = re.search(rb'name="revision" value="([^"]+)"', response.content).group(1).decode()
+    fields = {'domain': 'one.example', 'revision': revision}
+    secure = Client(enforce_csrf_checks=True)
+    secure.force_login(owner.user)
+    assert post(secure, '/domains/reset', fields).status_code == 403
+    assert post(client, '/domains/reset', {'domain': 'one.example'}).status_code == 400
+    assert post(client, '/domains/reset', {**fields, 'domain': 'private.example'}).status_code == 404
+    settings.SITEWATCHER_READ_ONLY = True
+    assert b'/domains/reset' not in client.get('/domains/edit?domain=one.example',
+                                              HTTP_HOST='localhost').content
+    assert post(client, '/domains/reset', fields).status_code == 405
+    settings.SITEWATCHER_READ_ONLY = False
+    assert saved_raw() == raw
+    # The separate public serializer must never acquire owner diagnostics or raw settings.
+    response = post(client, '/settings/public', {'action': 'enable', 'domain.one.example': 'on'})
+    link = re.search(rb'id="public-link"[^>]*value="([^"]+)"', response.content).group(1).decode()
+    public = Client().get(link, HTTP_HOST='localhost')
+    assert public.status_code == 200
+    assert b'Invalid domain settings' not in public.content and raw.encode() not in public.content
+    assert post(client, '/domains/reset', fields).status_code == 303
+    assert storage.get_domain_override(31, 'one.example') is None
+    assert len(list(storage.iter_history(31, domain='one.example'))) == 1
+    assert storage.domain_exists(99, 'private.example')
+
+
+def test_stale_corrupt_settings_recovery_does_not_erase_new_override(owner, client):
+    storage.set_domain_override(31, 'one.example', {})
+    with storage._write_connection() as conn:
+        conn.execute("UPDATE domain_overrides SET data_json='{broken' WHERE owner_id=31")
+    page = client.get('/domains/edit?domain=one.example', HTTP_HOST='localhost')
+    assert page.status_code == 200
+    revision = re.search(rb'name="revision" value="([^"]+)"', page.content).group(1).decode()
+    storage.set_domain_override(31, 'one.example', {'interval_minutes': 19}, replace=True)
+    response = post(client, '/domains/reset', {'domain': 'one.example', 'revision': revision})
+    assert response.status_code == 409
+    assert b'Settings changed' in response.content
+    assert storage.get_domain_override(31, 'one.example') == {'interval_minutes': 19}
+
+
+def test_current_warning_explanation_survives_recent_history_limit(owner, client):
+    from sitewatcher.web_actions import history_context
+    message = 'Certificate expires soon <private-current-detail>'
+    storage.save_history(31, 'one.example', 'tls_cert', 'WARN', message, {})
+    for _ in range(101):
+        storage.save_history(31, 'one.example', 'http_basic', 'OK', 'HTTP OK', {})
+    assert len(history_context(31, 'one.example')) == 100
+    assert all(row['message'] != message for row in history_context(31, 'one.example'))
+    response = client.get('/domains/history?domain=one.example', HTTP_HOST='localhost')
+    assert response.status_code == 200
+    assert b'Certificate expires soon &lt;private-current-detail&gt;' in response.content
+    assert b'<private-current-detail>' not in response.content
+    response = post(client, '/settings/public', {'action': 'enable', 'domain.one.example': 'on'})
+    link = re.search(rb'id="public-link"[^>]*value="([^"]+)"', response.content).group(1).decode()
+    assert b'private-current-detail' not in Client().get(link, HTTP_HOST='localhost').content

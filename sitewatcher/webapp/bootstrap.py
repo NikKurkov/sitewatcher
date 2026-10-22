@@ -103,7 +103,7 @@ def run_asgi(cfg: AppConfig, *, port: int = 8080, read_only: bool = False,
         with socket.create_server((bind, port)) as listener:
             print(f'http://{bind}:{listener.getsockname()[1]}', flush=True)
             uvicorn.run(application, fd=listener.fileno(), access_log=False, lifespan='off',
-                        log_level='warning')
+                        log_level='warning', proxy_headers=False)
     except KeyboardInterrupt:
         pass
     finally:

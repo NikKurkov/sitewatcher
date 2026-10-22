@@ -846,6 +846,12 @@ summary {
   font-size: 12px;
 }
 
+.check-list li>span:first-child {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
 .check-list time {
   color: var(--muted);
 }
