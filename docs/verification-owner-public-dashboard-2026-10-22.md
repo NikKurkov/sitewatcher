@@ -23,7 +23,69 @@ waits for hidden tabs, focused inputs, filter drafts and open disclosures. Forms
 refresh. Native timezone choices, per-domain mean latency, Just now labels and stronger
 text/input contrast complete the small usability corrections found during QA.
 
-## Verification
+## Final review corrections
+
+The combined correction wave after `874ed9a` resolves both important findings and all
+three minor findings in the whole-branch review. Uvicorn now explicitly disables its
+proxy-header middleware: the direct peer stays the Axes client address even when callers
+forge forwarded addresses. Django alone interprets the explicitly enabled HTTPS header.
+The regression invokes the production server adapter, loads its actual Uvicorn config,
+and exercises real Django login/CSRF/Axes requests for both trust modes. Five failures
+with changing forged addresses still lock the same peer; a correct sixth password is
+blocked. The default scheme stays HTTP and opt-in HTTPS still works.
+
+Owner overview/detail pages now show the safe configuration error and current check
+messages. Latest problems are expanded, long messages wrap, and the latest result of a
+less-frequent check is retained even when absent from the last 100 history rows.
+Corrupt settings have a native recovery page using the existing reset action. GET keeps
+the original raw value; explicit POST requires the owner session, CSRF, writable mode and
+a raw-value revision checked within the SQLite write transaction. Stale resets return
+409 and preserve the newer settings. History remains unchanged. Public serializers,
+payloads and their diagnostic exclusions are unchanged.
+
+The concurrency test now waits for the second caller at the cache-lock boundary,
+without a scheduling sleep. The retired account-shell handlers/imports/template were
+removed. The external installed QA script now uses `contextlib.closing` for every raw
+SQLite handle while preserving commit/rollback contexts. Its corrected restore run
+supersedes the initial script's closed-handle claim; the initial manifest applies only
+to the initial script, not the revised one.
+
+| Final correction check | Observed result |
+| --- | --- |
+| Focused analytics/auth/domains/actions/presentation/public/storage integrity suite | 160 passed |
+| Full pytest, Python 3.12.12 | 657 passed, 25.27 seconds |
+| Full pytest, Python 3.13.12 | 657 passed, 24.12 seconds |
+| Full pytest, Python 3.14.8 | 657 passed, 27.21 seconds |
+| Ruff, CLI help, Compose config, whitespace check | Passed |
+| Rebuilt/reinstalled wheel, outside checkout | Two additive migrations preserve all original rows in 8 tables; two owners, corrupt raw override, legacy provenance, auth/public revocation, current/legacy backup restore and integrity passed |
+| Installed production adapter/Uvicorn/Django/Axes boundary | 2 passed, 1.79 seconds; proxy trust off and explicit HTTPS trust on |
+| Installed recovery/current-diagnostic browser flows | 1440/390/320 px, light/dark; 18 screenshots, no overflow; native reset works with author JS disabled; escaped current warning outside last 100 and unknown explanation visible |
+| Independent disposable browser DB readback | All six explicit resets applied; all six original domain history rows retained; integrity OK |
+
+The final wheel was rebuilt after removing the stale local build directory. All 97
+tracked package files match the installed files by SHA-256; the retired workspace
+template is absent. This catches build leftovers as well as source-only deletion.
+
+All five new regression cases were observed failing before product edits. The full
+matrix ran once after the correction changes; unchanged full Compose/browser matrices
+were not repeated. The installed browser rehearsal used only disposable data on
+18182/19223, both verified closed afterward. The existing original-checkout preview was
+not changed or stopped. Browser screenshots were visually inspected at desktop and
+320 px, in both themes. QA-only fixture/navigation mistakes were corrected before the
+successful browser run; no real monitoring targets or Telegram sends were involved.
+
+Fresh evidence is in `final-corrections-*.log`, `final-corrections-browser-results.json`,
+`final-corrections-screenshots/`, the revised `task10-installed-qa.py`, and
+`final-corrections-evidence.sha256` in the external artifacts directory below. The final
+fix report records exact commands and changed files. Final integration/review/archive
+are separate parent steps; no deployment is claimed here.
+
+The unchanged RKN index rebuild writes a separate rebuildable cache using
+`BEGIN IMMEDIATE`/commit/rollback. Cancellation can leave that offloaded cache rebuild
+thread running. The new main-database scheduler drains do not claim to fix that separate
+cache lifecycle; the approved review ruling explicitly retains this boundary.
+
+## Initial Task 10 verification
 
 | Check | Observed result |
 | --- | --- |
@@ -57,8 +119,9 @@ copy is upgraded twice. All original columns and raw rows in all **8 monitoring 
 match exactly; both rows receive `source=legacy`. Owner binding and public routes are
 then exercised using the installed wheel.
 
-A consistent current-schema database backup and matching mode-0600 web-secret/token
-sidecars are restored with application connections closed; history count and SQLite
+The corrected final-wave script restores a consistent current-schema database backup
+and matching mode-0600 web-secret/token sidecars with application and raw SQLite
+connections closed; history count and SQLite
 integrity pass. A separate old-schema restore matches every original row. Production
 rollback requires stopping web, worker and bot, retaining current database/sidecars,
 restoring the pre-upgrade backup and credentials, and reinstalling the previous release.

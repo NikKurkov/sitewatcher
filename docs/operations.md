@@ -97,6 +97,11 @@ Stop all three services and make a verified SQLite backup plus copies of both pr
 sidecar credentials before installing a release. Setup/web migrations add framework
 tables and `history.source`; they do not rename monitoring tables or move owners.
 Corrupt legacy overrides are retained and shown as errors, never silently reset.
+On the domain history page choose **Recover domain settings** (or **Edit** in the
+Overview), expand **Reset domain settings**, then choose **Reset all overrides**.
+This keeps saved history and applies workspace defaults. If another editor changed
+settings since the page was loaded, reset returns a conflict; reload before deciding
+again. A read-only workspace cannot reset settings.
 Existing installations with an owner account need migration/startup, not another setup.
 
 After upgrade check `/healthz`, login, an existing domain/history, settings and the next
