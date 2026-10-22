@@ -156,7 +156,8 @@ def test_overview_summary_does_not_count_paused_domain_as_healthy(owner, client)
 def test_observation_labels_include_local_timezone():
     from sitewatcher.webapp.presentation import local_time
     stamp = local_time('2026-10-22T12:00:00Z', 'Europe/Moscow')
-    assert stamp == {'iso': '2026-10-22T12:00:00+00:00', 'label': '22 Oct 2026, 15:00 MSK'}
+    assert stamp['iso'] == '2026-10-22T12:00:00+00:00'
+    assert stamp['label'] == '22 Oct 2026, 15:00 MSK'
 
 
 @pytest.mark.parametrize('days', [1, 7, 30])
@@ -210,3 +211,37 @@ def test_native_form_errors_identify_fields_without_exposing_proxy(owner, client
     error_summary = body.split('role="alert">')[1].split('</div>')[0]
     assert 'unsafe-input-name' not in error_summary
     assert not storage.domain_exists(41, 'draft.example')
+
+
+def test_stopped_monitoring_shows_measurement_age_and_overdue_state(owner, client):
+    from datetime import datetime, timedelta, timezone
+    from sitewatcher.config import ChecksModel
+
+    storage.add_domain(41, 'stopped.example')
+    storage.set_domain_override(41, 'stopped.example', {'checks': {
+        key: key == 'http_basic' for key in ChecksModel.model_fields}})
+    storage.save_history(41, 'stopped.example', 'http_basic', 'OK', 'saved',
+                         {'final_code': 200, 'latency_ms_total': 50}, source='scheduled')
+    old = (datetime.now(timezone.utc) - timedelta(hours=2, minutes=5)).isoformat()
+    with storage._write_connection() as connection:
+        connection.execute('UPDATE history SET created_at=?', (old,))
+    body = get(client, '/').content.decode()
+    from html import unescape
+    assert '2 hours' in unescape(body).replace('\xa0', ' ') and 'ago' in body
+    assert 'Some checks are overdue' in body
+    assert 'Last checked' in body and 'Worker running' not in body
+
+
+def test_measurement_age_handles_future_and_corrupt_timestamps():
+    from datetime import datetime, timedelta, timezone
+    from django.template.loader import render_to_string
+    from sitewatcher.webapp.presentation import local_time
+
+    future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    body = render_to_string('sitewatcher/partials/time.html',
+                            {'stamp': local_time(future, 'Europe/Moscow')})
+    assert 'Timestamp is in the future' in body and 'ago' not in body
+    for invalid in ['invalid timestamp', '9999-12-31T23:59:59+00:00']:
+        body = render_to_string('sitewatcher/partials/time.html',
+                                {'stamp': local_time(invalid, 'Europe/Moscow')})
+        assert 'Not checked yet' in body and 'ago' not in body

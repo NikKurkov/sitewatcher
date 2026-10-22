@@ -79,46 +79,24 @@ def _run_polling(cfg: AppConfig, token: str) -> None:
     register_handlers(app)
     register_jobs(app, cooldown=cooldown)
 
-    # ---- Maintenance: daily history cleanup ----
-    from datetime import time as dtime, datetime, timezone
-    from .. import storage  # local import to avoid cycles at module import time
+    # Only the scheduler owner runs maintenance; command-only polling can coexist with a worker.
+    if cfg.scheduler.enabled:
+        # ---- Maintenance: daily history cleanup ----
+        from ..maintenance import cleanup_history, cleanup_time
 
-    def _parse_hhmm(s: str) -> dtime:
-        """Best-effort HH:MM parser with sane fallback."""
-        try:
-            hh, mm = [int(x) for x in str(s or "03:30").split(":", 1)]
-            if 0 <= hh <= 23 and 0 <= mm <= 59:
-                return dtime(hour=hh, minute=mm, tzinfo=timezone.utc)
-        except Exception:
-            pass
-        return dtime(hour=3, minute=30, tzinfo=timezone.utc)
+        async def _job_cleanup_history(context):
+            await cleanup_history(cfg)
 
-    async def _job_cleanup_history(context):
-        """APScheduler job: purge old history and optionally VACUUM on Sundays."""
+        scheduled_cleanup = cleanup_time(cfg)
         try:
-            retention = int(getattr(getattr(cfg, "history", object()), "retention_days", 30))
-            vacuum_weekly = bool(getattr(getattr(cfg, "history", object()), "vacuum_weekly", True))
-            deleted = await asyncio.to_thread(storage.cleanup_history, retention)
-            # Sunday = 6
-            if vacuum_weekly and datetime.now(timezone.utc).weekday() == 6:
-                await asyncio.to_thread(storage.vacuum_and_optimize)
-            log.info(
-                "maintenance.cleanup_history.done",
-                extra={"event": "maintenance.cleanup_history.done", "deleted": int(deleted), "retention_days": retention},
+            app.job_queue.run_daily(
+                _job_cleanup_history,
+                time=scheduled_cleanup,
+                name="maintenance.cleanup_history",
             )
+            log.info("maintenance.cleanup_history.scheduled", extra={"event": "maintenance.cleanup_history.scheduled", "time": str(scheduled_cleanup)})
         except Exception as e:
-            log.exception("maintenance.cleanup_history.failed", extra={"event": "maintenance.cleanup_history.failed", "etype": e.__class__.__name__})
-
-    cleanup_time = _parse_hhmm(getattr(getattr(cfg, "history", object()), "cleanup_time", "03:30"))
-    try:
-        app.job_queue.run_daily(
-            _job_cleanup_history,
-            time=cleanup_time,
-            name="maintenance.cleanup_history",
-        )
-        log.info("maintenance.cleanup_history.scheduled", extra={"event": "maintenance.cleanup_history.scheduled", "time": str(cleanup_time)})
-    except Exception as e:
-        log.warning("maintenance.cleanup_history.schedule_failed", extra={"event": "maintenance.cleanup_history.schedule_failed", "etype": e.__class__.__name__})
+            log.warning("maintenance.cleanup_history.schedule_failed", extra={"event": "maintenance.cleanup_history.schedule_failed", "etype": e.__class__.__name__})
 
     log.info(
         "bot.start",

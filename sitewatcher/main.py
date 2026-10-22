@@ -32,7 +32,7 @@ from .utils.results import (
 def _parse_args() -> argparse.Namespace:
     """Parse monitoring, diagnostics and local dashboard arguments."""
     p = argparse.ArgumentParser(description="sitewatcher CLI")
-    p.add_argument("mode", choices=["bot", "check_all", "check_domain", "scan", "doctor", "web", "setup", "password"], help="Run mode")
+    p.add_argument("mode", choices=["bot", "worker", "check_all", "check_domain", "scan", "doctor", "web", "setup", "password"], help="Run mode")
     p.add_argument("--json", action="store_true", help="Print doctor diagnostics as JSON")
     p.add_argument("--read-only", action="store_true", help="Disable web management; viewing only")
     p.add_argument("--port", type=int, default=8080, help="Local dashboard port (web mode)")
@@ -94,6 +94,19 @@ def _parse_only(arg: Optional[str]) -> Optional[list[str]]:
 
 
 # ---------- Commands ----------
+
+async def _cmd_worker(cfg: AppConfig) -> None:
+    """Turn service-manager termination into ordinary async resource cleanup."""
+    import signal
+    from .worker import run_worker
+
+    loop = asyncio.get_running_loop()
+    loop.add_signal_handler(signal.SIGTERM, asyncio.current_task().cancel)
+    try:
+        await run_worker(cfg)
+    finally:
+        loop.remove_signal_handler(signal.SIGTERM)
+
 
 async def _cmd_check_all(
     cfg: AppConfig,
@@ -246,6 +259,13 @@ def main() -> None:
     if args.mode == "bot":
         log.info("cli.bot.start", extra={"event": "cli.bot.start", "run_id": run_id})
         run_bot(cfg)
+        return
+
+    if args.mode == "worker":
+        try:
+            asyncio.run(_cmd_worker(cfg))
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            pass
         return
 
     if args.mode == "check_all":

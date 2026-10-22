@@ -1,1 +1,1 @@
-{% if stamp %}<time datetime="{{ stamp.iso }}">{{ stamp.label }}</time>{% else %}<span class="muted">Not checked yet</span>{% endif %}
+{% if stamp %}<time datetime="{{ stamp.iso }}">{{ stamp.label }}</time><span class="muted"> · {% if stamp.future %}Timestamp is in the future{% else %}{{ stamp.value|timesince }} ago{% endif %}</span>{% else %}<span class="muted">Not checked yet</span>{% endif %}

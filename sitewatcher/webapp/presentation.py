@@ -11,12 +11,13 @@ def local_time(value, zone):
         return None
     try:
         stamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
-    except (ValueError, TypeError, AttributeError):
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=timezone.utc)
+        label = stamp.astimezone(ZoneInfo(zone)).strftime('%d %b %Y, %H:%M %Z')
+    except (ValueError, TypeError, AttributeError, OverflowError):
         return None
-    if stamp.tzinfo is None:
-        stamp = stamp.replace(tzinfo=timezone.utc)
-    return {'iso': stamp.isoformat(), 'label': stamp.astimezone(ZoneInfo(zone)).strftime(
-        '%d %b %Y, %H:%M %Z')}
+    return {'iso': stamp.isoformat(), 'label': label, 'value': stamp,
+            'future': stamp > datetime.now(timezone.utc)}
 
 
 def chart_context(points, metric):

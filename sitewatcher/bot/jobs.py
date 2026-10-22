@@ -119,16 +119,23 @@ async def _run_checks_for_all_domains(
     cfg: AppConfig = context.application.bot_data["cfg"]
 
     async def on_results(owner_id: int, domain: str, results: list, *, warmup: bool) -> None:
-        if warmup and storage.get_alert_state(owner_id, domain) is None:
-            baseline = _overall_from_results(_complete_results(cfg, owner_id, domain, results))
-            storage.upsert_alert_state(owner_id, domain, baseline, None)
-        elif not warmup:
-            if not results:
-                results = _complete_results(cfg, owner_id, domain, [])
-            await maybe_send_alert(update=None, context=context, owner_id=owner_id,
-                                   domain=domain, results=results, run_id=run_id)
+        await process_results(context, owner_id, domain, results, warmup=warmup, run_id=run_id)
 
     await scheduler.run_tick(cfg, warmup=warmup, on_results=on_results, run_id=run_id)
+
+
+async def process_results(context, owner_id: int, domain: str, results: list, *,
+                          warmup: bool, run_id: str | None = None) -> None:
+    """Shared baseline and retry adapter for polling and unattended monitoring."""
+    cfg: AppConfig = context.application.bot_data["cfg"]
+    if warmup and storage.get_alert_state(owner_id, domain) is None:
+        baseline = _overall_from_results(_complete_results(cfg, owner_id, domain, results))
+        storage.upsert_alert_state(owner_id, domain, baseline, None)
+    elif not warmup:
+        if not results:
+            results = _complete_results(cfg, owner_id, domain, [])
+        await maybe_send_alert(update=None, context=context, owner_id=owner_id,
+                               domain=domain, results=results, run_id=run_id)
 
 
 async def _flush_alert_summaries_job(context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -151,8 +151,8 @@ def render_dashboard(snapshot: dict, query: str = "", status: str = "all", *,
     return template.substitute(
         theme=_theme(theme), theme_controls=theme_controls(theme), management=management,
         notice=f'<p class="notice" role="status">{html.escape(notice)}</p>' if notice else '',
-        footer=('Read-only view · Monitoring continues in your Telegram bot.'
-                if csrf_token is None else 'Scheduled monitoring continues in your Telegram bot.'),
+        footer=('Read-only view · ' if csrf_token is None else '') +
+               'Saved observations · Keep a worker or bot running for automatic checks.',
         query=html.escape(query, quote=True), status_options=options, domains=content,
         total=summary["total"], healthy=summary["ok"], problems=summary["crit"] + summary["warn"],
         paused=summary["paused"], overdue=summary["stale"], shown=len(selected),

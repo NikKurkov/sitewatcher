@@ -105,5 +105,13 @@ async def run_tick(cfg: AppConfig, *, warmup: bool, on_results, run_id: str | No
             log.debug("No domains to check", extra={"event": "scheduler.nodomains", "run_id": run_id})
             return
 
-        await asyncio.gather(*tasks)
+        try:
+            await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            # gather can raise while another probe is still unwinding its async cleanup.
+            for task in tasks:
+                if not task.done() and not task.cancelling():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
 

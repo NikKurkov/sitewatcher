@@ -104,3 +104,14 @@ def test_sqlite_maintenance_leaves_event_loop_responsive(monkeypatch, operation)
 
     asyncio.run(scenario())
     assert released_by_heartbeat == [True]
+
+
+def test_scheduler_disabled_bot_leaves_maintenance_to_scheduler_owner(monkeypatch):
+    monkeypatch.setenv('TELEGRAM_TOKEN', '123:offline')
+    applications = []
+    monkeypatch.setattr(Application, 'run_polling',
+                        lambda self, **kwargs: applications.append(self))
+    cfg = AppConfig()
+    cfg.scheduler.enabled = False
+    run_bot(cfg)
+    assert applications[0].job_queue.get_jobs_by_name('maintenance.cleanup_history') == ()
