@@ -45,6 +45,9 @@ def register_jobs(app: Application, cooldown: int) -> None:
     interval_min = cfg.scheduler.interval_minutes
     first_delay = random.randint(0, cfg.scheduler.jitter_seconds)  # small jitter to avoid thundering herd
 
+    # A timer delay cannot guarantee baseline completion before periodic alerts.
+    app.bot_data["scheduler_warmup_pending"] = cfg.scheduler.run_on_startup
+
     # One-time warmup job (baseline without alerts)
     if cfg.scheduler.run_on_startup:
         jq.run_once(job_warmup, when=first_delay // 2 or 5, name="sitewatcher:job_warmup")
@@ -84,10 +87,14 @@ async def job_warmup(context: ContextTypes.DEFAULT_TYPE) -> None:
         log.info("scheduler.warmup.done", extra={"event": "scheduler.warmup.done", "run_id": run_id})
     except Exception as e:  # pragma: no cover
         log.exception("Unhandled error in job_warmup: %s", e, extra={"event": "scheduler.warmup.error", "run_id": run_id})
+    finally:
+        context.application.bot_data["scheduler_warmup_pending"] = False
 
 
 async def job_periodic(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Periodic job: run checks for all users/domains and emit alerts."""
+    if context.application.bot_data.get("scheduler_warmup_pending", False):
+        return
     run_id = _new_run_id()
     try:
         cfg: AppConfig = context.application.bot_data["cfg"]

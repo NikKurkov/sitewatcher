@@ -1,6 +1,8 @@
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from sitewatcher import scheduler, storage
 from sitewatcher.bot import jobs
 from sitewatcher.bot.jobs import due_checks
@@ -143,3 +145,81 @@ def test_shared_tick_no_resurrection_when_domain_removed_during_probe(monkeypatc
     assert storage.list_domains(1) == []
     assert storage.last_results(1, 'example.com') == []
     assert storage.get_alert_state(1, 'example.com') is None
+
+
+@pytest.mark.parametrize('jitter', [1, 6])
+def test_startup_warmup_finishes_before_periodic_checks_or_alerts(monkeypatch, jitter):
+    """Periodic callbacks must be idle both before warmup starts and while it probes."""
+    cfg = AppConfig()
+    cfg.defaults.checks = ChecksModel.model_validate(
+        {name: name == 'ping' for name in ChecksModel.model_fields}
+    )
+    storage.add_domain(1, 'example.com')
+    storage.set_user_alert_chat_id(1, 1)
+    queued = {}
+    sent = []
+    probes = []
+
+    class Queue:
+        def run_once(self, callback, *, when, name):
+            queued[name] = (callback, when)
+
+        def run_repeating(self, callback, *, first, name, **kwargs):
+            queued[name] = (callback, first)
+
+    class Bot:
+        async def send_message(self, **kwargs):
+            sent.append(kwargs)
+
+    async def scenario():
+        started = asyncio.Event()
+        release = asyncio.Event()
+        warmup_active = False
+
+        class Dispatcher:
+            def __init__(self, config):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                pass
+
+            async def run_for(self, owner, domain, **kwargs):
+                probes.append(domain)
+                if warmup_active and len(probes) == 1:
+                    started.set()
+                    await release.wait()
+                return [CheckOutcome('ping', Status.CRIT, 'offline', {})]
+
+        monkeypatch.setattr(scheduler, 'Dispatcher', Dispatcher)
+        monkeypatch.setattr(jobs.random, 'randint', lambda *_: jitter)
+        application = SimpleNamespace(bot_data={'cfg': cfg}, job_queue=Queue())
+        context = SimpleNamespace(application=application, bot=Bot())
+        jobs.register_jobs(application, cooldown=60)
+        warmup, warmup_delay = queued['sitewatcher:job_warmup']
+        periodic, periodic_delay = queued['sitewatcher:periodic_checks']
+        if periodic_delay < warmup_delay:
+            await periodic(context)
+            assert probes == [] and sent == []
+
+        warmup_active = True
+        task = asyncio.create_task(warmup(context))
+        await asyncio.wait_for(started.wait(), timeout=1)
+        try:
+            await periodic(context)
+            assert probes == ['example.com'] and sent == []
+            assert storage.last_results(1, 'example.com') == []
+        finally:
+            release.set()
+            await task
+
+        assert storage.get_alert_state(1, 'example.com')['last_overall'] == 'CRIT'
+        # A later due tick must resume rather than remaining permanently gated.
+        monkeypatch.setattr(storage, 'last_check_ages', lambda *_: {})
+        await periodic(context)
+        assert probes == ['example.com', 'example.com'] and sent == []
+        assert len(storage.last_results(1, 'example.com')) == 2
+
+    asyncio.run(scenario())
