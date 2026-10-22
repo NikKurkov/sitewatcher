@@ -307,3 +307,35 @@ def test_one_time_link_render_failure_never_logs_issued_bearer(owner, client, mo
     assert response.status_code == 503
     assert issued not in caplog.text
     assert 'Public status settings unavailable (RuntimeError)' in caplog.text
+
+
+@pytest.mark.parametrize('metrics,expected,label', [
+    ({'final_code': 200}, 'available', 'Available'),
+    ({'final_code': 503}, 'unavailable', 'Unavailable'),
+    ({'availability': 'unknown'}, 'no_recent_data', 'No recent data'),
+])
+def test_current_http_state_is_independent_of_selected_history_period(owner, client, metrics,
+                                                                    expected, label):
+    from datetime import datetime, timedelta, timezone
+    old = (datetime.now(timezone.utc) - timedelta(days=2)).replace(tzinfo=None).isoformat(' ')
+    storage.set_domain_override(731, 'shared.example', {'interval_minutes': 3 * 24 * 60})
+    with storage._write_connection() as conn:
+        conn.execute("UPDATE history SET created_at=?,status='CRIT',metrics_json=? "
+                     "WHERE owner_id=? AND domain=? AND check_name='http_basic'",
+                     (old, json.dumps({**metrics, 'secret': 'latest-private-sentinel'}),
+                      731, 'shared.example'))
+    path, _, _ = publish(client)
+    states = []
+    for days in (1, 7, 30):
+        data = get(Client(), path + 'data?days=' + str(days)).json()
+        item = data['domains'][0]
+        states.append(item['current_state'])
+        assert item['current_state'] == expected
+        # The chart still reports only its selected historical period.
+        assert item['totals']['sample_count'] == (0 if days == 1 else 1)
+        if days == 1:
+            assert item['totals']['success_percent'] is None and item['buckets'] == []
+        body = get(Client(), path + '?days=' + str(days)).content.decode()
+        assert label + '</span>' in body
+        assert 'latest-private-sentinel' not in body and 'latest-private-sentinel' not in json.dumps(data)
+    assert states == [expected] * 3

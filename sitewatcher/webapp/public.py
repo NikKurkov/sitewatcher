@@ -42,9 +42,14 @@ def public_report(workspace, *, days):
         row = current.get(name, {})
         http = next((check for check in row.get('checks', []) if check['name'] == 'http_basic'), {})
         report['last_checked_at'] = http.get('checked_at')
+        # Current state follows the latest owned HTTP observation, not the chart window.
+        latest = storage.latest_check_results(workspace.owner_id, name).get('http_basic')
+        classification, _ = analytics._classification(latest['metrics_json'] if latest else None)
+        availability = {'successful': 'available', 'failed': 'unavailable',
+                        'unknown': 'unknown'}[classification]
         report['current_state'] = ('paused' if row.get('paused') else 'no_recent_data'
             if not http or http.get('stale') or http.get('missing') or row.get('error')
-            or report['latest_availability'] == 'unknown' else report['latest_availability'])
+            or availability == 'unknown' else availability)
         report['totals'] = {**_totals(raw['totals']), 'latency_ms': raw['totals']['latency_ms']}
         report['buckets'] = [{**{key: point[key] for key in ('index', 'start_at', 'label',
                               'latency_ms')}, **_totals(point)} for point in raw['buckets']]
