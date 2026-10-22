@@ -1,7 +1,8 @@
 # SiteWatcher owner workspace and public status page
 
 Date: 2026-10-22
-Status: Proposed for user review; implementation has not started.
+Status: Approved and implemented. Initial release verification completed on 2026-10-22;
+independent Task 10 and whole-branch reviews follow before final integration.
 
 ## Intent and audience
 

@@ -1,33 +1,35 @@
 # SiteWatcher
 
-SiteWatcher monitors domains and reports problems through a Telegram bot. It runs as one Python process on Linux, stores users, domains, results, and settings in SQLite, and needs no external database or deployment service.
+SiteWatcher monitors websites in a private browser workspace, with optional Telegram alerts and a revocable public status page. A web process and a monitoring worker share SQLite; no external database is needed.
 
 Checks: HTTP status and latency, TLS certificate, ping, page keywords, defacement markers, RKN listing, IP changes, IP blocklists, TCP ports, WHOIS/RDAP, and passive VirusTotal reputation. Expensive checks are off by default or run less often. Each Telegram user owns their own domain list and overrides.
 
 ## Quick start with Docker
 
-Install Docker with the Compose plugin, then run:
+Install Docker with the Compose plugin, then run these two commands from the checkout:
 
 ```bash
-cp .env.example .env
-# Set TELEGRAM_TOKEN in .env. Set TELEGRAM_ALLOWED_USER_IDS for a private bot.
-docker compose up -d --build
-docker compose logs -f sitewatcher
+docker compose run --rm --build setup
+docker compose up -d
 ```
 
-The bot runs as a single container. Its SQLite database and RKN index live in the `sitewatcher-data` volume and survive container restarts and rebuilds. Stop it with `docker compose down` (keep the volume). To test a site without starting the bot, run `docker compose run --rm sitewatcher sitewatcher scan example.com --only http_basic,tls_cert`. Docker uses `/data/sitewatcher.db` even if `.env` sets a different `DATABASE_PATH`.
+Setup asks you to choose a username and hidden password. Open **http://127.0.0.1:8080**,
+sign in and add your first domain. No `.env`, Telegram token or YAML editing is required.
+The nonroot web and worker containers share `sitewatcher-data`; database, web secret
+and optional Telegram connection survive restarts. The host port binds only to loopback.
+Use `SITEWATCHER_PORT=8081` with both commands if port 8080 is occupied.
 
-To run the image directly without Compose, build it locally and mount a named volume for the database:
+`docker compose logs -f web worker` shows service logs. Stop with `docker compose down`;
+keep the volume (do not add `-v`). Back up before rebuilding/upgrading. For a standalone
+probe, use `docker compose run --rm web sitewatcher scan example.com --only http_basic,tls_cert`.
+The container always uses `/data/sitewatcher.db`.
 
-```bash
-docker build -t sitewatcher:local .
-docker run -d --name sitewatcher --restart unless-stopped \
-  --env-file .env -e DATABASE_PATH=/data/sitewatcher.db \
-  -v sitewatcher-data:/data sitewatcher:local
-docker logs -f sitewatcher
-```
-
-Stop and remove that container with `docker stop sitewatcher && docker rm sitewatcher`; the volume remains available for the next run. Choose one launch method for a single bot instance: Compose gives its volume a project-specific name, so the two methods do not share a database automatically.
+After connecting Telegram in Settings, optional command polling starts with
+`docker compose --profile telegram up -d`. This bot uses `--no-scheduler`; the worker
+remains the sole scheduler. Restrict Telegram user IDs and pass optional Telegram proxy
+settings through a local Compose override before enabling a private bot. A native
+`sitewatcher bot` still runs the original combined bot/scheduler; stop the worker first,
+or use `sitewatcher bot --no-scheduler` for command polling alongside it.
 
 ## Quick start with Python
 
@@ -37,9 +39,10 @@ Python 3.12 or newer is required.
 python3.12 -m venv .venv
 . .venv/bin/activate
 pip install -e .
-cp .env.example .env
-# Set TELEGRAM_TOKEN in .env. Set TELEGRAM_ALLOWED_USER_IDS for a private bot.
-sitewatcher bot
+sitewatcher setup
+sitewatcher web
+# In a second terminal, activate the same environment and use the same working directory:
+sitewatcher worker
 ```
 
 The bot starts with built-in settings. An optional YAML file can be supplied with `--config config.yaml`; copy [the example](sitewatcher/data/config.yaml.example) and edit it. An explicitly specified but missing file causes an error. The `DATABASE_PATH` environment variable defaults to `./sitewatcher.db`. Its parent directory must exist. The process needs write access there and, when RKN is enabled, to the nearby `z_i_index.db` index.
@@ -79,7 +82,7 @@ sitewatcher doctor --json
 
 `scan` does not add a domain, save monitoring history, or send alerts. Some checks maintain their own local caches. `check_domain` and `check_all` save results. Use `--config path/to/config.yaml` with any command.
 
-`doctor` checks configuration, database schema/integrity and local permissions without initializing a database, running network checks, or contacting Telegram. Its exit code is `0` when the installation is ready and `1` when action is needed. JSON output contains credential presence flags, never their values. Normal web mode initializes storage for its owner; `--read-only` requires an existing database. A missing database with a writable parent is a valid fresh-install state for `doctor`.
+`doctor` checks configuration, database schema/integrity and local permissions without initializing a database, running network checks, or contacting Telegram. Its exit code is `0` when the installation is ready and `1` when action is needed. JSON output contains credential presence flags, never their values. Web startup migrates storage additively; `--read-only` still requires owner authentication. A missing database with a writable parent is a valid fresh-install state for `doctor`.
 
 ## Local owner account
 
@@ -112,9 +115,9 @@ sitewatcher web --port 8080
 # Open http://127.0.0.1:8080
 ```
 
-Sign in with the local account created by `sitewatcher setup`. The dashboard derives its owner exclusively from the authenticated account. Optional `--owner <owner_id>` only verifies the existing workspace binding; it never grants access. The dashboard manages only that owner's domains: add a domain, edit its checks/settings, pause/resume, inspect history, reset overrides or remove it with typed confirmation. Use **Check now** on a domain history page or **More actions → Check all domains now** on the overview; results are saved without sending Telegram messages from the web process. One manual run is allowed at a time using a process-local lock; run a single web process. Probes bypass cache and use the configured per-domain timeout (120 seconds by default). The worker or bot continues scheduled monitoring and evaluates saved state on its next tick. Workspace settings configure timezone and owner notifications; CSV import/export uses the same format as Telegram. Search/filter saved results or read `/api/status` as JSON. Overdue results are marked explicitly, paused domains retain their saved state, and timestamps use the workspace timezone (Europe/Moscow by default), with a timezone label next to observation times. Pages do not refresh automatically; reload when you want a fresh snapshot. `/healthz` is a public process-health endpoint without monitoring data; it does not certify that monitored sites are healthy.
+Sign in with the local account created by `sitewatcher setup`. The dashboard derives its owner exclusively from the authenticated account. Optional `--owner <owner_id>` only verifies the existing workspace binding; it never grants access. The dashboard manages only that owner's domains: add a domain, edit its checks/settings, pause/resume, inspect history, reset overrides or remove it with typed confirmation. Use **Check now** on a domain history page or **More actions → Check all domains now** on the overview; results are saved without sending Telegram messages from the web process. One manual run is allowed at a time using a process-local lock; run a single web process. Probes bypass cache and use the configured per-domain timeout (120 seconds by default). The worker or bot continues scheduled monitoring and evaluates saved state on its next tick. Workspace settings configure timezone and owner notifications; CSV import/export uses the same format as Telegram. Search/filter saved results or read `/api/status` as JSON. Overdue results are marked explicitly, paused domains retain their saved state, and timestamps use the workspace timezone (Europe/Moscow by default), with a timezone label next to observation times. Overview and public status refresh every minute when JavaScript is enabled, with a pause checkbox and a manual Refresh now link. Refresh waits while the tab is hidden, a filter draft is being edited or a disclosure is open. Edit/settings/login forms never refresh automatically. `/healthz` performs a minimal read-only database/schema check (503 on failure); it exposes no monitoring data and does not certify worker activity or site health.
 
-Open **Settings** (`/settings` or `/workspace`) to change the display timezone (an IANA name, default `Europe/Moscow`), enable Telegram notifications, and choose a destination. Stored observations remain in UTC. Telegram is optional: add domains and run checks without a token. For Telegram, create a bot with BotFather, save its token in **Advanced**, open your bot and send `/start`, then use **Find chats**, explicitly save a destination, and **Send test notification**. Discovery only reads recent updates without acknowledging them; existing polling or a webhook can prevent it, so a manual numeric chat ID remains available. Saving settings never sends a message. Test sends one explicit message to the effective destination even if regular notifications are disabled.
+Open **Settings** (`/settings` or `/workspace`) to change the display timezone (a native list of locations, default `Europe/Moscow`), enable Telegram notifications, and choose a destination. Stored observations remain in UTC. Telegram is optional: add domains and run checks without a token. For Telegram, create a bot with BotFather, save its token in **Advanced**, open your bot and send `/start`, then use **Find chats**, explicitly save a destination, and **Send test notification**. Discovery only reads recent updates without acknowledging them; existing polling or a webhook can prevent it, so a manual numeric chat ID remains available. Saving settings never sends a message. Test sends one explicit message to the effective destination even if regular notifications are disabled.
 
 The connection token is stored beside the database as `<database-filename>.telegram-token`, atomically with mode `0600`; keep it private in backups alongside `<database-filename>.web-secret`. A nonempty `TELEGRAM_TOKEN` environment variable overrides that file. An already running bot must be restarted after a token change. The worker reloads the private token file at tick boundaries without restarting or resetting alert state. YAML and environment changes require a process restart. Delivery keeps its existing priority: `alerts.chat_id` in YAML, then the owner’s saved chat, then `TELEGRAM_ALERT_CHAT_ID`. Settings shows the effective destination and warns when an installation override wins; changing a destination never changes the owner ID or historical domain ownership. Bot API calls honor `TELEGRAM_PROXY` and have a finite timeout.
 
@@ -128,7 +131,7 @@ Public sharing is off by default. In **Settings → Public status page**, select
 
 For viewing only, run `sitewatcher web --read-only`. Monitoring and preference mutations are then rejected; password changes remain available, while authenticated viewing, history, private CSV backup download and the theme switch remain usable. Authentication still writes sessions and login-attempt records. Global YAML, API credentials and scheduler configuration remain deployment settings.
 
-The server binds to IPv4 loopback only. For a Python installation on another Linux host, keep the server running there and forward its port from your computer:
+The server binds to IPv4 loopback by default. For a Python installation on another Linux host, keep the server running there and forward its port from your computer:
 
 ```bash
 ssh -N -L 8080:127.0.0.1:8080 your-server
@@ -142,7 +145,7 @@ Install into a persistent directory and use an absolute `DATABASE_PATH`. A minim
 
 ```ini
 [Unit]
-Description=SiteWatcher Telegram bot
+Description=SiteWatcher monitoring worker
 After=network-online.target
 Wants=network-online.target
 
@@ -150,7 +153,7 @@ Wants=network-online.target
 Type=simple
 User=sitewatcher
 WorkingDirectory=/opt/sitewatcher
-ExecStart=/opt/sitewatcher/.venv/bin/sitewatcher bot
+ExecStart=/opt/sitewatcher/.venv/bin/sitewatcher worker
 Restart=on-failure
 
 [Install]
@@ -174,3 +177,20 @@ pytest
 ```
 
 GitHub Actions runs these checks on Python 3.12, 3.13 and 3.14 for pushes and pull requests. Tests use temporary databases and do not require a bot token or live network.
+
+## Deployment and supported storage
+
+Use Python 3.12–3.14 with SQLite **3.35 or newer and JSON1**. `sitewatcher doctor`
+reports the linked SQLite version and analytics support. Reports use at most 120
+occupied buckets per period; missing intervals remain unknown. A process-local cache
+is capped at 8 entries/4 MiB/60 seconds and serializes cold builds. This installation
+supports one owner and one web process; use measurements before adding more processes.
+
+For HTTPS behind a trusted local reverse proxy, set `SITEWATCHER_WEB_ALLOWED_HOSTS`
+to explicit names, `SITEWATCHER_WEB_HTTPS=1` for secure session/CSRF cookies, and
+`SITEWATCHER_WEB_TRUST_PROXY=1` only when that proxy replaces `X-Forwarded-Proto`.
+The proxy must suppress access logs for `/status/` bearer URLs. Keep the application
+port private. `SITEWATCHER_WEB_BIND=0.0.0.0` is explicit container-internal binding;
+Compose still maps only host loopback. Native launch defaults to `127.0.0.1`.
+See [operations and rollback](docs/operations.md) and the
+[release verification](docs/verification-owner-public-dashboard-2026-10-22.md).

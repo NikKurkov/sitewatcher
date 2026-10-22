@@ -16,32 +16,34 @@ sitewatcher web --owner 123456789 --port 8080
 
 The second command runs real probes and saves results; omit it when only diagnosing local storage. `doctor` makes no network calls or application-data writes. Normal SQLite reads may create or update WAL/SHM reader metadata beside an existing database; they retain SQLite's protection against concurrent checkpoints. Its successful result does not verify a Telegram token, proxy, public API, or firewall. Check a saved result and an authorized Telegram interaction separately when deploying.
 
-The web workspace requires an explicit owner and normally allows domain management. Use `--read-only` for a viewing-only process. Normal mode initializes storage on startup; GET/HEAD do not change monitoring rows. `/healthz` returns 503 for an unavailable/incompatible database. It can still return 200 when monitored domains are down. Management uses protected POST forms; the server has no remote bind option. Manual web checks save results, while the bot remains responsible for scheduled checks and Telegram delivery.
+Run `sitewatcher setup` once to create the local owner, then start `sitewatcher web`
+and `sitewatcher worker` with the same database and YAML. On an existing Telegram
+installation, choose the legacy owner explicitly with `setup --owner <id>`; omitting
+it deliberately creates a fresh monitoring identity. `--owner` on web only asserts
+this binding and never bypasses login. `--read-only` rejects monitoring mutations
+while retaining authentication, password recovery and private exports.
 
-For a Linux Docker installation, run a separate temporary web process using the bot's data volume and host networking:
-
-```bash
-docker build -t sitewatcher:local .
-docker run --rm --network host \
-  --volumes-from "$(docker compose ps -q sitewatcher)" \
-  -e DATABASE_PATH=/data/sitewatcher.db \
-  sitewatcher:local sitewatcher web --owner 123456789 --port 8080
-```
-
-This leaves the bot running and binds the viewer to host loopback. Supply the same `--config` path if the bot uses custom YAML; that file must also be mounted into the viewer. Host networking here requires Linux. For another host, use the SSH tunnel shown in the README.
+Compose startup is `docker compose run --rm --build setup` followed by
+`docker compose up -d`, with no compulsory environment file. The host mapping is
+loopback-only even though web binds 0.0.0.0 inside the container. One worker or scheduled
+bot owns the database lock; optional Compose bot polling uses `--no-scheduler`.
+`/healthz` checks the database and minimal monitoring/authentication schema without
+initializing storage or running an integrity scan. A fresh migrated database is web-ready
+even before account setup; missing/incompatible/unreadable storage returns 503. Health
+200 is not evidence that a worker runs or that any monitored site is healthy.
 
 Docker images include application code and packaged examples only. Private YAML, environment files, SQLite files/sidecars and compressed caches are excluded from the build context. Mount custom configuration at runtime rather than baking it into an image.
 
 ## Web management
 
-- Choose the same owner ID and YAML as the bot. Existing settings are shared through SQLite; the next scheduler tick reads them.
+- Choose the account binding during setup and use the same YAML as the worker. Existing settings are shared through SQLite; the next scheduler tick reads them.
 - Domain check selectors support inherit/on/off. Blank numeric/list fields inherit; `[]` explicitly clears keyword/port lists. `interval_minutes: 0` pauses a domain. Reset removes every per-domain override.
 - A stale edit is rejected. Use “Reload saved settings” before editing again; repeated submission cannot silently overwrite concurrent changes.
 - Proxy input stays blank. “Clear domain override” selects the common HTTP client, which may still use a global proxy; global proxy configuration is not changed by the form.
 - CSV exports may contain proxy credentials. Imports apply valid rows independently, reject concurrently changed merge targets, retain domains absent from the file and display added/updated/skipped counts. On errors, reselect the file or paste again; private CSV content is not redisplayed.
 - One web manual-check batch can run at a time. Other requests remain available. No separate scheduler or notification sender runs in the web process. A running bot sees newly saved states on its next tick.
-- Day/Night/System is a non-sensitive browser cookie. A small optional script changes the theme without discarding drafts; without JavaScript, theme links reload the saved page.
-- The process has no login: loopback/SSH access is the trust boundary. Same-origin validation and CSRF tokens prevent another website submitting mutations. Use `--read-only` when only viewing is intended; never expose the port publicly.
+- Light/dark theme is a non-sensitive browser cookie. A small optional script changes the theme without discarding drafts; without JavaScript, theme links reload the saved page.
+- Every owner route requires login. Django sessions and CSRF protect mutations; login attempts are throttled. HTTPS deployments require explicit allowed hosts, secure cookies and a trusted proxy as described in README. Public bearer links expose only selected aggregate observations; disabling or rotating them revokes access immediately.
 
 ## Back up and restore
 
@@ -63,13 +65,13 @@ with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) 
 PY
 ```
 
-Keep `.env` and custom YAML separately with restrictive permissions. `/export_csv` backs up domain settings only; it does not include history, alert state, or shared caches. Its keyword/port cells use JSON when needed; ordinary comma-separated keyword input remains accepted.
+Keep `.env`, custom YAML, `<database>.web-secret` and `<database>.telegram-token` separately with restrictive permissions (secret/token files require mode 0600). Stop writes to settings while taking a coordinated backup; for the simplest consistent full backup, stop web, worker and bot first. Never put runtime credentials in release archives. `/export_csv` backs up domain settings only; it does not include history, alert state, or shared caches. Its keyword/port cells use JSON when needed; ordinary comma-separated keyword input remains accepted.
 
-To restore, stop the bot and web process, retain the current database **and its sidecars together** in a rollback directory, place the verified backup at `DATABASE_PATH`, and restore file ownership. Start with `doctor`, then restart the bot. Do not overlay an old database while a process still has it open. RKN indexes can be rebuilt; a configured standalone WHOIS/IP-change database needs its own backup if retaining that state matters.
+To restore, stop every worker, bot and web process, retain the current database **and its sidecars together** in a rollback directory, place the verified backup at `DATABASE_PATH`, restore its matching web-secret/token files, and restore file ownership and mode 0600. Do not reuse stale WAL/SHM files with a restored database. Start with `doctor`, then restart web and the single scheduler. Do not overlay an old database while a process still has it open. RKN indexes can be rebuilt; a configured standalone WHOIS/IP-change database needs its own backup if retaining that state matters.
 
 ## Configuration and maintenance
 
-- Use one bot instance per database. The optional web process can manage that owner; `--read-only` disables management.
+- Use one scheduler per database: worker or scheduled bot. Command-only bot polling can coexist. Use one web process; manual-check and cold analytics build locks are process-local.
 - Empty `TELEGRAM_ALLOWED_USER_IDS` intentionally permits everyone. Malformed nonempty values stop bot startup.
 - `TELEGRAM_PROXY` applies to both Bot API replies and `getUpdates` polling. It is separate from the HTTP-check proxy settings.
 - Daily history cleanup uses `history.cleanup_time` in UTC. `retention_days: 0` removes history older than the current time; it does not disable cleanup. Weekly compaction runs on Sunday in UTC.
@@ -83,8 +85,24 @@ To restore, stop the bot and web process, retain the current database **and its 
 - IP-change state defaults to the main database and is separate for each owner and ad hoc scans. Set `ipchange.db_path` to retain a legacy `ipchange_cache.sqlite` baseline: each scope copies the old baseline once, preserving its timestamp, then updates its own state. The old baseline and file are never deleted automatically.
 - RKN refresh errors and incomplete partition sets produce an unknown result. The partition list follows the upstream feed layout and may need an update if that layout changes.
 
-The monitoring process creates an additional latest-history index during its first initialization after upgrade. Allow free disk space and a short writer lock while it builds; a synthetic 4.36-million-row measurement used 151 MiB for this index. The viewer never creates it and retains a compatible query for older databases. Back up large installations before upgrading, then run `doctor` and inspect a saved result.
+The monitoring process creates an additional latest-history index during its first initialization after upgrade. Allow free disk space and a short writer lock while it builds; a synthetic 4.36-million-row measurement used 151 MiB for this index. Web/setup and worker initialization apply additive migrations, including the history provenance column; legacy rows keep the `legacy` source label. Back up large installations before upgrading, then run `doctor` and inspect a saved result.
 
 VirusTotal is a passive lookup, not an active site scan. A missing/incomplete report is unknown. A clean verdict requires valid explicit zero detection counts and completed observations; positive malicious/suspicious counts remain visible. The upstream fields are documented in the [VirusTotal URL object reference](https://docs.virustotal.com/reference/url-object).
 
 No live credentials, public-service probes, or real Telegram sends are needed for the offline test suite. A passing suite is not evidence of deployment or external-service availability.
+
+## Upgrade and rollback rehearsal
+
+Stop all three services and make a verified SQLite backup plus copies of both private
+sidecar credentials before installing a release. Setup/web migrations add framework
+tables and `history.source`; they do not rename monitoring tables or move owners.
+Corrupt legacy overrides are retained and shown as errors, never silently reset.
+Existing installations with an owner account need migration/startup, not another setup.
+
+After upgrade check `/healthz`, login, an existing domain/history, settings and the next
+scheduled observation. For rollback stop all processes again, retain the failed state
+with WAL/SHM sidecars for diagnosis, restore the pre-upgrade database/credentials and
+install the previous release. Verify with `doctor` before restarting. Do not merely
+downgrade code over a live migrated database. The release rehearsal used two owners with
+identical domain names, corrupt overrides, legacy history, idempotent migrations and
+both old-schema and current-schema restore; see the dated verification report.
