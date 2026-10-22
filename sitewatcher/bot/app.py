@@ -4,10 +4,12 @@ from __future__ import annotations
 import logging
 import os
 import asyncio
+from contextlib import nullcontext
 
 from telegram.ext import Application
 from telegram.request import HTTPXRequest
 
+from .. import scheduler_lock, storage
 from ..config import AppConfig, get_bot_token_from_env
 from .alerts import AlertDeduper
 from .router import register_handlers
@@ -23,6 +25,12 @@ def run_bot(cfg: AppConfig) -> None:
     if not token:
         raise RuntimeError("Telegram is not configured; connect a bot in workspace Settings or set TELEGRAM_TOKEN")
 
+    ownership = scheduler_lock.acquire(storage.DEFAULT_DB) if cfg.scheduler.enabled else nullcontext()
+    with ownership:
+        _run_polling(cfg, token)
+
+
+def _run_polling(cfg: AppConfig, token: str) -> None:
     allowed_ids = _parse_allowed_user_ids()
 
     request = HTTPXRequest(

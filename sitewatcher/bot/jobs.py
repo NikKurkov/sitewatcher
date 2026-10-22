@@ -5,38 +5,19 @@ import asyncio
 import logging
 import uuid
 import random
-from typing import Optional, Sequence, List
+from typing import Optional, Sequence
 
 from telegram.ext import Application, ContextTypes
 
 from .. import storage
-from ..config import AppConfig, resolve_settings
-from ..dispatcher import Dispatcher
+from ..config import AppConfig
+from .. import scheduler
+from ..scheduler import due_checks as due_checks
 from .alerts import AlertDeduper, _complete_results, _overall_from_results, maybe_send_alert, safe_send_message
 from .utils import _resolve_alert_chat_id
 
 # Module-level logger
 log = logging.getLogger(__name__)
-
-
-def due_checks(cfg: AppConfig, owner_id: int, domain: str, *, warmup: bool = False) -> list[str]:
-    """Select enabled checks whose most recent run is older than their interval."""
-    if not cfg.scheduler.enabled:
-        return []
-    override = storage.get_domain_override(owner_id, domain) or {}
-    settings = resolve_settings(cfg, domain, override)
-    domain_interval = settings.interval_minutes
-    if domain_interval is not None and domain_interval <= 0:
-        return []
-    checks = settings.checks.model_dump()
-    ages = storage.last_check_ages(owner_id, domain)
-    return [
-        name for name, enabled in checks.items()
-        if enabled and (name not in ages or ages[name] >= (
-            int(domain_interval) if domain_interval is not None
-            else getattr(cfg.schedules, name).interval_minutes
-        ))
-    ]
 
 
 def _new_run_id() -> str:
@@ -127,85 +108,20 @@ async def _run_checks_for_all_domains(
     warmup: bool,
     run_id: Optional[str],
 ) -> None:
-    """Run checks for all domains across all owners.
-
-    Args:
-        context: PTB job context.
-        warmup: If True, do not send alerts (baseline initialization).
-        run_id: Correlation id for this whole scheduler iteration.
-    """
+    """Connect the shared tick to Telegram baseline and alert delivery."""
     cfg: AppConfig = context.application.bot_data["cfg"]
-    if not cfg.scheduler.enabled:
-        return
 
-    owners: Sequence[int] = storage.list_users()
-    if not owners:
-        log.debug("No users found; nothing to check", extra={"event": "scheduler.nousers", "run_id": run_id})
-        return
+    async def on_results(owner_id: int, domain: str, results: list, *, warmup: bool) -> None:
+        if warmup and storage.get_alert_state(owner_id, domain) is None:
+            baseline = _overall_from_results(_complete_results(cfg, owner_id, domain, results))
+            storage.upsert_alert_state(owner_id, domain, baseline, None)
+        elif not warmup:
+            if not results:
+                results = _complete_results(cfg, owner_id, domain, [])
+            await maybe_send_alert(update=None, context=context, owner_id=owner_id,
+                                   domain=domain, results=results, run_id=run_id)
 
-    domains_conc = int(getattr(cfg.scheduler, "domains_concurrency", 5) or 5)
-    sem = asyncio.Semaphore(max(1, domains_conc))
-
-    total_domains = 0
-    for owner_id in owners:
-        total_domains += len(storage.list_domains(owner_id))
-
-    log.debug(
-        "scheduler.batch.summary",
-        extra={"event": "scheduler.batch.summary", "run_id": run_id, "owners": len(owners), "domains": total_domains, "warmup": warmup},
-    )
-
-    async with Dispatcher(cfg) as d:
-
-        async def _run_one(owner_id: int, domain: str) -> None:
-            async with sem:
-                try:
-                    selected = due_checks(cfg, owner_id, domain, warmup=warmup)
-                    override = storage.get_domain_override(owner_id, domain) or {}
-                    if resolve_settings(cfg, domain, override).interval_minutes == 0:
-                        return
-                    if selected:
-                        results = await d.run_for(owner_id, domain, only_checks=selected, use_cache=False, run_id=run_id)
-                        storage.save_histories(owner_id, domain, results, create_missing=False, source="scheduled")
-                    elif not warmup:
-                        # Retry undelivered state changes on the next tick, without extra probes.
-                        results = _complete_results(cfg, owner_id, domain, [])
-                    else:
-                        return
-                except Exception as e:
-                    log.exception(
-                        "Checks failed for owner=%s domain=%s: %s", owner_id, domain, e,
-                        extra={"event": "domain.error", "run_id": run_id, "owner_id": owner_id, "domain": domain},
-                    )
-                    return
-
-                # Send alerts (unless warmup)
-                if warmup and storage.get_alert_state(owner_id, domain) is None:
-                    baseline = _overall_from_results(_complete_results(cfg, owner_id, domain, results))
-                    storage.upsert_alert_state(owner_id, domain, baseline, None)
-                elif not warmup:
-                    try:
-                        await maybe_send_alert(update=None, context=context, owner_id=owner_id, domain=domain, results=results, run_id=run_id)
-                    except Exception as e:
-                        log.exception(
-                            "Alert send failed for owner=%s domain=%s: %s", owner_id, domain, e,
-                            extra={"event": "alert.error", "run_id": run_id, "owner_id": owner_id, "domain": domain},
-                        )
-
-        tasks: List[asyncio.Task[None]] = []
-
-        for owner_id in owners:
-            domains = storage.list_domains(owner_id)
-            if not domains:
-                continue
-            for name in domains:
-                tasks.append(asyncio.create_task(_run_one(owner_id, name)))
-
-        if not tasks:
-            log.debug("No domains to check", extra={"event": "scheduler.nodomains", "run_id": run_id})
-            return
-
-        await asyncio.gather(*tasks)
+    await scheduler.run_tick(cfg, warmup=warmup, on_results=on_results, run_id=run_id)
 
 
 async def _flush_alert_summaries_job(context: ContextTypes.DEFAULT_TYPE) -> None:

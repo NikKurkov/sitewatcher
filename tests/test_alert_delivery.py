@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from sitewatcher import storage
+from sitewatcher import scheduler, storage
 from sitewatcher.bot.alerts import AlertDeduper, maybe_send_alert
 from sitewatcher.checks.base import CheckOutcome, Status
 from sitewatcher.config import AppConfig, ChecksModel
@@ -137,7 +137,7 @@ def test_scheduler_retries_saved_result_without_rerunning_recent_check(alert_con
             runs.append(domain)
             return [CheckOutcome("ping", Status.CRIT, "offline", {})]
 
-    monkeypatch.setattr(jobs, "Dispatcher", Dispatcher)
+    monkeypatch.setattr(scheduler, "Dispatcher", Dispatcher)
     context.bot.fail = True
     asyncio.run(jobs._run_checks_for_all_domains(context, warmup=False, run_id="failed"))
     context.bot.fail = False
