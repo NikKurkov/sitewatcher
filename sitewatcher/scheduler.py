@@ -112,6 +112,11 @@ async def run_tick(cfg: AppConfig, *, warmup: bool, on_results, run_id: str | No
             for task in tasks:
                 if not task.done() and not task.cancelling():
                     task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            drain = asyncio.gather(*tasks, return_exceptions=True)
+            while not drain.done():
+                try:
+                    await asyncio.shield(drain)
+                except asyncio.CancelledError:
+                    pass
             raise
 

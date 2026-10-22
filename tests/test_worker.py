@@ -442,7 +442,10 @@ def test_maintenance_runs_on_each_utc_day_even_with_long_tick_interval(monkeypat
     assert cleaned == [30, 30]
 
 
-def test_cancelling_during_sqlite_cleanup_retains_lock_until_thread_finishes(monkeypatch):
+@pytest.mark.parametrize('cancellations', [1, 2])
+def test_cancelling_during_sqlite_cleanup_retains_lock_until_thread_finishes(
+    monkeypatch, cancellations,
+):
     import threading
     from sitewatcher import worker
 
@@ -469,12 +472,14 @@ def test_cancelling_during_sqlite_cleanup_retains_lock_until_thread_finishes(mon
         task = asyncio.create_task(worker.run_worker(config()))
         try:
             assert await asyncio.to_thread(started.wait, 1)
-            task.cancel()
-            await asyncio.sleep(0)
-            assert not task.done()
-            with pytest.raises(RuntimeError, match='already running'):
-                with acquire(storage.DEFAULT_DB):
-                    pass
+            for _ in range(cancellations):
+                task.cancel()
+                for _ in range(5):
+                    await asyncio.sleep(0)
+                assert not task.done() and finished == []
+                with pytest.raises(RuntimeError, match='already running'):
+                    with acquire(storage.DEFAULT_DB):
+                        pass
         finally:
             release.set()
             with pytest.raises(asyncio.CancelledError):
@@ -486,7 +491,8 @@ def test_cancelling_during_sqlite_cleanup_retains_lock_until_thread_finishes(mon
     asyncio.run(scenario())
 
 
-def test_shutdown_waits_for_every_concurrent_probe_before_unlock(monkeypatch):
+@pytest.mark.parametrize('cancellations', [1, 2])
+def test_shutdown_waits_for_every_concurrent_probe_before_unlock(monkeypatch, cancellations):
     from sitewatcher import worker
 
     monkeypatch.delenv('TELEGRAM_TOKEN', raising=False)
@@ -527,19 +533,70 @@ def test_shutdown_waits_for_every_concurrent_probe_before_unlock(monkeypatch):
                 await asyncio.sleep(0)
             task.cancel()
             await asyncio.wait_for(cleaning.wait(), timeout=1)
-            # Give the fast probe and gather callbacks time to unwind independently.
-            for _ in range(5):
-                await asyncio.sleep(0)
-            assert not task.done() and closed == []
-            with pytest.raises(RuntimeError, match='already running'):
-                with acquire(storage.DEFAULT_DB):
-                    pass
+            for number in range(cancellations):
+                if number:
+                    task.cancel()
+                # Give cancellation and gather callbacks time to unwind independently.
+                for _ in range(5):
+                    await asyncio.sleep(0)
+                assert not task.done() and closed == [] and not finished.is_set()
+                with pytest.raises(RuntimeError, match='already running'):
+                    with acquire(storage.DEFAULT_DB):
+                        pass
         finally:
             release.set()
             with pytest.raises(asyncio.CancelledError):
                 await task
-            await asyncio.wait_for(finished.wait(), timeout=1)
-        assert closed == [True]
+        assert closed == [True] and finished.is_set()
+        with acquire(storage.DEFAULT_DB):
+            pass
+
+    asyncio.run(scenario())
+
+
+def test_sqlite_failure_during_shutdown_preserves_cancellation_and_stops_worker(monkeypatch):
+    import sqlite3
+    import threading
+    from sitewatcher import worker
+
+    monkeypatch.delenv('TELEGRAM_TOKEN', raising=False)
+    started = threading.Event()
+    release = threading.Event()
+    finished = []
+    resumed = []
+
+    def cleanup(days):
+        started.set()
+        assert release.wait(timeout=3)
+        finished.append(True)
+        raise sqlite3.OperationalError('synthetic maintenance failure during shutdown')
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 10, 22, 3, 30, tzinfo=timezone.utc)
+
+    async def unexpected_sleep(delay):
+        # Fail deterministically instead of leaving the worker asleep if cancellation is swallowed.
+        resumed.append(True)
+        raise RuntimeError('Worker resumed after shutdown')
+
+    monkeypatch.setattr(worker, 'datetime', Clock)
+    monkeypatch.setattr(worker, 'sleep', unexpected_sleep)
+    monkeypatch.setattr(storage, 'cleanup_history', cleanup)
+
+    async def scenario():
+        task = asyncio.create_task(worker.run_worker(config()))
+        try:
+            assert await asyncio.to_thread(started.wait, 1)
+            task.cancel()
+            await asyncio.sleep(0)
+            assert not task.done()
+        finally:
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, timeout=3)
+        assert finished == [True] and resumed == []
         with acquire(storage.DEFAULT_DB):
             pass
 

@@ -26,7 +26,14 @@ async def _sqlite_call(function, *args):
     try:
         return await asyncio.shield(task)
     except asyncio.CancelledError:
-        await task
+        # Shield every drain await: repeated termination must neither cancel SQLite nor
+        # replace the original cancellation with an error raised by its finishing thread.
+        drain = asyncio.gather(task, return_exceptions=True)
+        while not drain.done():
+            try:
+                await asyncio.shield(drain)
+            except asyncio.CancelledError:
+                pass
         raise
 
 
