@@ -46,15 +46,6 @@ document.querySelectorAll('.filter-form, .history-filters').forEach((form) => {
   let timer;
   const apply = () => {
     clearTimeout(timer);
-    const field = document.activeElement;
-    if (form.contains(field) && field.id) {
-      try {
-        sessionStorage.setItem(filterFocusKey, JSON.stringify({
-          id: field.id, value: field.value, path: location.pathname,
-          cursor: field.type === 'search' ? field.selectionStart : null,
-        }));
-      } catch {}
-    }
     form.requestSubmit();
   };
   const search = (event) => {
@@ -62,13 +53,27 @@ document.querySelectorAll('.filter-form, .history-filters').forEach((form) => {
     clearTimeout(timer);
     if (!event.isComposing) timer = setTimeout(apply, 400);
   };
-  form.addEventListener('input', search);
-  form.addEventListener('compositionstart', () => clearTimeout(timer));
-  form.addEventListener('compositionend', search);
-  form.addEventListener('change', (event) => {
-    if (event.target.type !== 'search') apply();
+  const targets = [form, ...(form.id ? document.querySelectorAll(`[form="${form.id}"]`) : [])];
+  targets.forEach((target) => {
+    target.addEventListener('input', search);
+    target.addEventListener('compositionstart', () => clearTimeout(timer));
+    target.addEventListener('compositionend', search);
+    target.addEventListener('change', (event) => {
+      if (event.target.type !== 'search') apply();
+    });
   });
-  form.addEventListener('submit', () => clearTimeout(timer));
+  form.addEventListener('submit', () => {
+    clearTimeout(timer);
+    const field = document.activeElement;
+    if ((form.contains(field) || field?.form === form) && field.id) {
+      try {
+        sessionStorage.setItem(filterFocusKey, JSON.stringify({
+          id: field.id, value: field.value, path: location.pathname,
+          cursor: field.type === 'search' ? field.selectionStart : null,
+        }));
+      } catch {}
+    }
+  });
 });
 
 // Refresh only read pages, preserving scroll and never interrupting a draft or disclosure.
@@ -93,8 +98,13 @@ if (refresh) {
     try { sessionStorage.setItem('refresh', value ? 'on' : 'off'); } catch {}
   });
   let draft = false;
-  document.querySelector('.filter-form')?.addEventListener('input', () => { draft = true; });
-  document.querySelector('.filter-form')?.addEventListener('change', () => { draft = true; });
+  const filters = document.querySelector('.filter-form');
+  if (filters) {
+    [filters, ...filters.elements].forEach((target) => {
+      target.addEventListener('input', () => { draft = true; });
+      target.addEventListener('change', () => { draft = true; });
+    });
+  }
   setInterval(() => {
     if (isEnabled() && !document.hidden && !draft && !document.querySelector('details[open]')
         && !document.querySelector('.status-tooltip:not([hidden])')

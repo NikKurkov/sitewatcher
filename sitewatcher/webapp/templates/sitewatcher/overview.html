@@ -23,32 +23,39 @@
             </div>
         </section>
         {% include 'sitewatcher/partials/activity.html' %}
-        <div class="list-toolbar">
-            <form method="get" class="filter-form" role="search">
-                <label class="sr-only" for="q">{% translate 'Find a domain' %}</label>
-                <input type="search" name="q" id="q" value="{{ query }}" placeholder="{% translate 'Find a domain…' %}">
-                <label class="sr-only" for="status">{% translate 'Filter domains' %}</label>
-                <select id="status" name="status">
-                    {% for value,label in filters %}
-                        <option value="{{ value }}" {% if value == status %}selected{% endif %}>{{ label }}</option>
-                    {% endfor %}
-                </select>
-                <input type="hidden" name="days" value="{{ report.days }}">
-                <noscript><button type="submit">{% translate 'Filter' %}</button></noscript>
-            </form>
-            {% include 'sitewatcher/partials/periods.html' %}
-        </div>
         <section class="panel domain-list" aria-label="{% translate 'Domains' %}">
             <table class="domains-table">
                 <caption class="sr-only">{% translate 'Domains, with favorites first. Historical percentages describe HTTP checks in the selected period.' %}</caption>
                 <thead>
                     <tr>
-                        <th scope="col">{% translate 'Domain' %}</th>
-                        <th scope="col">{% translate 'Status' %}</th>
-                        <th scope="col">{% translate 'HTTP history' %}</th>
-                        <th scope="col">{% translate 'Successful checks' %}</th>
-                        <th scope="col">{% translate 'Last checked' %}</th>
-                        <th scope="col">
+                        <th scope="col" class="header-domain">
+                            <form method="get" action="/" id="domain-filters" class="filter-form column-search" role="search">
+                                <label for="q">{% translate 'Domain' %}</label>
+                                <input type="search" name="q" id="q" value="{{ query }}"
+                                    placeholder="{% translate 'Find…' %}" aria-label="{% translate 'Find a domain' %}">
+                                <input type="hidden" name="days" value="{{ report.days }}">
+                                <noscript><button type="submit">{% translate 'Filter' %}</button></noscript>
+                            </form>
+                        </th>
+                        <th scope="col" class="header-status" aria-label="{% translate 'Status' %}">
+                            <select id="status" name="status" form="domain-filters" class="column-status"
+                                aria-label="{% translate 'Filter domains' %}" title="{% translate 'Filter domains' %}"
+                                {% if status != 'all' %}data-filtered{% endif %}
+                            >
+                                {% for value,label in filters %}
+                                    <option value="{{ value }}" {% if value == status %}selected{% endif %}>{% if value == 'all' %}{% translate 'Status: all' %}{% else %}{{ label }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </th>
+                        <th scope="col" class="header-metric">{% translate 'HTTP history' %}</th>
+                        <th scope="col" class="header-metric">{% translate 'Successful checks' %}</th>
+                        <th scope="col" class="header-periods">
+                            <div class="column-periods">
+                                <span class="column-label">{% translate 'Last checked' %}</span>
+                                {% include 'sitewatcher/partials/periods.html' %}
+                            </div>
+                        </th>
+                        <th scope="col" class="header-metric">
                             <span class="sr-only">{% translate 'Actions' %}</span>
                         </th>
                     </tr>

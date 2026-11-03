@@ -8,7 +8,7 @@ const script = fs.readFileSync(path.join(__dirname,
   '../sitewatcher/webapp/static/sitewatcher/theme.js'), 'utf8');
 const focusKey = 'sitewatcher_filter_focus';
 
-function page(saved = null) {
+function page(saved = null, external = false) {
   const events = {};
   const timers = new Map();
   const storage = new Map(saved ? [[focusKey, JSON.stringify(saved)]] : []);
@@ -18,13 +18,15 @@ function page(saved = null) {
     activeElement: null,
     addEventListener() {},
     querySelector: () => null,
-    querySelectorAll: selector => selector === '.filter-form, .history-filters' ? [form] : [],
+    querySelectorAll: selector => selector === '.filter-form, .history-filters' ? [form]
+      : selector === '[form="domain-filters"]' && external ? [fields.status] : [],
     getElementById: id => fields[id],
   };
   let submissions = 0;
   let nextTimer = 0;
   const form = {
-    contains: field => Object.values(fields).includes(field),
+    id: external ? 'domain-filters' : '',
+    contains: field => Object.values(fields).includes(field) && !(external && field === fields.status),
     addEventListener: (name, handler) => { events[name] = handler; },
     requestSubmit: () => { submissions++; events.submit(); },
   };
@@ -32,7 +34,8 @@ function page(saved = null) {
     ['q', 'search', 'example'], ['status', 'select-one', 'warn'],
     ['id_history_from', 'date', '2026-11-03'],
   ]) {
-    fields[id] = {id, type, value, selectionStart: 3,
+    fields[id] = {id, type, value, selectionStart: 3, form, events: {},
+      addEventListener(name, handler) { this.events[name] = handler; },
       closest: () => type === 'date' ? disclosure : null,
       focus() { document.activeElement = this; },
       setSelectionRange(start, end) { this.selection = [start, end]; },
@@ -94,7 +97,17 @@ assert.equal(p.disclosure.open, true);
 assert.equal(p.document.activeElement, p.fields.id_history_from);
 p = page({id: 'q', value: 'different query', path: '/', cursor: 4});
 assert.equal(p.fields.q.selection, undefined);
-console.log('Automatic filters: debounce, immediate changes, IME, focus and disclosure restoration passed.');
+p = page(null, true);
+p.document.activeElement = p.fields.status;
+p.fields.status.events.change({target: p.fields.status});
+assert.equal(p.submissions(), 1, 'associated controls outside the form still submit immediately');
+assert.equal(JSON.parse(p.storage.get(focusKey)).id, 'status');
+p = page();
+p.events.input({target: p.fields.q});
+p.events.submit();
+assert.equal(p.timers.size, 0);
+assert.equal(JSON.parse(p.storage.get(focusKey)).id, 'q', 'native Enter also remembers focus');
+console.log('Automatic filters: debounce, external form controls, Enter, IME, focus and disclosure restoration passed.');
 
 function refreshPage(tagName, stored) {
   const values = new Map([['refresh', stored]]);

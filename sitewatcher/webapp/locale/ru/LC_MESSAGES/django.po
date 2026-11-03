@@ -1400,3 +1400,9 @@ msgstr "мс"
 
 msgid "About these figures"
 msgstr "О показателях"
+
+msgid "Find…"
+msgstr "Найти…"
+
+msgid "Status: all"
+msgstr "Статус: все"
