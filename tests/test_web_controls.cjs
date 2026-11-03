@@ -154,3 +154,25 @@ refresh.tick();
 assert.equal(refresh.values.get('refresh'), 'off');
 assert.equal(refresh.reloads(), 1);
 console.log('Header refresh toggle and public-page checkbox preserve saved state and refresh behavior.');
+
+// Settings and edit pages reveal navigation only: no live fetch or refresh timer.
+for (const storageFails of [false, true]) {
+  const events = {};
+  const values = new Map();
+  const link = {hidden: true, addEventListener: (name, handler) => { events[name] = handler; }};
+  vm.runInNewContext(script, {
+    document: {addEventListener() {}, querySelector: () => null,
+      querySelectorAll: selector => selector === '[data-activity-navigation]' ? [link] : []},
+    sessionStorage: {getItem: () => null, removeItem() {}},
+    localStorage: {setItem: (key, value) => {
+      if (storageFails) throw new Error('Storage blocked');
+      values.set(key, value);
+    }},
+    setInterval: () => { throw new Error('Form pages must not refresh automatically'); },
+    fetch: () => { throw new Error('Form pages must not poll activity'); },
+  });
+  assert.equal(link.hidden, false);
+  events.click();
+  assert.equal(values.get('sitewatcher_live_activity'), storageFails ? undefined : 'on');
+}
+console.log('Shared toolbar: live navigation remembers the panel without form refresh or polling.');

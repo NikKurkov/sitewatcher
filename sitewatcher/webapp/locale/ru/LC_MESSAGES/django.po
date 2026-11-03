@@ -1406,3 +1406,21 @@ msgstr "Найти…"
 
 msgid "Status: all"
 msgstr "Статус: все"
+
+msgid "VirusTotal API key"
+msgstr "API-ключ VirusTotal"
+
+msgid "Show API key"
+msgstr "Показать API-ключ"
+
+msgid "Hide API key"
+msgstr "Скрыть API-ключ"
+
+msgid "Could not show the key. Reload Settings and try again."
+msgstr "Не удалось показать ключ. Обновите настройки и попробуйте ещё раз."
+
+msgid "Leave blank to keep the key. Use the eye button to show or hide it. Changes apply on the next malware probe without restarting the worker or bot."
+msgstr "Оставьте поле пустым, чтобы сохранить ключ. Значок глаза показывает или скрывает его. Изменения применяются при следующей проверке без перезапуска worker или бота."
+
+msgid "Automatic refresh is available on the overview"
+msgstr "Автообновление доступно на главной странице"

@@ -1,7 +1,6 @@
 {% extends 'sitewatcher/base.html' %}
 {% load i18n %}
 {% block title %}{% translate 'Overview · SiteWatcher' %}{% endblock %}
-{% block header_actions %}{% include 'sitewatcher/partials/overview_actions.html' %}{% endblock %}
 {% block page_scripts %}<script defer src="{% url 'asset' 'activity.js' %}"></script>{% endblock %}
 {% block content %}
     <h1 class="sr-only">{% translate 'Overview' %}</h1>
@@ -17,15 +16,22 @@
                 <h2>{% if attention %}{% blocktranslate count count=attention %}{{ count }} domain needs attention{% plural %}{{ count }} domains need attention{% endblocktranslate %}{% elif summary.unknown == total %}{% translate 'Waiting for first results' %}{% elif summary.paused == total %}{% translate 'Monitoring is paused' %}{% else %}{% translate 'No active warnings' %}{% endif %}</h2>
                 <p>{% blocktranslate count count=total %}{{ count }} domain{% plural %}{{ count }} domains{% endblocktranslate %} <span aria-hidden="true">·</span> {% blocktranslate with count=healthy %}{{ count }} healthy{% endblocktranslate %}{% if summary.paused %} <span aria-hidden="true">·</span> {% blocktranslate with count=summary.paused %}{{ count }} paused{% endblocktranslate %}{% endif %}{% if summary.unknown %} <span aria-hidden="true">·</span> {% blocktranslate with count=summary.unknown %}{{ count }} without current results{% endblocktranslate %}{% endif %}</p>
             </div>
-            <div class="summary-time">
-                <span class="eyebrow">{% translate 'Last checked' %}</span>
-                {% include 'sitewatcher/partials/time.html' with stamp=observed %}
+            <div class="summary-controls">
+                <div class="summary-time">
+                    <span class="eyebrow">{% translate 'Last checked' %}</span>
+                    <div class="summary-timestamp">{% include 'sitewatcher/partials/time.html' with stamp=observed no_separator=True %}</div>
+                </div>
+                {% include 'sitewatcher/partials/periods.html' %}
             </div>
         </section>
         {% include 'sitewatcher/partials/activity.html' %}
         <section class="panel domain-list" aria-label="{% translate 'Domains' %}">
             <table class="domains-table">
                 <caption class="sr-only">{% translate 'Domains, with favorites first. Historical percentages describe HTTP checks in the selected period.' %}</caption>
+                <colgroup>
+                    <col class="col-domain"><col class="col-status"><col class="col-history">
+                    <col class="col-success"><col class="col-time"><col class="col-actions">
+                </colgroup>
                 <thead>
                     <tr>
                         <th scope="col" class="header-domain">
@@ -49,12 +55,7 @@
                         </th>
                         <th scope="col" class="header-metric">{% translate 'HTTP history' %}</th>
                         <th scope="col" class="header-metric">{% translate 'Successful checks' %}</th>
-                        <th scope="col" class="header-periods">
-                            <div class="column-periods">
-                                <span class="column-label">{% translate 'Last checked' %}</span>
-                                {% include 'sitewatcher/partials/periods.html' %}
-                            </div>
-                        </th>
+                        <th scope="col" class="header-metric">{% translate 'Last checked' %}</th>
                         <th scope="col" class="header-metric">
                             <span class="sr-only">{% translate 'Actions' %}</span>
                         </th>

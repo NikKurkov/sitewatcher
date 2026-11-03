@@ -28,8 +28,8 @@
                     <img class="brand-light" src="{% url 'asset' 'logo-light.svg' %}" width="157" height="32" alt="">
                     <img class="brand-dark" src="{% url 'asset' 'logo-dark.svg' %}" width="157" height="32" alt="">
                 </a>
-                {% block header_actions %}{% endblock %}
-                {% if user.is_authenticated and not public_view %}
+                {% block header_actions %}{% if owner_toolbar and not public_view %}{% include 'sitewatcher/partials/overview_actions.html' %}{% endif %}{% endblock %}
+                {% if owner_toolbar and not public_view %}
                     <a class="button icon-button settings-button" href="/workspace" title="{% translate 'Settings' %}" aria-label="{% translate 'Settings' %}"
                         {% if request.path == '/workspace' or request.path == '/settings' or request.path == '/settings/public' %}aria-current="page"{% endif %}
                     >

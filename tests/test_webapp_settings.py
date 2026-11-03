@@ -411,3 +411,54 @@ def test_virustotal_settings_auth_owner_boundary_csrf_and_readonly(
     assert post(client, fields).status_code == 405
     assert post(client, {'remove_virustotal_api_key': 'on'}).status_code == 405
     assert not virustotal_file.exists()
+
+
+@pytest.mark.parametrize('source', ['saved', 'environment', 'yaml'])
+def test_virustotal_key_reveal_is_explicit_private_and_does_not_save(
+        owner, client, settings, monkeypatch, virustotal_file, source):
+    import secrets
+    from sitewatcher.virustotal_settings import save_api_key
+    monkeypatch.delenv('VIRUSTOTAL_API_KEY', raising=False)
+    key = secrets.token_urlsafe(32)
+    if source == 'saved':
+        save_api_key(key)
+    elif source == 'environment':
+        monkeypatch.setenv('VIRUSTOTAL_API_KEY', key)
+    else:
+        settings.SITEWATCHER_CONFIG = AppConfig(malware={'vt_api_key': key})
+    before = virustotal_file.read_bytes() if virustotal_file.exists() else None
+    assert key.encode() not in client.get('/settings', HTTP_HOST='localhost').content
+    response = post(client, {'action': 'reveal_virustotal_key'})
+    assert response.status_code == 200
+    assert response.json() == {'key': key}
+    assert 'no-store' in response['Cache-Control']
+    assert (virustotal_file.read_bytes() if virustotal_file.exists() else None) == before
+    assert post(client, {'action': 'reveal_virustotal_key', 'timezone': 'UTC'}).status_code == 400
+    owner.refresh_from_db()
+    assert owner.timezone == 'Europe/Moscow'
+
+
+def test_virustotal_key_reveal_requires_owner_csrf_and_safe_storage(
+        owner, client, settings, monkeypatch, virustotal_file):
+    import secrets
+    from sitewatcher.virustotal_settings import save_api_key
+    monkeypatch.delenv('VIRUSTOTAL_API_KEY', raising=False)
+    key = secrets.token_urlsafe(32)
+    save_api_key(key)
+    assert post(Client(), {'action': 'reveal_virustotal_key'}).status_code == 302
+    outsider = get_user_model().objects.create_user(username='no-reveal-workspace')
+    unbound = Client()
+    unbound.force_login(outsider)
+    assert post(unbound, {'action': 'reveal_virustotal_key'}).status_code == 403
+    secure = Client(enforce_csrf_checks=True)
+    secure.force_login(owner.user)
+    assert post(secure, {'action': 'reveal_virustotal_key'}).status_code == 403
+    secure.get('/settings', HTTP_HOST='localhost')
+    response = post(secure, {'action': 'reveal_virustotal_key',
+                            'csrfmiddlewaretoken': secure.cookies['csrftoken'].value})
+    assert response.status_code == 200 and response.json()['key'] == key
+    virustotal_file.chmod(0o644)
+    response = post(client, {'action': 'reveal_virustotal_key'})
+    assert response.status_code == 503 and key.encode() not in response.content
+    settings.SITEWATCHER_READ_ONLY = True
+    assert post(client, {'action': 'reveal_virustotal_key'}).status_code == 405

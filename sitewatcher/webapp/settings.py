@@ -42,6 +42,7 @@ TEMPLATES = [{
     'OPTIONS': {'context_processors': [
         'django.template.context_processors.request',
         'django.contrib.auth.context_processors.auth',
+        'sitewatcher.webapp.context_processors.owner_toolbar',
     ]},
 }]
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

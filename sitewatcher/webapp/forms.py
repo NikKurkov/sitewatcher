@@ -76,7 +76,7 @@ class WorkspacePreferencesForm(forms.Form):
     remove_telegram_proxy = forms.BooleanField(label=_('Remove saved Telegram proxy'), required=False)
 
     virustotal_api_key = forms.CharField(
-        label=_('New VirusTotal API key'), required=False, max_length=2048,
+        label=_('VirusTotal API key'), required=False, max_length=2048,
         widget=forms.PasswordInput(render_value=False, attrs={
             'autocomplete': 'new-password', 'spellcheck': 'false',
         }))

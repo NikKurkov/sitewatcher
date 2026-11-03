@@ -29,6 +29,8 @@ jobs:
           node tests/test_web_controls.cjs
           node --check sitewatcher/webapp/static/sitewatcher/activity.js
           node tests/test_live_activity.cjs
+          node --check sitewatcher/webapp/static/sitewatcher/key_visibility.js
+          node tests/test_key_visibility.cjs
       - run: pytest
       - run: python -m sitewatcher.main --help
 
@@ -67,5 +69,6 @@ jobs:
           assert c.get('/assets/logo-dark.svg', HTTP_HOST='localhost')['Content-Type'] == 'image/svg+xml';
           assert c.get('/assets/favicon.ico', HTTP_HOST='localhost').status_code == 200;
           assert c.get('/assets/activity.js', HTTP_HOST='localhost').status_code == 200;
+          assert c.get('/assets/key_visibility.js', HTTP_HOST='localhost').status_code == 200;
           assert c.get('/api/activity', HTTP_HOST='localhost').status_code == 401;
           assert c.get('/healthz', HTTP_HOST='localhost').status_code == 200"

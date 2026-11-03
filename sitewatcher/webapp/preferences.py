@@ -5,7 +5,7 @@ import os
 from django.utils.translation import gettext as _
 
 from django.conf import settings
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
 from django.views.decorators.http import require_http_methods
@@ -87,7 +87,7 @@ def _render(request, form=None, *, error='', notice='', chats=None, status=200, 
 @owner_required
 @require_http_methods(['GET', 'HEAD', 'POST'])
 @sensitive_post_parameters('bot_token', 'telegram_proxy', 'virustotal_api_key')
-@sensitive_variables('token', 'fields', 'form')
+@sensitive_variables('token', 'fields', 'form', 'api_key')
 def preferences(request):
     if request.method != 'POST':
         if set(request.GET) - {'saved'} or any(len(v) != 1 for _, v in request.GET.lists()):
@@ -99,8 +99,15 @@ def preferences(request):
     fields.pop('csrfmiddlewaretoken', None)
     action = fields.pop('action', 'save')
     if (request.GET or set(fields) - set(WorkspacePreferencesForm.base_fields)
-            or action not in {'save', 'test', 'find_chats'} or action != 'save' and fields):
+            or action not in {'save', 'test', 'find_chats', 'reveal_virustotal_key'} or action != 'save' and fields):
         return HttpResponse(_('Invalid request'), status=400)
+    if action == 'reveal_virustotal_key':
+        try:
+            api_key = load_api_key(settings.SITEWATCHER_CONFIG.malware.vt_api_key)
+        except (OSError, ValueError):
+            return JsonResponse({'error': 'Key unavailable'}, status=503,
+                                headers={'Cache-Control': 'no-store'})
+        return JsonResponse({'key': api_key or ''}, headers={'Cache-Control': 'no-store'})
     if action == 'save':
         form = WorkspacePreferencesForm(fields)
         if not form.is_valid():

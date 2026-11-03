@@ -76,6 +76,14 @@ document.querySelectorAll('.filter-form, .history-filters').forEach((form) => {
   });
 });
 
+// Other owner pages open the overview's saved live panel without polling from a form.
+document.querySelectorAll('[data-activity-navigation]').forEach((link) => {
+  link.hidden = false;
+  link.addEventListener('click', () => {
+    try { localStorage.setItem('sitewatcher_live_activity', 'on'); } catch {}
+  });
+});
+
 // Refresh only read pages, preserving scroll and never interrupting a draft or disclosure.
 const refresh = document.querySelector('[data-auto-refresh]');
 if (refresh) {
