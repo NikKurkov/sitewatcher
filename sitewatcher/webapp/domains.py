@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from threading import Lock
 from urllib.parse import urlencode, urlsplit
 
@@ -23,6 +24,7 @@ from sitewatcher.web_actions import (
     save_domain, settings_context,
 )
 from .accounts import owner_required
+from .models import Workspace
 from .forms import HistoryFiltersForm
 from .analytics import domain_report, overview_report
 from .presentation import check_label, diagnostic_message, domain_form_context, local_time, report_context, status_label
@@ -172,6 +174,54 @@ FILTERS = {
     "crit": _("Critical"), "unknown": _("No data"), "paused": _("Paused"), "stale": _("Overdue"),
 }
 
+def _sort_domains(rows, saved_order):
+    ranks = {name: rank for rank, name in enumerate(saved_order)}
+    rows.sort(key=lambda row: (not row['favorite'], row['name'] not in ranks,
+        ranks.get(row['name'], 0),
+        {'crit': 0, 'warn': 1, 'unknown': 2, 'ok': 3, 'paused': 4}[row['state']], row['name']))
+
+
+@owner_required(api=True)
+@require_POST
+def reorder(request):
+    if settings.SITEWATCHER_READ_ONLY:
+        return JsonResponse({'error': 'Read-only workspace'}, status=405)
+    form = dict(request.management_form)
+    form.pop('csrfmiddlewaretoken', None)
+    if request.GET or set(form) != {'order'}:
+        return JsonResponse({'error': 'Invalid request'}, status=400)
+    try:
+        order = json.loads(form['order'])
+        if (not isinstance(order, list) or len(order) < 2
+                or any(not isinstance(name, str) for name in order)
+                or len(set(order)) != len(order)):
+            raise ValueError('Invalid order')
+        rows = build_snapshot(settings.SITEWATCHER_CONFIG, request.workspace.owner_id)['domains']
+        for row in rows:
+            _row_context(row, request.workspace.timezone)
+        _sort_domains(rows, request.workspace.domain_order)
+        favorites = {row['name']: row['favorite'] for row in rows}
+        if any(name not in favorites for name in order):
+            return JsonResponse({'error': 'Domain not found'}, status=404)
+        if [favorites[name] for name in order] != sorted(
+                (favorites[name] for name in order), reverse=True):
+            raise ValueError('Favorites stay first')
+        # Replace only visible slots: filtered-out domains retain their relative positions.
+        selected = set(order)
+        replacement = iter(order)
+        merged = [next(replacement) if row['name'] in selected else row['name'] for row in rows]
+        updated = Workspace.objects.filter(
+            pk=request.workspace.pk, domain_order=request.workspace.domain_order,
+        ).update(domain_order=merged)
+        if not updated:
+            return JsonResponse({'error': 'Order changed; reload the page'}, status=409)
+    except (ValueError, TypeError, RecursionError):
+        return JsonResponse({'error': 'Invalid order'}, status=400)
+    except SnapshotError:
+        return JsonResponse({'error': 'Monitoring unavailable'}, status=503)
+    return JsonResponse({'saved': True})
+
+
 @owner_required
 @require_safe
 def dashboard(request):
@@ -191,8 +241,7 @@ def dashboard(request):
         for row in rows:
             _row_context(row, zone)
             row['report'] = reports.get(row['name'])
-        rows.sort(key=lambda row: (not row['favorite'], {'crit': 0, 'warn': 1, 'unknown': 2, 'ok': 3,
-                                    'paused': 4}[row['state']], row['name']))
+        _sort_domains(rows, request.workspace.domain_order)
         search = query.get('q', '').strip()
         filtered = [row for row in rows if search.lower() in row['name'] and (
             status == 'all' or status == 'problems' and (row['error'] or row['overall'] in {'CRIT', 'WARN'})

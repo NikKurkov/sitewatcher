@@ -1547,3 +1547,19 @@ msgstr "Последний сохранённый результат прове�
 
 msgid "Select a domain to keep its card open"
 msgstr "Выберите домен, чтобы оставить его карточку открытой"
+
+msgid "Domain order saved"
+msgstr "Порядок доменов сохранён"
+
+msgid "Could not confirm the new order. Reload the page and try again."
+msgstr "Не удалось подтвердить новый порядок. Обновите страницу и повторите попытку."
+
+msgid "Favorites stay at the top. Move domains within their group."
+msgstr "Избранные остаются сверху. Перемещайте домены внутри своей группы."
+
+msgid "Drag to reorder. Keyboard: Alt + Up or Down."
+msgstr "Перетащите для изменения порядка. С клавиатуры: Alt + ↑ или ↓."
+
+#, python-format
+msgid "Move %(domain)s"
+msgstr "Переместить %(domain)s"

@@ -116,6 +116,7 @@ if (refresh) {
   setInterval(() => {
     if (isEnabled() && !document.hidden && !draft && !document.querySelector('details[open]')
         && !document.querySelector('[data-live-activity]:not([hidden])')
+        && !document.querySelector('.domains-table[aria-busy=true], .domains-table[data-dragging=true]')
         && !document.querySelector('.status-tooltip:not([hidden])')
         && !document.activeElement.matches('input,select,textarea,button,[contenteditable]')) {
       location.reload();

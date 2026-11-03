@@ -1,7 +1,7 @@
 {% extends 'sitewatcher/base.html' %}
 {% load i18n %}
 {% block title %}{% translate 'Overview · SiteWatcher' %}{% endblock %}
-{% block page_scripts %}<link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'activity.js' %}"></script>{% endblock %}
+{% block page_scripts %}<link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'activity.js' %}"></script>{% if not read_only %}<script defer src="{% url 'asset' 'domain_order.js' %}"></script>{% endif %}{% endblock %}
 {% block content %}
     <h1 class="sr-only">{% translate 'Overview' %}</h1>
     {% if notice %}
@@ -26,7 +26,11 @@
         </section>
         {% include 'sitewatcher/partials/activity.html' %}
         <section class="panel domain-list" aria-label="{% translate 'Domains' %}">
-            <table class="domains-table">
+            <p class="sr-only" data-order-status role="status"></p>
+            <table class="domains-table"{% if not read_only %} data-domain-order
+                data-saved="{% translate 'Domain order saved' %}"
+                data-failed="{% translate 'Could not confirm the new order. Reload the page and try again.' %}"
+                data-group="{% translate 'Favorites stay at the top. Move domains within their group.' %}"{% endif %}>
                 <caption class="sr-only">{% translate 'Domains, with favorites first. Historical percentages describe HTTP checks in the selected period.' %}</caption>
                 <colgroup>
                     <col class="col-domain"><col class="col-status"><col class="col-history">
@@ -63,9 +67,12 @@
                 </thead>
                 <tbody>
                     {% for row in rows %}
-                        <tr>
+                        <tr data-domain-name="{{ row.name }}" data-favorite="{{ row.favorite|yesno:'true,false' }}">
                             <th scope="row" data-label="{% translate 'Domain' %}">
                                 <div class="domain-heading">
+                                    {% if not read_only %}<button type="button" class="domain-reorder-handle" data-domain-drag draggable="true" hidden
+                                        title="{% translate 'Drag to reorder. Keyboard: Alt + Up or Down.' %}"
+                                        aria-label="{% blocktranslate with domain=row.name %}Move {{ domain }}{% endblocktranslate %}"><svg width="12" height="18" viewBox="0 0 12 18" aria-hidden="true"><g fill="currentColor"><circle cx="3" cy="4" r="1.3"/><circle cx="9" cy="4" r="1.3"/><circle cx="3" cy="9" r="1.3"/><circle cx="9" cy="9" r="1.3"/><circle cx="3" cy="14" r="1.3"/><circle cx="9" cy="14" r="1.3"/></g></svg></button>{% endif %}
                                     {% include 'sitewatcher/partials/favorite.html' %}
                                     <div class="domain-heading-name">
                                         <a class="domain-name" href="/domains/history?domain={{ row.name|urlencode }}&amp;days={{ report.days }}">{{ row.name }}</a>
@@ -118,11 +125,6 @@
                 </tbody>
             </table>
         </section>
-        <div class="list-footnote">
-            <span class="legend"><span class="legend-item"><i class="key successful"></i>{% translate 'Successful' %}</span><span class="legend-item"><i class="key failed"></i>{% translate 'Failed' %}</span><span class="legend-item"><i class="key unknown"></i>{% translate 'Unknown / no observations' %}</span></span>
-            <span>{% blocktranslate count count=report.days %}HTTP observations · {{ count }} day{% plural %}HTTP observations · {{ count }} days{% endblocktranslate %}</span>
-        </div>
-        <p class="fine-print">{% translate 'Successful checks is the share of recorded HTTP checks that succeeded. Gaps are not counted as success.' %}</p>
     {% else %}
         <section class="panel empty-state">
             <div class="empty-symbol" aria-hidden="true">◎</div>

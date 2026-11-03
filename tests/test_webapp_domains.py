@@ -559,3 +559,83 @@ def test_same_hostname_favorite_is_owner_scoped_and_delete_clears_it(owner, clie
     storage.remove_domain(31, 'one.example')
     storage.add_domain(31, 'one.example')
     assert client.get('/', HTTP_HOST='localhost').context['rows'][0]['favorite'] is False
+
+
+def test_domain_reorder_persists_filters_favorites_and_owner_scope(owner, client):
+    import json
+    for name in ('two.example', 'three.example', 'z-favorite.example'):
+        storage.add_domain(31, name)
+    storage.set_domain_favorite(31, 'z-favorite.example', True)
+    before = storage.get_domain_override(31, 'one.example')
+    response = post(client, '/domains/reorder', {'order': json.dumps([
+        'z-favorite.example', 'three.example', 'two.example', 'one.example'])})
+    assert response.status_code == 200
+    assert [r['name'] for r in client.get('/', HTTP_HOST='localhost').context['rows']] == [
+        'z-favorite.example', 'three.example', 'two.example', 'one.example']
+    # Reordering a filtered subset leaves hidden rows in their previous slots.
+    assert post(client, '/domains/reorder', {'order': json.dumps([
+        'one.example', 'three.example'])}).status_code == 200
+    assert [r['name'] for r in client.get('/', HTTP_HOST='localhost').context['rows']] == [
+        'z-favorite.example', 'one.example', 'two.example', 'three.example']
+    assert storage.get_domain_override(31, 'one.example') == before
+    storage.add_domain(31, 'new.example')
+    assert client.get('/', HTTP_HOST='localhost').context['rows'][-1]['name'] == 'new.example'
+    owner.refresh_from_db()
+    assert 'private.example' not in owner.domain_order
+
+
+@pytest.mark.parametrize('value', ['not json', '{}', '[]', '["one.example"]',
+                                  '["one.example","one.example"]',
+                                  '["one.example",42]', '["one.example", "private.example"]'])
+def test_domain_reorder_rejects_invalid_or_foreign_names(owner, client, value):
+    response = post(client, '/domains/reorder', {'order': value})
+    assert response.status_code in {400, 404}
+    owner.refresh_from_db()
+    assert owner.domain_order == []
+
+
+def test_domain_reorder_requires_csrf_post_and_writable_workspace(owner, client):
+    import json
+    from django.conf import settings
+    storage.add_domain(31, 'two.example')
+    fields = {'order': json.dumps(['two.example', 'one.example'])}
+    secure = Client(enforce_csrf_checks=True)
+    secure.force_login(owner.user)
+    assert post(secure, '/domains/reorder', fields).status_code == 403
+    secure.get('/', HTTP_HOST='localhost')
+    token = secure.cookies['csrftoken'].value
+    assert post(secure, '/domains/reorder', {**fields, 'csrfmiddlewaretoken': token}).status_code == 200
+    assert client.get('/domains/reorder', HTTP_HOST='localhost').status_code == 405
+    assert post(client, '/domains/reorder', {**fields, 'owner_id': '99'}).status_code == 400
+    settings.SITEWATCHER_READ_ONLY = True
+    assert post(client, '/domains/reorder', fields).status_code == 405
+    assert b'data-domain-drag' not in client.get('/', HTTP_HOST='localhost').content
+
+
+def test_reordering_cannot_move_favorites_below_regular_domains(owner, client):
+    import json
+    storage.add_domain(31, 'favorite.example')
+    storage.set_domain_favorite(31, 'favorite.example', True)
+    assert post(client, '/domains/reorder', {'order': json.dumps([
+        'one.example', 'favorite.example'])}).status_code == 400
+    owner.refresh_from_db()
+    assert owner.domain_order == []
+
+
+def test_domain_reorder_detects_another_tabs_saved_order(owner, client, monkeypatch):
+    import json
+    from sitewatcher.webapp import domains
+    from sitewatcher.webapp.models import Workspace
+    storage.add_domain(31, 'two.example')
+    original = domains.build_snapshot
+
+    def another_tab(*args, **kwargs):
+        snapshot = original(*args, **kwargs)
+        Workspace.objects.filter(pk=owner.pk).update(domain_order=['two.example', 'one.example'])
+        return snapshot
+
+    monkeypatch.setattr(domains, 'build_snapshot', another_tab)
+    response = post(client, '/domains/reorder', {'order': json.dumps(['one.example', 'two.example'])})
+    assert response.status_code == 409
+    owner.refresh_from_db()
+    assert owner.domain_order == ['two.example', 'one.example']

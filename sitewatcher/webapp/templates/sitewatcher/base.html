@@ -59,12 +59,7 @@
             {% endblock %}
         </main>
         <footer class="footer">
-            <span>SiteWatcher <span aria-hidden="true">·</span> {% translate 'Website monitoring' %}</span>
-            {% if public_view %}
-                <span>{% blocktranslate with timezone=public_timezone %}Times in {{ timezone }}{% endblocktranslate %}</span>
-            {% elif request.workspace %}
-                <span>{% blocktranslate with timezone=request.workspace.timezone %}Times in {{ timezone }}{% endblocktranslate %}</span>
-            {% endif %}
+            <a href="https://github.com/NikKurkov/sitewatcher">SiteWatcher <span aria-hidden="true">·</span> {% translate 'Website monitoring' %}</a>
         </footer>
     </body>
 </html>
