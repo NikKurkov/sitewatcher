@@ -29,6 +29,7 @@ def test_new_context_and_create_normalizes_full_form():
     assert domain == DOMAIN
     override = storage.get_domain_override(OWNER, DOMAIN)
     assert override == {
+        'http_url': 'https://example.com/path',
         'interval_minutes': 0, 'keywords': [], 'ports': [80, {'port': 443}],
         'checks': {'ping': False}, 'tls_warn_days': 0,
     }

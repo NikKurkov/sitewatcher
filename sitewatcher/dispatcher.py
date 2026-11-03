@@ -223,6 +223,8 @@ class Dispatcher:
                     try:
                         if isinstance(res.metrics, dict):
                             res.metrics.setdefault("elapsed_ms", elapsed_ms)
+                            if name in {"http_basic", "keywords", "deface"}:
+                                res.metrics["http_target"] = settings.http_url
                     except Exception:
                         pass
                     return idx, res
@@ -264,6 +266,9 @@ class Dispatcher:
             name = getattr(chk, "name", "")
             if use_cache:
                 cached = self._maybe_cached_result(owner_id, domain, name, _ttl_minutes)
+                if cached is not None and name in {'http_basic', 'keywords', 'deface'}:
+                    if cached.metrics.get('http_target', f'https://{settings.name}/') != settings.http_url:
+                        cached = None
                 if cached is not None:
                     results_ordered[i] = cached
                     log.info(
@@ -392,6 +397,7 @@ class Dispatcher:
             out.append(
                 HttpBasicCheck(
                     settings.name,
+                    http_url=settings.http_url,
                     client=target_client,
                     max_response_bytes=max_response_bytes,
                     timeout_s=settings.http_timeout_s,
@@ -408,6 +414,7 @@ class Dispatcher:
             out.append(
                 KeywordsCheck(
                     settings.name,
+                    http_url=settings.http_url,
                     client=target_client,
                     max_response_bytes=max_response_bytes,
                     timeout_s=settings.http_timeout_s,
@@ -434,7 +441,8 @@ class Dispatcher:
                 log.debug("DefaceCheck: no phrases_path configured; using built-in defaults")
 
             out.append(DefaceCheck(settings.name, client=target_client, timeout_s=timeout_s,
-                                  markers=markers, max_response_bytes=max_response_bytes))
+                                  markers=markers, max_response_bytes=max_response_bytes,
+                                  http_url=settings.http_url))
         else:
             log.debug("DefaceCheck: disabled for %s", settings.name)
 
@@ -567,6 +575,9 @@ class Dispatcher:
             metrics = json.loads(row["metrics_json"] or "{}")
         except Exception:
             metrics = {}
+
+        if isinstance(metrics, dict) and metrics.get('original_domain', domain) != domain:
+            return None
 
         from .utils.results import current_rkn_result
         if not current_rkn_result(check_name, metrics, self.cfg.rkn.max_source_age_hours,

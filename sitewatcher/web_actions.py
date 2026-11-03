@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+from urllib.parse import urlsplit
 from datetime import datetime
 
 from . import storage
@@ -12,7 +13,7 @@ from .config import (
     validate_domain_override,
     validation_message,
 )
-from .utils.domains import normalize_domain
+from .utils.domains import normalize_domain, normalize_site_url
 
 
 NUMERIC_FIELDS = (
@@ -99,7 +100,8 @@ def settings_context(cfg: AppConfig, owner_id: int, domain: str | None = None) -
         preview_cfg = cfg if name else cfg.model_copy(update={'domains': []})
         effective = resolve_settings(preview_cfg, name or 'example.com', override)
         defaults = resolve_settings(preview_cfg, name or 'example.com', {})
-        values = {'domain': name, 'proxy_mode': 'keep', 'proxy': ''}
+        values = {'domain': name, 'http_url': effective.http_url if name else '',
+                  'proxy_mode': 'keep', 'proxy': ''}
         for key in NUMERIC_FIELDS:
             values[key] = str(override[key]) if override.get(key) is not None else ''
         for key in LIST_FIELDS:
@@ -114,6 +116,13 @@ def settings_context(cfg: AppConfig, owner_id: int, domain: str | None = None) -
             ) if key in checks else ''
         revision = storage.domain_override_revision(override)
         values['revision'] = revision
+        if name:
+            address = urlsplit(effective.http_url)
+            values['original_domain'] = name
+            values['http_scheme'] = address.scheme
+            values['domain'] = address.netloc + (address.path if address.path != '/' or address.query else '')
+            if address.query:
+                values['domain'] += '?' + address.query
         return {
             'domain': name, 'values': values, 'check_names': list(ChecksModel.model_fields),
             'proxy_present': bool(effective.proxy),
@@ -129,15 +138,37 @@ def settings_context(cfg: AppConfig, owner_id: int, domain: str | None = None) -
 
 def _domain_settings(cfg: AppConfig, owner_id: int, form: dict[str, str], *, create: bool):
     """Validate a complete form without writing any settings."""
-    domain = _domain(owner_id, form.get('domain', ''), existing=not create)
-    if create and storage.domain_exists(owner_id, domain):
+    address = normalize_site_url(form.get('domain', ''))
+    if not address:
+        raise ValueError('Invalid domain')
+    domain = urlsplit(address).hostname
+    original = _domain(owner_id, form.get('original_domain', domain), existing=not create)
+    if (create or domain != original) and storage.domain_exists(owner_id, domain):
         raise ValueError('Domain already exists')
     revision = form.get('revision')
     if not create and not revision:
         raise ValueError('Settings changed; reload this page before saving')
     try:
         override = {}
-        current = (storage.get_domain_override(owner_id, domain) or {}) if not create else {}
+        current = (storage.get_domain_override(owner_id, original) or {}) if not create else {}
+        target = None
+        if 'http_scheme' in form:
+            scheme = form['http_scheme']
+            if scheme not in {'http', 'https'}:
+                raise ConfigurationError('http_scheme: Choose HTTP or HTTPS.')
+            target = scheme + address[address.index(':'):]
+        elif create:
+            target = address
+        elif 'http_url' in form:
+            target = normalize_site_url(form['http_url'])
+            if not target:
+                raise ConfigurationError('http_url: Enter a valid HTTP or HTTPS website address.')
+        elif 'http_url' in current:
+            override['http_url'] = current['http_url']
+        if target and target != f'https://{domain}/':
+            override['http_url'] = target
+        elif target and any(d.name == domain and d.http_url for d in cfg.domains):
+            override['http_url'] = None
         checks = {}
         for key in ChecksModel.model_fields:
             value = form.get(f'check.{key}', '').strip()
@@ -171,6 +202,19 @@ def _domain_settings(cfg: AppConfig, owner_id: int, form: dict[str, str], *, cre
             override['proxy'] = proxy
         elif mode != 'inherit':
             raise ConfigurationError('proxy_mode: Choose a valid proxy action.')
+        if not create and domain != original:
+            previous = resolve_settings(cfg, original, current)
+            inherited = {key: getattr(previous, key) for key in NUMERIC_FIELDS}
+            inherited['keywords'] = previous.keywords
+            if previous.ports is not None:
+                inherited['ports'] = [port.model_dump() for port in previous.ports]
+            checks = previous.checks.model_dump()
+            checks.update(override.get('checks', {}))
+            inherited['checks'] = checks
+            if mode == 'keep':
+                inherited['proxy'] = previous.proxy
+            inherited.update(override)
+            override = inherited
         validated = validate_domain_override(cfg, domain, override)
     except (ValueError, TypeError, RecursionError) as error:
         raise ValueError(_message(error)) from None
@@ -181,10 +225,14 @@ def save_domain(cfg: AppConfig, owner_id: int, form: dict[str, str], *, create: 
     """Validate a complete form before atomically replacing its owner's overrides."""
     domain, validated, revision = _domain_settings(cfg, owner_id, form, create=create)
     try:
-        storage.set_domain_override(
-            owner_id, domain, validated, replace=True, create_missing=create,
-            create_only=create, expected_revision=None if create else revision,
-        )
+        original = _domain(owner_id, form.get('original_domain', domain), existing=not create)
+        if not create and original != domain:
+            storage.rename_domain(owner_id, original, domain, validated, expected_revision=revision)
+        else:
+            storage.set_domain_override(
+                owner_id, domain, validated, replace=True, create_missing=create,
+                create_only=create, expected_revision=None if create else revision,
+            )
     except (ValueError, TypeError, RecursionError) as error:
         raise ValueError(_message(error)) from None
     if not storage.domain_exists(owner_id, domain):

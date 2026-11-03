@@ -18,7 +18,7 @@ class HttpBasicCheck(BaseCheck):
     """Minimal HTTP health check: status code and latency on the landing page.
 
     Strategy:
-      1) Request https://<domain>/ without following redirects; measure initial latency.
+      1) Request the configured HTTP(S) address without following redirects; measure initial latency.
       2) If 3xx with Location, follow redirects once (letting httpx handle the full chain)
          to obtain final URL/code and add the extra time.
       3) Status:
@@ -38,8 +38,10 @@ class HttpBasicCheck(BaseCheck):
         latency_crit_ms: int = 3000,
         proxy: Optional[str] = None,
         max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+        http_url: str | None = None,
     ) -> None:
         super().__init__(domain)
+        self.http_url = http_url
         self.client = client
         self.max_response_bytes = max_response_bytes
         self.timeout_s = timeout_s
@@ -54,7 +56,7 @@ class HttpBasicCheck(BaseCheck):
         return await self._run(self.client)
 
     async def _run(self, client: httpx.AsyncClient) -> CheckOutcome:
-        origin_url = f"https://{self.domain}/"
+        origin_url = self.http_url or f"https://{self.domain}/"
 
         # Emit a start event (useful in DEBUG traces)
         log.debug(

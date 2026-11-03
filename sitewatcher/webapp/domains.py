@@ -139,7 +139,7 @@ def _page(request, view, domain='', *, error='', values=None, status=200):
         context['values']['interval_minutes'] = str(context['defaults']['interval_minutes'])
     if values is not None:
         context['values'] = {**context.get('values', {}), **values, 'proxy': ''}
-        context['domain'] = values.get('domain', domain)
+        context['domain'] = values.get('original_domain', values.get('domain', domain))
         if 'revision' in values:
             context['revision'] = values['revision']
         if view == 'import':
@@ -352,7 +352,7 @@ def _mutate(request, action):
     form.pop('csrfmiddlewaretoken', None)
     allowed = {'domain'}
     if action in {'add', 'save'}:
-        allowed.update((*NUMERIC_FIELDS, *LIST_FIELDS, 'revision', 'proxy_mode', 'proxy'))
+        allowed.update((*NUMERIC_FIELDS, *LIST_FIELDS, 'http_url', 'http_scheme', 'original_domain', 'revision', 'proxy_mode', 'proxy'))
         allowed.update(f'check.{name}' for name in ChecksModel.model_fields)
     elif action == 'favorite':
         allowed.update({'favorite', 'q', 'status', 'days'})
@@ -369,7 +369,7 @@ def _mutate(request, action):
     if request.GET or set(form) - allowed:
         return _private(HttpResponse(_('Invalid request'), status=400))
     if action == 'save':
-        _existing(request.workspace.owner_id, form.get('domain', ''))
+        _existing(request.workspace.owner_id, form.get('original_domain', form.get('domain', '')))
     try:
         return _act(request, action, form)
     except ValueError as error:
@@ -378,7 +378,7 @@ def _mutate(request, action):
                                          status=409))
         view = {'add': 'add', 'save': 'edit', 'import': 'import'}.get(action)
         if view:
-            return _page(request, view, form.get('domain', ''), error=str(error),
+            return _page(request, view, form.get('original_domain', form.get('domain', '')), error=str(error),
                          values=form, status=400)
         return _private(HttpResponse(_('Invalid action; reload the page'), status=400))
     except Http404:

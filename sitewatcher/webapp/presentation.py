@@ -109,6 +109,8 @@ def domain_form_context(context, error):
         'keywords': _('Enter keywords separated by commas; quote phrases containing commas.'),
         'ports': _('Enter TCP ports (1–65535) or ranges, separated by commas.'),
         'proxy': _('Enter a supported proxy URL with a host.'),
+        'http_url': _('Enter an HTTP(S) address using this domain.'),
+        'http_scheme': _('Choose HTTP or HTTPS.'),
         'proxy_mode': _('Choose a valid proxy action.'),
     }
     field_errors = {key: message for key, message in messages.items()

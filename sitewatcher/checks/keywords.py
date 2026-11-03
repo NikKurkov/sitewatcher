@@ -71,16 +71,18 @@ class KeywordsCheck(BaseCheck):
         timeout_s: int = 5,
         keywords: Any = None,
         max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+        http_url: str | None = None,
     ) -> None:
         """Create a keywords presence check.
 
         Args:
-            domain: Domain name to request (https://<domain>/).
+            domain: Hostname used to identify this check.
             client: Shared httpx.AsyncClient instance.
             timeout_s: Request timeout in seconds.
             keywords: Iterable of strings (or flexible structure; see _normalize_keywords).
         """
         super().__init__(domain)
+        self.http_url = http_url
         self.client = client
         self.max_response_bytes = max_response_bytes
         self.timeout_s = int(timeout_s)
@@ -97,7 +99,7 @@ class KeywordsCheck(BaseCheck):
             )
             return CheckOutcome(self.name, Status.UNKNOWN, "no keywords configured", {"found": []})
 
-        url = f"https://{self.domain}/"
+        url = self.http_url or f"https://{self.domain}/"
         try:
             start = time.perf_counter()
             r = await get_with_retries(

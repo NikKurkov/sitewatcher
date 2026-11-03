@@ -2020,3 +2020,7 @@ html { scrollbar-gutter: stable; }
 .row-domain-actions { justify-content: flex-end; flex-wrap: nowrap; gap: 4px; }
 .domains-table .row-action { padding-inline: 8px; }
 .row-domain-actions .icon-button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 44px; min-width: 44px; width: 44px; height: 44px; padding: 10px; }
+
+.site-address-input { display: flex; gap: 8px; align-items: stretch; min-width: 0; }
+.site-address-input select { width: 108px; flex: 0 0 108px; }
+.site-address-input input { flex: 1 1 0; min-width: 0; }

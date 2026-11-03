@@ -27,6 +27,7 @@ class DefaceCheck(BaseCheck):
         timeout_s: int = 5,
         markers: Optional[List[str]] = None,
         max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+        http_url: str | None = None,
     ) -> None:
         """
         Args:
@@ -36,6 +37,7 @@ class DefaceCheck(BaseCheck):
             markers: Case-insensitive phrases to search for; if None, a built-in set is used.
         """
         super().__init__(domain)
+        self.http_url = http_url
         self.client = client
         self.max_response_bytes = max_response_bytes
         self.timeout_s = int(timeout_s)
@@ -44,7 +46,7 @@ class DefaceCheck(BaseCheck):
         self.markers: List[str] = [m.strip().lower() for m in provided if isinstance(m, str) and m.strip()]
 
     async def run(self) -> CheckOutcome:
-        """Fetch '/' and look for defacement phrases (case-insensitive)."""
+        """Fetch the configured page and look for defacement phrases."""
         # Try HTTPS, then HTTP as a fallback if HTTPS fails to connect.
         tried_urls: List[str] = []
 
@@ -59,8 +61,9 @@ class DefaceCheck(BaseCheck):
             },
         )
 
-        for scheme in ("https", "http"):
-            url = f"{scheme}://{self.domain}/"
+        for url in ([self.http_url] if self.http_url else
+                    [f"https://{self.domain}/", f"http://{self.domain}/"]):
+            scheme = url.split(":", 1)[0]
             tried_urls.append(url)
             try:
                 log.debug(

@@ -374,7 +374,7 @@ def test_old_extra_domain_fields_are_rejected_and_plus_button_is_removed(owner, 
     }).status_code == 400
     response = client.get('/domains/new', HTTP_HOST='localhost')
     assert b'data-add-domain' not in response.content
-    assert b'example.com, example.org' in response.content
+    assert b'http://example.org/catalog/' in response.content
     response = client.get('/domains/edit?domain=one.example', HTTP_HOST='localhost')
     assert b'data-add-domain' not in response.content
 

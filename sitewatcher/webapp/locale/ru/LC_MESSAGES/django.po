@@ -1663,3 +1663,31 @@ msgstr "UDP-трассировка от worker мониторинга. Узлы 
 #: sitewatcher/templates/sitewatcher/partials/route_controls.html
 msgid "Full hop list"
 msgstr "Все узлы маршрута"
+
+#: sitewatcher/templates/sitewatcher/domain_form.html
+msgid "Website addresses"
+msgstr "Адреса сайтов"
+
+#: sitewatcher/templates/sitewatcher/domain_form.html
+msgid "Website address"
+msgstr "Адрес сайта"
+
+#: sitewatcher/templates/sitewatcher/domain_form.html
+msgid "Connection protocol"
+msgstr "Протокол соединения"
+
+#: sitewatcher/templates/sitewatcher/domain_form.html
+msgid "Enter up to 50 website addresses separated by commas. Examples: site.ru, http://site.ru, site.ru/catalog/. HTTPS is used when no protocol is specified. Settings apply to every address."
+msgstr "Введите до 50 доменов через запятую. Примеры: site.ru, http://site.ru, site.ru/catalog/. Без протокола используется HTTPS. Настройки ниже применяются ко всем адресам."
+
+#: sitewatcher/templates/sitewatcher/domain_form.html
+msgid "Enter a hostname and optional path, such as site.ru or site.ru/catalog/. Choose HTTP or HTTPS on the left. You can change the domain; settings and history are retained."
+msgstr "Укажите домен и при необходимости каталог: site.ru или site.ru/catalog/. Протокол HTTP или HTTPS выберите слева. Домен можно изменить — настройки и история сохранятся."
+
+#: sitewatcher/templates/sitewatcher/domain_form.html
+msgid "Enter an HTTP(S) address using this domain."
+msgstr "Укажите корректный HTTP(S)-адрес этого домена."
+
+#: sitewatcher/templates/sitewatcher/domain_form.html
+msgid "Choose HTTP or HTTPS."
+msgstr "Выберите HTTP или HTTPS."

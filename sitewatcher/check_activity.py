@@ -78,12 +78,12 @@ def domain_roster(owner_id: int) -> list[dict]:
     """
     with closing(_connect('ro')) as conn:
         rows = conn.execute(
-            'SELECT d.name, COALESCE(h.status, \'UNKNOWN\') AS status, h.check_name '
+            'SELECT d.name, COALESCE(h.status, \'UNKNOWN\') AS status, h.check_name, h.metrics_json '
             'FROM domains d LEFT JOIN history h ON h.id=('
             'SELECT MAX(id) FROM history WHERE owner_id=d.owner_id AND domain=d.name) '
             'WHERE d.owner_id=? ORDER BY d.name', (owner_id,),
         ).fetchall()
-    return [dict(row) for row in rows]
+    return _current_roster(rows)
 
 
 def published_http(owner_id: int, names: list[str]) -> tuple[list[dict], list[dict]]:
@@ -93,7 +93,7 @@ def published_http(owner_id: int, names: list[str]) -> tuple[list[dict], list[di
     placeholders = ','.join('?' for _ in names)
     with closing(_connect('ro')) as conn:
         domains = conn.execute(
-            "SELECT d.name, COALESCE(h.status, 'UNKNOWN') AS status FROM domains d "
+            "SELECT d.name, COALESCE(h.status, 'UNKNOWN') AS status, h.metrics_json FROM domains d "
             "LEFT JOIN history h ON h.id=(SELECT MAX(id) FROM history "
             "WHERE owner_id=d.owner_id AND domain=d.name AND check_name='http_basic') "
             f'WHERE d.owner_id=? AND d.name IN ({placeholders}) ORDER BY d.name',
@@ -107,4 +107,16 @@ def published_http(owner_id: int, names: list[str]) -> tuple[list[dict], list[di
             'ORDER BY COALESCE(a.finished_at, a.started_at) DESC, a.id DESC LIMIT 100',
             (owner_id, *names),
         ).fetchall()
-    return [dict(row) for row in reversed(events)], [dict(row) for row in domains]
+    return [dict(row) for row in reversed(events)], _current_roster(domains)
+
+
+def _current_roster(rows) -> list[dict]:
+    domains = []
+    for row in rows:
+        item = dict(row)
+        if not storage.is_current_observation(item['name'], item.pop('metrics_json', None)):
+            item['status'] = 'UNKNOWN'
+            if 'check_name' in item:
+                item['check_name'] = None
+        domains.append(item)
+    return domains

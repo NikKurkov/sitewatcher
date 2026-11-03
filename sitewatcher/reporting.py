@@ -140,7 +140,8 @@ def build_snapshot(cfg: AppConfig, owner_id: int, *, now: datetime | None = None
     except (sqlite3.Error, OSError, ValueError):
         raise SnapshotError('Monitoring database is unavailable') from None
 
-    histories = {(row['domain'], row['check_name']): row for row in history}
+    histories = {(row['domain'], row['check_name']): row for row in history
+                 if storage.is_current_observation(row['domain'], row['metrics_json'])}
     rows = [{**_domain_snapshot(cfg, row['name'], row['data_json'], histories, now),
              'favorite': bool(row['favorite'])} for row in domains]
     summary = dict.fromkeys(('total', 'ok', 'warn', 'crit', 'unknown', 'paused', 'stale'), 0)
