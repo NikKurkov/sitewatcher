@@ -35,14 +35,19 @@ assert.equal(view.geometry.points.length, 3);
 assert.equal(view.geometry.points[0].x, view.geometry.hub.x + 95 * view.geometry.hub.scale);
 assert.equal(view.geometry.points.at(-1).x, view.geometry.target.x - 20);
 assert.equal(view.paddles.length, 1);
+assert.equal(view.geometry.width, 1200);
+view.resize(320);
+assert.equal(view.geometry.width, 620);
+assert.equal(view.geometry.compact, true);
+view.resize(1200);
 assert.equal(controls.elements['[data-route-list]'].children.length, 2);
 view.update([{name:'example.test',route:{enabled:true,state:'ready',result}}], 'example.test');
-assert.equal(changes, 1);
+assert.equal(changes, 3);
 view.step([{event:{domain:'example.test'},phase:'out',progress:.5}]);
 view.select(null);
 assert.equal(view.active, false);
 assert.equal(view.geometry, null);
-assert.equal(changes, 2);
+assert.equal(changes, 4);
 view.select('example.test');
 assert.equal(view.active, true);
 panel.dataset.routeReadOnly = 'true';
@@ -74,5 +79,13 @@ global.fetch = async () => { requests++; return {ok:true,json:async()=>({saved:t
  assert.equal(view.selectedName, null);
  assert.equal(view.domains.size, 0);
  assert.equal(view.message, '');
+ const dense = {...result, reached:false, hops:Array.from({length:24}, (_,i)=>({ttl:i+1,ip:'192.0.2.'+(i+1),hostname:null,rtt_ms:1}))};
+ view.update([{name:'example.test',route:{enabled:true,state:'partial',result:dense}}], 'example.test');
+ view.desired = true; view.select('example.test');
+ for (const width of [1200,320]) {
+  view.resize(width);
+  assert.equal(view.paddles.length,24);
+  assert.ok(view.geometry.points.every(p=>p.x>=0 && p.x<=view.geometry.width && p.y>=0 && p.y<=view.geometry.height));
+ }
  console.log('Route helper behavior and late-save reset checks passed');
 })();

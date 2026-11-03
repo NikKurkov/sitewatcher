@@ -16,7 +16,6 @@
       this.domains = new Map();
       this.selectedName = null;
       this.desired = false;
-      this.following = true;
       this.active = false;
       this.geometry = null;
       this.signature = '';
@@ -31,22 +30,7 @@
       this.find('[data-route-disable]')?.addEventListener('click', () => this.save('disable'));
       this.find('[data-route-toggle]')?.addEventListener('click', () => {
         this.desired = !this.desired;
-        this.following = true;
-        this.render();
-      });
-      this.find('[data-route-follow]')?.addEventListener('click', () => {
-        this.following = true;
-        this.paintFollow();
-      });
-      const suspend = () => {
-        this.following = false;
-        this.paintFollow();
-      };
-      this.scroll?.addEventListener('wheel', suspend, {passive: true});
-      this.scroll?.addEventListener('touchstart', suspend, {passive: true});
-      this.scroll?.addEventListener('pointerdown', suspend, {passive: true});
-      this.scroll?.addEventListener('keydown', event => {
-        if (['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) suspend();
+          this.render();
       });
       this.paintControls();
     }
@@ -61,7 +45,6 @@
     select(name) {
       if (this.selectedName !== name) this.message = '';
       this.selectedName = name || null;
-      this.following = true;
       this.render();
     }
     reset() {
@@ -70,10 +53,14 @@
       this.selectedName = null;
       this.domains.clear();
       this.desired = false;
-      this.following = true;
       this.message = '';
       this.render();
       if (this.scroll) this.scroll.scrollLeft = 0;
+    }
+    resize(width) {
+      if (width <= 0 || this.compact === (width < 700)) return;
+      this.compact = width < 700;
+      this.render();
     }
     route() { return this.domains.get(this.selectedName)?.route; }
     hops() {
@@ -90,7 +77,7 @@
       const hops = this.hops();
       const active = Boolean(this.desired && this.selectedName && hops.length && this.svg);
       const result = route?.result;
-      const signature = active ? JSON.stringify([this.selectedName, result]) : '';
+      const signature = active ? JSON.stringify([this.selectedName, result, Boolean(this.compact)]) : '';
       const changed = this.active !== active || this.signature !== signature;
       const previousGeometry = this.geometrySignature || '';
       this.active = active;
@@ -111,11 +98,16 @@
       // A responding destination belongs to the existing domain card, not a second router.
       const routers = result.reached && hops.at(-1).ip === result.destination_ip
         ? hops.slice(0, -1) : hops;
-      const hub = {x: 110, y: 200, scale: .7};
+      const compact = Boolean(this.compact);
+      const hub = compact ? {x: 80, y: 75, scale: .65} : {x: 110, y: 240, scale: .7};
+      const target = compact ? {x: 350, y: 550} : {x: 940, y: 240};
       const points = [{x: hub.x + 95 * hub.scale, y: hub.y}];
       routers.forEach((hop, index) => {
-        const x = 360 + index * 320;
-        const y = hub.y;
+        const fraction = (index + 1) / (routers.length + 1);
+        const row = Math.floor(index / 4);
+        const column = row % 2 ? 3 - index % 4 : index % 4;
+        const x = compact ? 180 + column * 110 : 250 + fraction * 600;
+        const y = compact ? 200 + row * 50 : hub.y + Math.sin(fraction * Math.PI * 2) * 90;
         points.push({x, y});
         const group = svgElement('g', {class: 'scene-route-hop', transform: `translate(${x} ${y})`});
         if (!hop.ip) group.classList.add('is-silent');
@@ -124,20 +116,21 @@
           ? `${hop.rtt_ms.toFixed(1)} ${this.text('ms')}` : this.text('noResponse');
         group.append(
           svgElement('title', {}, `${this.text('hop')} ${hop.ttl}: ${ip} ${hop.hostname || ''} · ${rtt}`),
-          svgElement('rect', {class: 'scene-route-paddle', x: -3, y: -24, width: 6, height: 48, rx: 2}),
-          svgElement('text', {class: 'scene-route-ttl', y: -43, 'text-anchor': 'middle'}, String(hop.ttl)),
-          svgElement('text', {class: 'scene-route-ip', y: 53, 'text-anchor': 'middle'}, ip),
-          svgElement('text', {class: 'scene-route-ptr', y: 75, 'text-anchor': 'middle'},
-            hop.hostname?.length > 30 ? `${hop.hostname.slice(0, 27)}…` : hop.hostname || ''),
-          svgElement('text', {class: 'scene-route-rtt', y: 96, 'text-anchor': 'middle'}, rtt)
+          svgElement('circle', {class: 'scene-route-paddle', r: compact ? 8 : 6}),
+          svgElement('text', {class: 'scene-route-ttl', y: compact ? -18 : -15,
+            'text-anchor': 'middle'}, String(hop.ttl))
         );
+        // Dense routes stay readable as dots; full addresses remain in tooltips and the list.
+        if (!compact && routers.length <= 4 && ip.length <= 18) {
+          group.append(svgElement('text', {class: 'scene-route-ip', y: 32,
+            'text-anchor': 'middle'}, ip));
+        }
         this.group.append(group);
         this.paddles.push(group);
       });
-      const target = {x: 380 + routers.length * 320, y: hub.y};
       points.push({x: target.x - 20, y: target.y});
-      this.geometry = {width: target.x + 300, height: 420, hub, target, points,
-        destination_ip: result.destination_ip || null};
+      this.geometry = {width: compact ? 620 : 1200, height: compact ? 640 : 480,
+        compact, hub, target, points, destination_ip: result.destination_ip || null};
     }
     paintControls() {
       const route = this.route();
@@ -167,14 +160,6 @@
         if (!route.enabled && route.state !== 'disabled') description += ` · ${this.text('disabled')}`;
       }
       if (state) state.textContent = this.message || description;
-      this.paintFollow();
-    }
-    paintFollow() {
-      const button = this.find('[data-route-follow]');
-      if (!button) return;
-      button.hidden = !this.active;
-      button.setAttribute('aria-pressed', String(this.following));
-      button.textContent = this.text(this.following ? 'follow' : 'followPaused');
     }
     paintList(hops, result) {
       const details = this.find('[data-route-details]');
@@ -253,15 +238,7 @@
         paddle.classList.toggle('is-current', progress !== null
           && Math.abs(progress * segments - index - 1) < .16);
       });
-      if (!this.following || progress === null || !this.scroll || !this.svg) return;
-      const offset = progress * segments;
-      const index = Math.min(segments - 1, Math.floor(offset));
-      const start = this.geometry.points[index];
-      const end = this.geometry.points[index + 1];
-      const x = start.x + (end.x - start.x) * (offset - index);
-      const scale = this.svg.getBoundingClientRect().width / this.geometry.width;
-      const target = Math.max(0, x * scale - this.scroll.clientWidth * .5);
-      this.scroll.scrollLeft += (target - this.scroll.scrollLeft) * .12;
+
     }
   };
 })();

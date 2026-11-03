@@ -19,15 +19,13 @@
     data-no-response="{% translate 'No response' %}"
     data-hop="{% translate 'Hop' %}"
     data-ms="{% translate 'ms' %}"
-    data-follow="{% translate 'Follow signal' %}"
-    data-follow-paused="{% translate 'Resume following signal' %}">
+>
     <div class="activity-route-heading">
         <div class="activity-route-context"><strong>{% translate 'Network route' %}</strong><span data-route-domain></span></div>
         <div class="activity-route-actions" role="group" aria-label="{% translate 'Network route controls' %}">
             <button type="button" class="activity-control" data-route-refresh disabled>{% translate 'Request route · enable hourly updates' %}</button>
             <button type="button" class="activity-control" data-route-disable disabled>{% translate 'Disable hourly updates' %}</button>
             <button type="button" class="activity-control" data-route-toggle aria-pressed="false" disabled>{% translate 'Route view' %}</button>
-            <button type="button" class="activity-control" data-route-follow aria-pressed="true" hidden>{% translate 'Follow signal' %}</button>
         </div>
     </div>
     <p class="activity-route-state" data-route-state role="status" aria-live="polite">{% translate 'Select a domain in the map to inspect its route.' %}</p>

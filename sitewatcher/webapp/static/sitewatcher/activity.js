@@ -370,7 +370,7 @@
   };
   const fillReplay = () => {
     const completed = recent().filter(event => event.phase === 'finished'
-      && (!routeView?.active || event.domain === selectedName)).slice(0, routeView?.active ? 1 : 6).reverse();
+      && (!routeView?.active || event.domain === selectedName)).slice(0, routeView?.active ? 3 : 6).reverse();
     completed.forEach(event => enqueue(event, true));
     updateCounters();
     wake();
@@ -456,10 +456,11 @@
     }
   }
   const layout = () => {
+    routeView?.resize(canvas.clientWidth);
     const focused = routeView?.active ? routeView.geometry : null;
-    const next = !focused && canvas.clientWidth < 950;
-    svg.style.width = focused ? `${focused.width}px` : '';
-    svg.style.height = focused ? `${focused.height}px` : '';
+    const next = focused ? focused.compact : canvas.clientWidth < 950;
+    svg.style.width = focused ? '100%' : '';
+    svg.style.height = focused ? `${focused.compact ? 400 : 420}px` : '';
     if (compact !== next) {
       compact = next;
       // Slots are stable within each layout; pin active domains before rebuilding on resize.

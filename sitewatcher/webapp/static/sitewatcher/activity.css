@@ -265,10 +265,10 @@
 .activity-route-details li::marker { color: #7297a7; }
 .activity-route-details code { padding: 0; background: transparent; color: #d4e8ef; font-size: 12px; }
 .activity-field > [data-scene-scroll] { flex: 1 1 0; width: 0; min-width: 0; }
-[data-scene-scroll] { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: #416474 #0b151e; overscroll-behavior-inline: contain; }
+[data-scene-scroll] { overflow-x: hidden; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: #416474 #0b151e; overscroll-behavior-inline: contain; }
 [data-scene-scroll] > .activity-scene { width: 100%; }
 .activity-panel[data-route-active=true] [data-scene-scroll] { align-self: stretch; }
-.activity-panel[data-route-active=true] [data-scene-scroll] > .activity-scene { height: 420px; min-height: 420px; max-width: none; }
+.activity-panel[data-route-active=true] [data-scene-scroll] > .activity-scene { min-height: 350px; max-width: 100%; }
 .activity-panel[data-route-active=true] .scene-node-name { font-size: 14px; }
 .activity-panel[data-route-active=true] .scene-node-meta { font-size: 11px; }
 .activity-panel[data-route-active=true] .scene-node-status { font-size: 10px; }
@@ -297,3 +297,8 @@
 @media (prefers-reduced-motion: reduce) {
   .scene-route-hop.is-current .scene-route-paddle { filter: none; }
 }
+
+.activity-panel[data-route-active=true][data-scene-layout=compact] .scene-node-name { font-size: 22px; }
+.activity-panel[data-route-active=true][data-scene-layout=compact] .scene-node-meta { font-size: 18px; }
+.activity-panel[data-route-active=true][data-scene-layout=compact] .scene-node-status { font-size: 16px; }
+.activity-panel[data-route-active=true][data-scene-layout=compact] .scene-route-ttl { font-size: 16px; }
