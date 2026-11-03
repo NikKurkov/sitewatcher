@@ -197,26 +197,6 @@ h3 {
   display: block;
 }
 
-.main-nav {
-  display: flex;
-  align-self: stretch;
-  gap: 28px;
-}
-
-.main-nav a {
-  display: flex;
-  align-items: center;
-  text-decoration: none;
-  color: var(--muted);
-  border-bottom: 2px solid transparent;
-  font-weight: 550;
-}
-
-.main-nav a[aria-current] {
-  border-bottom-color: var(--green);
-  color: var(--green);
-}
-
 .theme-controls {
   margin-left: auto;
   display: flex;
@@ -1143,14 +1123,6 @@ input[type=file] {
   order: 1;
 }
 
-.main-nav {
-  order: 2;
-  width: 100%;
-  height: 46px;
-  gap: 24px;
-  font-size: 13px;
-}
-
 .workspace {
   padding: 27px 20px 36px;
   min-height: calc(100vh - 205px);
@@ -1860,10 +1832,6 @@ button.favorite-star:hover {
 @media (max-width: 720px) {
   .topbar-inner:has(.topbar-actions) {
     gap: 0 20px;
-  }
-  .main-nav {
-    width: auto;
-    flex: 1;
   }
   .settings-button {
     order: 2;

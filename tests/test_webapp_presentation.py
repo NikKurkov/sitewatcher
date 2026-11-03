@@ -406,8 +406,8 @@ def test_overview_actions_are_accessible_header_icons_without_intro(owner, clien
 def test_settings_navigation_is_a_header_icon_and_marks_current_page(owner, client):
     body = get(client, '/settings').content.decode()
     header = body.split('<header class="topbar">', 1)[1].split('</header>', 1)[0]
-    nav = header.split('<nav class="main-nav"', 1)[1].split('</nav>', 1)[0]
-    assert '/workspace' not in nav
+    assert '<nav' not in header
+    assert '<a class="brand" href="/" aria-label="SiteWatcher">' in header
     import re
     button = re.search(r'<a class="button icon-button settings-button"[^>]*>', header).group()
     assert 'title="Settings"' in button and 'aria-label="Settings"' in button

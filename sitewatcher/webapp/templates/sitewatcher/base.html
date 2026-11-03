@@ -27,11 +27,6 @@
                     <img class="brand-light" src="{% url 'asset' 'logo-light.svg' %}" width="157" height="32" alt="">
                     <img class="brand-dark" src="{% url 'asset' 'logo-dark.svg' %}" width="157" height="32" alt="">
                 </a>
-                {% if user.is_authenticated and not public_view %}
-                    <nav class="main-nav" aria-label="{% translate 'Main navigation' %}">
-                        <a href="/" {% if request.path == '/' %}aria-current="page"{% endif %}>{% translate 'Overview' %}</a>
-                    </nav>
-                {% endif %}
                 {% block header_actions %}{% endblock %}
                 {% if user.is_authenticated and not public_view %}
                     <a class="button icon-button settings-button" href="/workspace" title="{% translate 'Settings' %}" aria-label="{% translate 'Settings' %}"
