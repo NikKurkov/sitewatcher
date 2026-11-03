@@ -55,7 +55,7 @@
                     {% endfor %}
                 </select>
                 <input type="hidden" name="days" value="{{ report.days }}">
-                <button type="submit">{% translate 'Filter' %}</button>
+                <noscript><button type="submit">{% translate 'Filter' %}</button></noscript>
             </form>
             {% include 'sitewatcher/partials/periods.html' %}
         </div>

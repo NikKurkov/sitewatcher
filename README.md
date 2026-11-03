@@ -131,7 +131,8 @@ it never grants access to another owner.
   and individual observation times. Missing and overdue checks are identified explicitly.
 - Open a domain for 24-hour, 7-day or 30-day HTTP history. Hover or focus a graph point
   for its time and response latency. Empty intervals remain empty.
-- Filter recent check history by date range, check and state. Dates use the workspace
+- Search and status filters apply automatically; search waits briefly for typing to stop.
+- Filter recent check history by date range, check and state. Changes apply automatically. Dates use the workspace
   timezone, include both selected days, and return the latest 100 matching records.
   These filters do not change the graph period.
 

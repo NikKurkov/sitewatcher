@@ -26,6 +26,51 @@ document.addEventListener('click', async (event) => {
   }
 });
 
+// Submit native GET filters automatically, keeping focus across the resulting navigation.
+const filterFocusKey = 'sitewatcher_filter_focus';
+try {
+  const saved = JSON.parse(sessionStorage.getItem(filterFocusKey));
+  sessionStorage.removeItem(filterFocusKey);
+  const field = saved && document.getElementById(saved.id);
+  if (field && saved.path === location.pathname && field.value === saved.value) {
+    const disclosure = field.closest('details');
+    if (disclosure) disclosure.open = true;
+    field.focus();
+    if (field.type === 'search' && saved.cursor !== null) {
+      field.setSelectionRange(saved.cursor, saved.cursor);
+    }
+  }
+} catch {}
+
+document.querySelectorAll('.filter-form, .history-filters').forEach((form) => {
+  let timer;
+  const apply = () => {
+    clearTimeout(timer);
+    const field = document.activeElement;
+    if (form.contains(field) && field.id) {
+      try {
+        sessionStorage.setItem(filterFocusKey, JSON.stringify({
+          id: field.id, value: field.value, path: location.pathname,
+          cursor: field.type === 'search' ? field.selectionStart : null,
+        }));
+      } catch {}
+    }
+    form.requestSubmit();
+  };
+  const search = (event) => {
+    if (event.target.type !== 'search') return;
+    clearTimeout(timer);
+    if (!event.isComposing) timer = setTimeout(apply, 400);
+  };
+  form.addEventListener('input', search);
+  form.addEventListener('compositionstart', () => clearTimeout(timer));
+  form.addEventListener('compositionend', search);
+  form.addEventListener('change', (event) => {
+    if (event.target.type !== 'search') apply();
+  });
+  form.addEventListener('submit', () => clearTimeout(timer));
+});
+
 // Refresh only read pages, preserving scroll and never interrupting a draft or disclosure.
 const refresh = document.querySelector('[data-auto-refresh]');
 if (refresh) {
