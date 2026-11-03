@@ -255,3 +255,13 @@ def test_api_unfinished_activity_without_deadline_stays_running(owner, timeout, 
     assert event['phase'] == 'running' and event['status_label'] == 'Running'
     assert event['finished_at'] is None and event['status'] == 'UNKNOWN'
     assert recent(31) == before
+
+
+def test_recent_includes_completion_of_an_older_long_running_check():
+    from sitewatcher.check_activity import finish, recent, start
+    seed()
+    slow = start(31, 'shared.example', 'http_basic')
+    for _ in range(110):
+        start(31, 'shared.example', 'tls_cert')
+    finish(slow, 'OK', 4000)
+    assert recent(31)[-1]['id'] == slow

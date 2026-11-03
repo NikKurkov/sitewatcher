@@ -5,11 +5,86 @@
     data-idle="{% translate 'Waiting for the next check' %}"
     data-waiting="{% translate 'No recent checks yet' %}"
     data-unavailable="{% translate 'Activity is temporarily unavailable; reconnecting…' %}"
+    data-live-label="{% translate 'Live' %}" data-recorded-label="{% translate 'Recorded replay' %}"
+    data-paused-label="{% translate 'Animation paused' %}"
+    data-reduced-label="{% translate 'Reduced motion' %}" data-mixed-label="{% translate 'Live + recorded replay' %}"
+    data-log-only="{% translate 'More checks in log' %}" data-new-events="{% translate 'New events' %}"
+    data-follow-label="{% translate 'Follow latest' %}"
 >
     <div class="activity-heading">
-        <h2 id="live-checks-title">{% translate 'Live checks' %}</h2>
-        <span class="muted" data-activity-status role="status">{% translate 'Connecting…' %}</span>
+        <div class="activity-title-group">
+            <span class="activity-signal-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+            <h2 id="live-checks-title">{% translate 'Live checks' %}</h2>
+            <span class="activity-mode" data-scene-mode>{% translate 'Connecting…' %}</span>
+        </div>
+        <div class="activity-controls" role="group" aria-label="{% translate 'Visualization controls' %}">
+            <button type="button" class="activity-control" data-scene-pause aria-pressed="false"
+                data-pause-label="{% translate 'Pause' %}" data-resume-label="{% translate 'Resume' %}"
+                title="{% translate 'Pause visualization' %}">
+                <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M4 3v8M10 3v8"/></svg>
+                <span data-scene-pause-label>{% translate 'Pause' %}</span>
+            </button>
+            <label class="activity-speed"><span class="sr-only">{% translate 'Animation speed' %}</span>
+                <select data-scene-speed title="{% translate 'Animation speed' %}">
+                    <option value="slower">{% translate 'Very slow' %}</option>
+                    <option value="slow" selected>{% translate 'Slow' %}</option>
+                    <option value="normal">{% translate 'Normal' %}</option>
+                </select>
+            </label>
+            <button type="button" class="activity-control" data-scene-replay title="{% translate 'Replay recent activity' %}">
+                <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 5a5 5 0 1 1 0 4M2 1v4h4"/></svg>
+                <span>{% translate 'Replay' %}</span>
+            </button>
+            <button type="button" class="activity-control activity-control-icon" data-scene-fullscreen
+                title="{% translate 'Fullscreen' %}" aria-label="{% translate 'Fullscreen' %}"
+                data-enter-label="{% translate 'Fullscreen' %}" data-exit-label="{% translate 'Exit fullscreen' %}">
+                <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2H2v4m8-4h4v4M2 10v4h4m8-4v4h-4"/></svg>
+            </button>
+        </div>
     </div>
-    <div class="activity-endpoints" aria-hidden="true"><span>SiteWatcher</span><span>{% translate 'Websites and services' %}</span></div>
-    <ol class="activity-lanes" data-activity-lanes></ol>
+    <div class="activity-stage">
+        <div class="activity-stage-topline" aria-hidden="true"><span>SiteWatcher <b>/</b> {% translate 'Signal room' %}</span><span class="activity-stage-direction">{% translate 'Probe' %}<i></i>{% translate 'Response' %}</span></div>
+        <svg class="activity-scene" data-activity-scene viewBox="0 0 1200 480" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
+            <defs>
+                <linearGradient id="activity-wire-gradient" x1="0" x2="1"><stop offset="0" stop-color="#00cfb0" stop-opacity=".5"/><stop offset=".6" stop-color="#40758a" stop-opacity=".3"/><stop offset="1" stop-color="#00cfb0" stop-opacity=".6"/></linearGradient>
+                <radialGradient id="activity-hub-wash"><stop offset="0" stop-color="#00cfb0" stop-opacity=".13"/><stop offset="1" stop-color="#00cfb0" stop-opacity="0"/></radialGradient>
+            </defs>
+            <g data-scene-links></g>
+            <g class="scene-hub" data-scene-hub transform="translate(180 240)">
+                <circle class="scene-hub-wash" r="155" fill="url(#activity-hub-wash)"/>
+                <circle class="scene-hub-orbit" r="103"/>
+                <path class="scene-hub-calibration" d="M-112 0h9M103 0h9M0-112v9M0 103v9M-78-78l6 6M72 72l6 6M-78 78l6-6M72-72l6-6"/>
+                <circle class="scene-hub-ring" r="76"/>
+                <path class="scene-hub-arc" d="M-66-38a76 76 0 0 1 104-28M66 38a76 76 0 0 1-104 28"/>
+                <path class="scene-hub-body" d="M-40-53H27l15 15v76L27 53h-67l-9-9v-88z"/>
+                <path class="scene-hub-detail" d="M-31-28H25M-31-8H25M-31 12H25M-31 32H7"/>
+                <path class="scene-hub-vents" d="M-31-30v4M-31-10v4M-31 10v4M-31 30v4"/>
+                <circle class="scene-hub-light" cx="24" cy="32" r="3"/>
+                <rect class="scene-hub-paddle" x="90" y="-30" width="5" height="60" rx="2"/>
+                <text class="scene-hub-label" y="141" text-anchor="middle">SiteWatcher</text>
+                <text class="scene-hub-caption" y="161" text-anchor="middle">{% translate 'Monitoring hub' %}</text>
+            </g>
+            <g data-scene-nodes></g>
+            <g data-scene-pulses></g>
+        </svg>
+        <div class="activity-scene-empty" data-scene-empty hidden><span class="activity-empty-signal" aria-hidden="true"></span><p>{% translate 'No recent checks yet' %}</p><span>{% translate 'Signals will appear here when monitoring runs.' %}</span></div>
+        <span class="activity-scene-overflow" data-scene-overflow hidden></span>
+        <div class="activity-stage-bottomline"><span data-activity-status role="status">{% translate 'Connecting…' %}</span><span class="activity-readonly">{% translate 'Observation only' %}</span></div>
+    </div>
+    <div class="activity-telemetry">
+        <dl class="activity-counters" aria-label="{% translate 'Signals in this visualization' %}">
+            <div><dt>{% translate 'Sent' %}</dt><dd data-scene-sent>0</dd></div>
+            <div><dt>{% translate 'Returned' %}</dt><dd data-scene-returned>0</dd></div>
+            <div><dt>{% translate 'In flight' %}</dt><dd data-scene-active>0</dd></div>
+        </dl>
+        <ul class="activity-legend" aria-label="{% translate 'Signal legend' %}">
+            <li><i class="signal-outbound"></i>{% translate 'Probe' %}</li><li><i class="signal-ok"></i>OK</li><li><i class="signal-warn"></i>WARN</li><li><i class="signal-crit"></i>CRIT</li><li><i class="signal-unknown"></i>UNKNOWN</li>
+        </ul>
+    </div>
+    <p class="activity-playback-note">{% translate 'Animation follows recorded events; probe durations are shown in the log.' %}</p>
+    <div class="activity-console">
+        <div class="activity-console-heading"><h3><span aria-hidden="true">›_</span> {% translate 'Event console' %} <span class="activity-console-count" data-console-count>0</span></h3><button type="button" class="activity-console-follow" data-console-follow aria-pressed="true">{% translate 'Follow latest' %}</button></div>
+        <div class="activity-console-scroll" data-console-scroll role="log" aria-live="off" tabindex="0" aria-label="{% translate 'Recent check events' %}"><ol data-activity-console></ol></div>
+    </div>
+    <ul class="sr-only" data-activity-accessible aria-label="{% translate 'Latest checks' %}"></ul>
 </section>

@@ -63,7 +63,8 @@ def recent(owner_id: int, *, limit: int = 100) -> list[dict]:
     with closing(_connect('ro')) as conn:
         rows = conn.execute(
             'SELECT id, domain, check_name, started_at, finished_at, status, elapsed_ms '
-            'FROM check_activity WHERE owner_id=? ORDER BY id DESC LIMIT ?',
+            'FROM check_activity WHERE owner_id=? '
+            'ORDER BY COALESCE(finished_at, started_at) DESC, id DESC LIMIT ?',
             (owner_id, limit),
         ).fetchall()
     return [dict(row) for row in reversed(rows)]

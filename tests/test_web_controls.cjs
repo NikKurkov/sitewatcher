@@ -109,7 +109,7 @@ assert.equal(p.timers.size, 0);
 assert.equal(JSON.parse(p.storage.get(focusKey)).id, 'q', 'native Enter also remembers focus');
 console.log('Automatic filters: debounce, external form controls, Enter, IME, focus and disclosure restoration passed.');
 
-function refreshPage(tagName, stored) {
+function refreshPage(tagName, stored, sceneOpen = false) {
   const values = new Map([['refresh', stored]]);
   const attributes = {'aria-pressed': 'true'};
   const handlers = {};
@@ -122,7 +122,8 @@ function refreshPage(tagName, stored) {
   let reloads = 0;
   vm.runInNewContext(script, {
     document: {hidden: false, activeElement: {matches: () => false}, addEventListener() {},
-      querySelector: selector => selector === '[data-auto-refresh]' ? refresh : null,
+      querySelector: selector => selector === '[data-auto-refresh]' ? refresh
+        : selector === '[data-live-activity]:not([hidden])' && sceneOpen ? {} : null,
       querySelectorAll: () => []},
     sessionStorage: {getItem: key => values.get(key) ?? null,
       setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key)},
@@ -153,6 +154,9 @@ refresh.handlers.change();
 refresh.tick();
 assert.equal(refresh.values.get('refresh'), 'off');
 assert.equal(refresh.reloads(), 1);
+refresh = refreshPage('BUTTON', 'on', true);
+refresh.tick();
+assert.equal(refresh.reloads(), 0, 'The open signal room must survive automatic refresh');
 console.log('Header refresh toggle and public-page checkbox preserve saved state and refresh behavior.');
 
 // Settings and edit pages reveal navigation only: no live fetch or refresh timer.

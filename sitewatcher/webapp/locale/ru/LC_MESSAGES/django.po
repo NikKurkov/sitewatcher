@@ -1424,3 +1424,108 @@ msgstr "Оставьте поле пустым, чтобы сохранить к
 
 msgid "Automatic refresh is available on the overview"
 msgstr "Автообновление доступно на главной странице"
+
+msgid "Live"
+msgstr "Прямой эфир"
+
+msgid "Recorded replay"
+msgstr "Повтор записанных проверок"
+
+msgid "Animation paused"
+msgstr "Анимация приостановлена"
+
+msgid "Reduced motion"
+msgstr "Уменьшенное движение"
+
+msgid "Live + recorded replay"
+msgstr "Эфир + повтор"
+
+msgid "More checks in log"
+msgstr "Ещё проверок в журнале"
+
+msgid "New events"
+msgstr "Новых событий"
+
+msgid "Follow latest"
+msgstr "К последним событиям"
+
+msgid "Visualization controls"
+msgstr "Управление визуализацией"
+
+msgid "Pause"
+msgstr "Пауза"
+
+msgid "Resume"
+msgstr "Продолжить"
+
+msgid "Pause visualization"
+msgstr "Приостановить анимацию"
+
+msgid "Animation speed"
+msgstr "Скорость анимации"
+
+msgid "Very slow"
+msgstr "Очень медленно"
+
+msgid "Slow"
+msgstr "Медленно"
+
+msgid "Normal"
+msgstr "Обычно"
+
+msgid "Replay recent activity"
+msgstr "Повторять последние сохранённые проверки"
+
+msgid "Replay"
+msgstr "Повтор"
+
+msgid "Fullscreen"
+msgstr "На весь экран"
+
+msgid "Exit fullscreen"
+msgstr "Выйти из полноэкранного режима"
+
+msgid "Signal room"
+msgstr "Центр сигналов"
+
+msgid "Probe"
+msgstr "Запрос"
+
+msgid "Response"
+msgstr "Ответ"
+
+msgid "Monitoring hub"
+msgstr "Сервер мониторинга"
+
+msgid "Signals will appear here when monitoring runs."
+msgstr "Сигналы появятся, когда начнутся проверки."
+
+msgid "Observation only"
+msgstr "Режим наблюдения"
+
+msgid "Signals in this visualization"
+msgstr "Сигналы в этой визуализации"
+
+msgid "Sent"
+msgstr "Отправлено"
+
+msgid "Returned"
+msgstr "Вернулось"
+
+msgid "In flight"
+msgstr "В пути"
+
+msgid "Signal legend"
+msgstr "Обозначения сигналов"
+
+msgid "Animation follows recorded events; probe durations are shown in the log."
+msgstr "Анимация показывает записанные события. Реальное время проверки указано в консоли."
+
+msgid "Event console"
+msgstr "Консоль событий"
+
+msgid "Recent check events"
+msgstr "Последние события проверок"
+
+msgid "Latest checks"
+msgstr "Последние проверки"

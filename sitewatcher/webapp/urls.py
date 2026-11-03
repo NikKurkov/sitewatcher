@@ -11,6 +11,7 @@ from .activity import activity
 ASSETS = {
     'workspace.css': 'text/css; charset=utf-8',
     'key_visibility.js': 'application/javascript; charset=utf-8',
+    'activity.css': 'text/css; charset=utf-8',
     'activity.js': 'application/javascript; charset=utf-8',
     'theme.js': 'application/javascript; charset=utf-8',
     'logo-light.svg': 'image/svg+xml',

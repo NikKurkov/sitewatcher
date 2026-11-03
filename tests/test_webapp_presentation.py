@@ -394,6 +394,7 @@ def test_overview_actions_are_accessible_header_icons_without_intro(owner, clien
     assert 'data-activity-toggle hidden' in header and 'aria-controls="live-checks"' in header
     assert 'data-live-activity hidden' in body
     assert '/assets/activity.js' in body
+    assert '/assets/activity.css' in body
     assert 'href="/domains/new"' in header and 'action="/domains/check"' in header
     assert 'aria-label="Refresh now"' in header
     assert 'data-refresh-enabled' in header and 'aria-pressed="true"' in header
