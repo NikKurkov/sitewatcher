@@ -178,3 +178,19 @@ def test_logging_uses_validated_partial_configuration(tmp_path, destination, for
         assert record["message"] == "probe" and record["domain"] == "example.com"
     else:
         assert "INFO sitewatcher - probe" in output and '"domain":"example.com"' in output
+
+
+@pytest.mark.parametrize(('token', 'expected'), [
+    ('crit', {'CRIT'}), ('warn', {'WARN'}), ('unknown', {'UNKNOWN'}),
+    ('problems', {'CRIT', 'WARN', 'UNKNOWN'}),
+])
+def test_detailed_status_respects_requested_statuses(bot, token, expected):
+    update, context, replies = bot
+    context.application.bot_data['cfg'].defaults.checks.http_basic = True
+    context.application.bot_data['cfg'].defaults.checks.tls_cert = True
+    for check, state in [('http_basic', 'CRIT'), ('tls_cert', 'WARN'), ('ping', 'UNKNOWN')]:
+        storage.save_history(1, 'example.com', check, state, f'{state} marker', {})
+    context.args = ['example.com', token]
+    asyncio.run(status.cmd_status(update, context))
+    for state in ('CRIT', 'WARN', 'UNKNOWN'):
+        assert (f'{state} marker' in replies[-1]) == (state in expected)
