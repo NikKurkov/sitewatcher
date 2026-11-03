@@ -6,7 +6,6 @@ from typing import List, Optional
 
 __all__ = [
     "DOMAIN_RE",
-    "_PERMISSIVE_DOMAIN_RE",
     "normalize_domain",
     "parse_domains",
 ]
@@ -20,10 +19,6 @@ _LABEL = r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)"
 
 # Strict domain: at least two labels (e.g., example.com). ASCII only.
 DOMAIN_RE = re.compile(rf"^(?:{_LABEL}\.)+{_LABEL}$", re.IGNORECASE)
-
-# Permissive domain: same as strict here (kept for backward compatibility),
-# but separated in case we want to relax rules (e.g., single-label) later.
-_PERMISSIVE_DOMAIN_RE = DOMAIN_RE
 
 
 # -----------------------------------------------------------------------------
