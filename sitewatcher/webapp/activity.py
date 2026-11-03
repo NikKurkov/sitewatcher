@@ -21,6 +21,7 @@ def activity(request):
         return JsonResponse({'error': 'Invalid query'}, status=400)
     try:
         events = check_activity.recent(request.workspace.owner_id)
+        domains = check_activity.domain_roster(request.workspace.owner_id)
     except (sqlite3.Error, OSError):
         return JsonResponse({'error': 'Activity unavailable'}, status=503)
     timeout = settings.SITEWATCHER_CONFIG.scheduler.domain_timeout_s
@@ -42,6 +43,10 @@ def activity(request):
         event['status'] = 'UNKNOWN'
         event['phase'] = 'interrupted' if interrupted else 'running'
         event['status_label'] = str(_('Interrupted') if interrupted else _('Running'))
-    response = JsonResponse({'events': events})
+    for domain in domains:
+        check = domain.pop('check_name')
+        domain['label'] = str(check_label(check)) if check else ''
+        domain['status_label'] = str(status_label(domain['status']))
+    response = JsonResponse({'events': events, 'domains': domains})
     response['Cache-Control'] = 'no-store'
     return response

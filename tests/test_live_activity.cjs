@@ -17,6 +17,7 @@ function page({saved = 'on', reduced = false, width = 1000} = {}) {
   let sequence = 0;
   let now = 0;
   let wallTime = epoch;
+  let resize;
   function node(tag = 'div') {
     const classes = new Set();
     const listeners = {};
@@ -72,7 +73,7 @@ function page({saved = 'on', reduced = false, width = 1000} = {}) {
   const selectors = ['activity-scene', 'scene-links', 'scene-nodes', 'scene-pulses', 'scene-hub',
     'activity-status', 'scene-mode', 'scene-empty', 'scene-overflow', 'scene-pause', 'scene-speed',
     'scene-replay', 'scene-fullscreen', 'activity-console', 'console-scroll', 'console-follow',
-    'activity-accessible', 'scene-sent', 'scene-returned', 'scene-active', 'console-count', 'scene-pause-label'];
+    'activity-accessible', 'domain-map', 'map-count', 'map-detail', 'map-unpin', 'scene-sent', 'scene-returned', 'scene-active', 'console-count', 'scene-pause-label'];
   const elements = Object.fromEntries(selectors.map(name => [name, node(name === 'activity-scene' ? 'svg' : 'div')]));
   const get = name => elements[name];
   get('console-scroll').append(get('activity-console'));
@@ -83,7 +84,7 @@ function page({saved = 'on', reduced = false, width = 1000} = {}) {
   panel.dataset = {timezone: 'UTC', running: 'Running', milliseconds: 'ms', interrupted: 'Interrupted',
     idle: 'Idle', waiting: 'Waiting', unavailable: 'Unavailable', reducedLabel: 'Reduced motion',
     pausedLabel: 'Paused', mixedLabel: 'Mixed', recordedLabel: 'Recorded', liveLabel: 'Live',
-    logOnly: 'Log only', newEvents: 'New events', followLabel: 'Follow'};
+    pinnedLabel: 'Pinned', selectLabel: 'Select a domain', selectedLabel: 'Selected domain', logOnly: 'Log only', newEvents: 'New events', followLabel: 'Follow'};
   panel.querySelector = selector => elements[selector.slice(6, -1)] || null;
   const document = {hidden: false, documentElement: {lang: 'en'}, body: node('body'),
     querySelector: selector => selector === '[data-live-activity]' ? panel : toggle,
@@ -93,7 +94,7 @@ function page({saved = 'on', reduced = false, width = 1000} = {}) {
   class ClockDate extends Date { static now() { return wallTime; } }
   vm.runInNewContext(source, {document, Intl, Date: ClockDate, AbortController, encodeURIComponent,
     window: {matchMedia: () => media, addEventListener(name, callback) { windowHandlers[name] = callback; }},
-    ResizeObserver: class { constructor(callback) { this.callback = callback; } observe() { this.callback(); } },
+    ResizeObserver: class { constructor(callback) { this.callback = callback; resize = callback; } observe() { this.callback(); } },
     localStorage: {getItem: key => stored.get(key), setItem: (key, value) => stored.set(key, value)},
     setTimeout: (callback, delay) => { timers.set(++sequence, {callback, delay}); return sequence; },
     clearTimeout: id => timers.delete(id),
@@ -102,8 +103,9 @@ function page({saved = 'on', reduced = false, width = 1000} = {}) {
     fetch: (url, options) => new Promise((resolve, reject) => requests.push({url, options, resolve, reject})),
   });
   const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
-  const respond = async (events, {ok = true, redirected = false, request = requests.at(-1)} = {}) => {
-    request.resolve({ok, redirected, json: async () => ({events})});
+  const respond = async (events, {ok = true, redirected = false, request = requests.at(-1),
+    domains = [...new Set(events.map(event => event.domain))].sort().map(name => ({name, status: 'UNKNOWN', label: '', status_label: 'No data'}))} = {}) => {
+    request.resolve({ok, redirected, json: async () => ({events, domains})});
     await flush();
   };
   const poll = () => {
@@ -132,6 +134,7 @@ function page({saved = 'on', reduced = false, width = 1000} = {}) {
     respond, flush, poll, frame, advance, count, pulses, position,
     visibility(hidden) { document.hidden = hidden; handlers.visibilitychange(); },
     reduced(value) { media.matches = value; mediaHandlers.change(); },
+    resize(width) { get('activity-scene').clientWidth = width; resize(); },
     pagehide() { windowHandlers.pagehide(); }};
 }
 const event = (id, phase = 'finished', extra = {}) => ({id, domain: `site-${id}.example`, label: 'TLS certificate',
@@ -241,7 +244,7 @@ async function burstAndConsole() {
   for (let i = 0; i < 200; i++) {
     compact.frame();
     assert.ok(compact.pulses().length <= 2, 'compact scene bounds concurrent flights');
-    assert.ok(compact.get('scene-nodes').children.length <= 3);
+    assert.ok(compact.get('scene-nodes').children.length <= 4);
   }
 }
 
@@ -260,7 +263,7 @@ async function reducedMotionAndSafety() {
   const domainLink = row.children[2].children.find(child => child.tag === 'a');
   assert.equal(domainLink.href, `/domains/history?domain=${encodeURIComponent(unsafe)}`);
   assert.ok(p.get('activity-accessible').textContent.includes(unsafe));
-  assert.ok(p.get('scene-nodes').textContent.includes(unsafe), 'SVG title retains full domain as text');
+  assert.ok(p.get('domain-map').children[0].attrs['aria-label'].includes(unsafe), 'static map retains full domain as accessible text');
   p.poll();
   await p.respond([event(1, 'finished', {domain: unsafe, label})]);
   assert.equal(p.get('activity-console').children.length, 2);
@@ -343,8 +346,61 @@ async function cancellationAndFailures() {
   assert.equal(p.frames.size, 0);
 }
 
+async function pinnedCardSurvivesResize() {
+  const p = page();
+  const domains = [1, 2, 3, 4].map(id => ({name: `site-${id}.example`, status: 'OK', label: '', status_label: 'Healthy'}));
+  await p.respond([event(1, 'running'), event(2, 'running'), event(3, 'running')], {domains});
+  p.get('domain-map').children[3].click();
+  p.advance(3100);
+  assert.equal(p.count('active'), 3);
+  p.resize(350);
+  assert.equal(p.get('scene-nodes').children.length, 4);
+  assert.ok(p.get('scene-nodes').children.some(node => node.dataset.pinned === 'true'), 'selected idle domain survives resizing three active journeys to mobile');
+  for (const node of p.get('scene-nodes').children) assert.ok(!node.attrs.transform.includes('undefined'));
+}
+
+async function domainMapAndRetirement() {
+  const p = page();
+  const domains = Array.from({length: 50}, (_, i) => ({name: `map-${String(i).padStart(2, '0')}.example`, status: 'OK', label: 'TLS certificate', status_label: 'Healthy'}));
+  await p.respond([], {domains});
+  assert.equal(p.get('domain-map').children.length, 50, 'all domains exist even with no recent events');
+  assert.equal(p.get('scene-nodes').children.length, 0, 'idle map does not fill large cards');
+  const first = p.get('domain-map').children[0];
+  first.dispatch('mouseenter');
+  const description = p.get('map-detail').textContent;
+  p.poll();
+  await p.respond([], {domains});
+  assert.equal(p.get('map-detail').textContent, description, 'polling does not erase the hovered domain details');
+  first.click();
+  assert.equal(first.attrs['aria-pressed'], 'true');
+  assert.equal(p.get('scene-nodes').children.length, 1, 'pin reveals an idle domain without inventing a probe');
+  assert.equal(p.count('sent'), 0);
+  p.poll();
+  await p.respond([event(8, 'finished', {domain: domains[1].name})], {domains});
+  p.advance(12500);
+  assert.equal(p.count('returned'), 1);
+  assert.equal(p.get('scene-nodes').children.length, 1, 'finished card collapses; pinned card remains');
+  assert.equal(p.get('domain-map').children[0], first, 'polling preserves button identity and keyboard focus');
+  first.click();
+  p.advance(3000);
+  assert.equal(p.get('scene-nodes').children.length, 0, 'unpin releases the idle card');
+  p.poll();
+  await p.respond([], {domains: domains.slice(1)});
+  assert.equal(p.get('domain-map').children.length, 49, 'deleted domain leaves the map');
+  assert.equal(first.parentNode, null);
+  p.reduced(true);
+  p.get('domain-map').children[0].click();
+  assert.equal(p.get('scene-nodes').children.length, 1);
+  p.get('map-unpin').click();
+  assert.equal(p.get('scene-nodes').children.length, 0, 'reduced motion unpins immediately without an animation clock');
+  p.get('domain-map').children[0].click();
+  p.poll();
+  await p.respond([], {domains: domains.slice(2)});
+  assert.equal(p.get('scene-nodes').children.length, 0, 'deleting a selected domain removes its static card');
+}
+
 (async () => {
-  for (const test of [journey, pausedPolling, burstAndConsole, reducedMotionAndSafety, missingRunningRetiresWithoutResponse, cancellationAndFailures]) {
+  for (const test of [domainMapAndRetirement, pinnedCardSurvivesResize, journey, pausedPolling, burstAndConsole, reducedMotionAndSafety, missingRunningRetiresWithoutResponse, cancellationAndFailures]) {
     await test();
     console.log(`Live activity: ${test.name} passed`);
   }

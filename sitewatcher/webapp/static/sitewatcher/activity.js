@@ -21,6 +21,9 @@
   const scroll = find('[data-console-scroll]');
   const follow = find('[data-console-follow]');
   const accessible = find('[data-activity-accessible]');
+  const domainMap = find('[data-domain-map]');
+  const mapDetail = find('[data-map-detail]');
+  const unpin = find('[data-map-unpin]');
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
   const storageKey = 'sitewatcher_live_activity';
   const speedKey = 'sitewatcher_scene_speed';
@@ -29,6 +32,9 @@
   });
   const records = new Map();
   const nodes = new Map();
+  const roster = new Map();
+  let selectedName = null;
+  let inspectedName = null;
   const logged = new Map();
   let queue = [];
   let flights = [];
@@ -71,7 +77,7 @@
     : event.phase === 'interrupted' ? panel.dataset.interrupted : event.status_label;
   const legDuration = () => ({slower: 7000, slow: 4000, normal: 2000})[speed.value] || 4000;
   const capacity = () => compact ? 2 : 3;
-  const pinned = domain => flights.some(flight => flight.event.domain === domain);
+  const pinned = domain => selectedName === domain || flights.some(flight => flight.event.domain === domain);
   const point = (route, t) => {
     const p = Math.max(0, Math.min(1, t));
     const q = 1 - p;
@@ -133,8 +139,88 @@
     updateFollow();
   };
 
+  const mapDescription = item => `${item.name} · ${item.label ? item.label + ' — ' : ''}${item.status_label}`;
+  const snapshotEvent = item => ({domain: item.name, label: item.label || panel.dataset.selectedLabel,
+    status: item.status, status_label: item.status_label, phase: 'snapshot'});
+  const describeMap = () => {
+    const item = roster.get(inspectedName);
+    mapDetail.textContent = item ? mapDescription(item)
+      : selectedName ? `${panel.dataset.pinnedLabel}: ${selectedName}` : panel.dataset.selectLabel;
+  };
+  const paintMap = () => {
+    const running = new Set([...records.values()].filter(event => event.phase === 'running').map(event => event.domain));
+    for (const item of roster.values()) {
+      item.button.dataset.level = running.has(item.name) ? 'running' : level(snapshotEvent(item));
+      item.button.classList.toggle('is-open', nodes.has(item.name));
+      item.button.setAttribute('aria-pressed', String(selectedName === item.name));
+      const description = running.has(item.name) ? `${item.name} · ${panel.dataset.running}` : mapDescription(item);
+      if (item.button.title !== description) item.button.title = description;
+      item.button.setAttribute('aria-label', item.button.title);
+    }
+    unpin.hidden = !selectedName;
+    describeMap();
+  };
+  const selectDomain = name => {
+    const previous = nodes.get(selectedName);
+    selectedName = selectedName === name ? null : name;
+    inspectedName = null;
+    if (previous && !pinned(previous.domain)) {
+      if (reduced.matches) removeNode(previous);
+      else previous.retireAt = visualTime + 1600;
+    }
+    if (selectedName && roster.has(selectedName)) {
+      const active = flights.find(item => item.event.domain === selectedName);
+      const node = ensureNode(active ? active.event : snapshotEvent(roster.get(selectedName)));
+      if (node) { node.retireAt = undefined; node.group.classList.remove('is-leaving'); }
+    }
+    nodes.forEach(node => { node.group.dataset.pinned = String(node.domain === selectedName); });
+    empty.hidden = records.size > 0 || nodes.size > 0;
+    paintMap();
+    wake();
+  };
+  const reconcileMap = domains => {
+    const names = new Set(domains.map(item => item.name));
+    for (const [name, item] of roster) {
+      if (!names.has(name)) {
+        item.button.remove();
+        roster.delete(name);
+        if (selectedName === name) selectedName = null;
+        for (const flight of [...flights]) if (flight.event.domain === name) removeFlight(flight);
+        queue = queue.filter(item => item.event.domain !== name);
+        const node = nodes.get(name);
+        if (node) removeNode(node);
+      }
+    }
+    for (const item of domains) {
+      const old = roster.get(item.name);
+      if (old) { Object.assign(old, item); continue; }
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'activity-map-dot';
+      button.dataset.domain = item.name;
+      button.addEventListener('click', () => selectDomain(item.name));
+      const describe = () => { inspectedName = item.name; describeMap(); };
+      const restore = () => { inspectedName = null; describeMap(); };
+      button.addEventListener('mouseenter', describe);
+      button.addEventListener('focus', describe);
+      button.addEventListener('mouseleave', restore);
+      button.addEventListener('blur', restore);
+      domainMap.append(button);
+      roster.set(item.name, {...item, button});
+    }
+    find('[data-map-count]').textContent = String(roster.size);
+    describeMap();
+  };
+  const removeNode = node => {
+    node.group.remove();
+    node.path.remove();
+    nodes.delete(node.domain);
+    roster.get(node.domain)?.button.classList.remove('is-open');
+    empty.hidden = records.size > 0 || nodes.size > 0;
+  };
+
   const layoutNode = node => {
-    const ys = compact ? [128, 320, 512] : [68, 138, 208, 278, 348, 418];
+    const ys = compact ? [96, 245, 395, 544] : [68, 138, 208, 278, 348, 418];
     const center = compact ? {x: 80, y: 320, scale: .65} : {x: 180, y: 240, scale: 1};
     const x = compact ? 350 : 930;
     const y = ys[node.slot];
@@ -154,7 +240,8 @@
   };
   const updateNode = (node, event) => {
     node.last = event;
-    node.touched = Date.parse(stamp(event));
+    node.touched = Date.parse(stamp(event)) || visualTime;
+    node.group.dataset.pinned = String(node.domain === selectedName);
     node.group.dataset.level = level(event);
     node.meta.textContent = compact && event.label.length > 24 ? event.label.slice(0, 23) + '…' : event.label;
     node.state.textContent = stateText(event);
@@ -169,16 +256,14 @@
       updateNode(node, event);
       return node;
     }
-    const order = compact ? [1, 0, 2] : [2, 3, 1, 4, 0, 5];
+    const order = compact ? [1, 2, 0, 3] : [2, 3, 1, 4, 0, 5];
     let slot = order.find(index => ![...nodes.values()].some(node => node.slot === index));
     if (slot === undefined) {
       const oldest = [...nodes.values()].filter(node => !pinned(node.domain))
         .sort((a, b) => a.touched - b.touched)[0];
       if (!oldest) return null;
       slot = oldest.slot;
-      oldest.group.remove();
-      oldest.path.remove();
-      nodes.delete(oldest.domain);
+      removeNode(oldest);
     }
     const path = ns('path', {class: 'scene-link'});
     const group = ns('g', {class: 'scene-node'});
@@ -188,9 +273,12 @@
     const state = ns('text', {class: 'scene-node-status', x: 16, y: 30});
     const body = ns('rect', {class: 'scene-node-body', x: 0, y: -31, width: 245, height: 62, rx: 5});
     const dot = ns('circle', {class: 'scene-node-dot', cx: 228, cy: -19, r: 3});
-    group.append(title, body,
+    const content = ns('g', {class: 'scene-node-content'});
+    group.append(title, content);
+    content.append(body,
       ns('rect', {class: 'scene-node-paddle', x: -22, y: -22, width: 5, height: 44, rx: 1}),
       dot, name, meta, state);
+    group.addEventListener('click', () => selectDomain(event.domain));
     links.append(path);
     stations.append(group);
     const node = {domain: event.domain, slot, group, path, title, name, meta, state, body, dot, touched: visualTime};
@@ -231,7 +319,11 @@
     flight.group.remove();
     flights = flights.filter(item => item !== flight);
     const node = nodes.get(flight.event.domain);
-    if (node) node.group.classList.toggle('is-active', pinned(node.domain));
+    if (node) {
+      node.group.classList.toggle('is-active', flights.some(item => item.event.domain === node.domain));
+      if (selectedName !== node.domain && !pinned(node.domain)) node.retireAt = visualTime + 2400;
+    }
+    paintMap();
   };
   const enqueue = (event, recorded = false) => {
     if (flights.some(item => item.event.id === event.id) || queue.some(item => item.event.id === event.id)) return;
@@ -258,6 +350,8 @@
   const launch = item => {
     const node = ensureNode(item.event);
     if (!node) return false;
+    node.retireAt = undefined;
+    node.group.classList.remove('is-leaving');
     const group = ns('g');
     const trail = Array.from({length: 6}, () => ns('circle', {class: 'scene-pulse', r: 2.5}));
     const glow = ns('circle', {class: 'scene-pulse scene-pulse-aura', r: 12, opacity: .12});
@@ -270,6 +364,7 @@
     flights.push(flight);
     node.group.classList.add('is-active');
     sent++;
+    paintMap();
     drawFlight(flight);
     updateCounters();
     return true;
@@ -281,6 +376,12 @@
     const delta = lastFrame === undefined ? 0 : Math.min(80, now - lastFrame);
     lastFrame = now;
     visualTime += delta;
+    for (const node of [...nodes.values()]) {
+      if (!pinned(node.domain) && node.retireAt !== undefined) {
+        node.group.classList.toggle('is-leaving', visualTime >= node.retireAt - 500);
+        if (visualTime >= node.retireAt) removeNode(node);
+      }
+    }
     if (queue.length && flights.length < capacity() && visualTime >= nextLaunch) {
       const item = queue.shift();
       if (launch(item)) nextLaunch = visualTime + 1400;
@@ -308,7 +409,8 @@
     }
     updateCounters();
     const moving = flights.some(flight => flight.phase !== 'wait' || flight.event.phase !== 'running');
-    if (moving || queue.length && flights.length < capacity()) frame = requestAnimationFrame(tick);
+    const retiring = [...nodes.values()].some(node => !pinned(node.domain) && node.retireAt !== undefined);
+    if (moving || retiring || queue.length && flights.length < capacity()) frame = requestAnimationFrame(tick);
     else {
       lastFrame = undefined;
       if (looping && !flights.length && !queue.length && recent().some(event => event.phase === 'finished')) {
@@ -320,29 +422,39 @@
   function wake() {
     if (enabled && !paused && !document.hidden && !reduced.matches && (frame === undefined || frame === null)) {
       lastFrame = undefined;
+      if (!flights.length) nextLaunch = visualTime;
       frame = requestAnimationFrame(tick);
     }
   }
   const layout = () => {
-    const next = svg.clientWidth < 740;
+    const next = svg.clientWidth < 950;
     if (compact !== next) {
       compact = next;
       // Slots are stable within each layout; pin active domains before rebuilding on resize.
-      const selected = [...flights.map(item => item.event), ...recent()];
+      const selected = [...flights.map(item => item.event),
+        ...(selectedName && roster.has(selectedName) ? [snapshotEvent(roster.get(selectedName))] : []),
+        ...[...nodes.values()].map(node => node.last)];
+      const deadlines = new Map([...nodes.values()].map(node => [node.domain, node.retireAt]));
       nodes.clear();
       links.replaceChildren();
       stations.replaceChildren();
       for (const event of selected) {
-        if (!nodes.has(event.domain) && nodes.size < (compact ? 3 : 6)) ensureNode(event);
+        if (!nodes.has(event.domain) && nodes.size < (compact ? 4 : 6)) {
+          const node = ensureNode(event);
+          node.retireAt = deadlines.get(event.domain);
+          node.group.classList.toggle('is-active', flights.some(item => item.event.domain === event.domain));
+        }
       }
     }
     panel.dataset.sceneLayout = compact ? 'compact' : 'wide';
     svg.setAttribute('viewBox', compact ? '0 0 620 640' : '0 0 1200 480');
     nodes.forEach(node => { layoutNode(node); updateNode(node, node.last); });
     flights.forEach(drawFlight);
+    paintMap();
   };
-  const render = events => {
+  const render = (events, domains) => {
     const initial = !baseline;
+    reconcileMap(domains);
     const visibleIds = new Set(events.map(event => event.id));
     // A bounded feed can lose an unfinished probe. Retire its picture without fabricating a response.
     for (const flight of flights) {
@@ -382,15 +494,20 @@
       displayed.add(event.domain);
       const active = flights.find(item => item.event.domain === event.domain);
       if (nodes.has(event.domain)) updateNode(nodes.get(event.domain), active ? active.event : event);
-      else if (nodes.size < (compact ? 3 : 6)) ensureNode(event);
+
     }
+    if (selectedName && roster.has(selectedName)) {
+      const active = flights.find(item => item.event.domain === selectedName);
+      ensureNode(active ? active.event : snapshotEvent(roster.get(selectedName)));
+    }
+    paintMap();
     accessible.replaceChildren();
     ordered.slice(0, 6).forEach(event => {
       const item = document.createElement('li');
       item.textContent = `${event.domain}: ${event.label} — ${stateText(event)}`;
       accessible.append(item);
     });
-    empty.hidden = records.size > 0;
+    empty.hidden = records.size > 0 || nodes.size > 0;
     replay.disabled = reduced.matches || !ordered.some(event => event.phase === 'finished');
     const waiting = ordered.filter(event => event.phase === 'running').length;
     const status = waiting ? `${panel.dataset.running}: ${waiting}`
@@ -408,7 +525,7 @@
         signal: controller.signal, headers: {Accept: 'application/json'}});
       if (!response.ok || response.redirected) throw new Error('Activity unavailable');
       const data = await response.json();
-      if (request === controller && enabled && !document.hidden) render(data.events);
+      if (request === controller && enabled && !document.hidden) render(data.events, data.domains);
     } catch (error) {
       if (request === controller && error.name !== 'AbortError') notice.textContent = panel.dataset.unavailable;
     } finally {
@@ -457,6 +574,12 @@
       records.clear();
       logged.clear();
       nodes.clear();
+      roster.clear();
+      selectedName = inspectedName = null;
+      domainMap.replaceChildren();
+      find('[data-map-count]').textContent = '0';
+      mapDetail.textContent = panel.dataset.selectLabel;
+      unpin.hidden = true;
       links.replaceChildren();
       stations.replaceChildren();
       log.replaceChildren();
@@ -467,6 +590,7 @@
       updateCounters();
     }
   };
+  unpin.addEventListener('click', () => selectDomain(selectedName));
   toggle.hidden = false;
   toggle.addEventListener('click', () => {
     setEnabled(!enabled);
@@ -541,7 +665,11 @@
       flights.forEach(item => item.group.remove());
       flights = [];
       queue = [];
-      nodes.forEach(node => node.group.classList.remove('is-active'));
+      for (const node of [...nodes.values()]) {
+        node.group.classList.remove('is-active');
+        if (node.domain !== selectedName) removeNode(node);
+      }
+      paintMap();
     }
     updateCounters();
     wake();

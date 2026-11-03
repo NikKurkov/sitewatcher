@@ -1529,3 +1529,21 @@ msgstr "Последние события проверок"
 
 msgid "Latest checks"
 msgstr "Последние проверки"
+
+msgid "Pinned"
+msgstr "Закреплён"
+
+msgid "Selected domain"
+msgstr "Выбранный домен"
+
+msgid "Select a dot to pin a domain"
+msgstr "Нажмите на точку, чтобы закрепить домен"
+
+msgid "Unpin domain"
+msgstr "Открепить домен"
+
+msgid "Last saved check result"
+msgstr "Последний сохранённый результат проверки"
+
+msgid "Select a domain to keep its card open"
+msgstr "Выберите домен, чтобы оставить его карточку открытой"

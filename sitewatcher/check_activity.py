@@ -68,3 +68,19 @@ def recent(owner_id: int, *, limit: int = 100) -> list[dict]:
             (owner_id, limit),
         ).fetchall()
     return [dict(row) for row in reversed(rows)]
+
+
+def domain_roster(owner_id: int) -> list[dict]:
+    """All owned domains, including those outside the bounded lifecycle feed.
+
+    The color describes the last saved individual check, not aggregate availability.
+    Only public display fields are selected; diagnostics never enter this DTO.
+    """
+    with closing(_connect('ro')) as conn:
+        rows = conn.execute(
+            'SELECT d.name, COALESCE(h.status, \'UNKNOWN\') AS status, h.check_name '
+            'FROM domains d LEFT JOIN history h ON h.id=('
+            'SELECT MAX(id) FROM history WHERE owner_id=d.owner_id AND domain=d.name) '
+            'WHERE d.owner_id=? ORDER BY d.name', (owner_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]

@@ -265,3 +265,19 @@ def test_recent_includes_completion_of_an_older_long_running_check():
         start(31, 'shared.example', 'tls_cert')
     finish(slow, 'OK', 4000)
     assert recent(31)[-1]['id'] == slow
+
+
+def test_api_roster_includes_idle_domains_and_only_owned_last_results(owner):
+    storage.add_domain(31, 'idle.example')
+    storage.add_domain(99, 'private.example')
+    storage.save_history(31, 'shared.example', 'http_basic', 'CRIT', 'private diagnostic', {})
+    storage.save_history(31, 'shared.example', 'tls_cert', 'OK', 'latest diagnostic', {})
+    storage.save_history(99, 'shared.example', 'secret_probe', 'WARN', 'other owner', {})
+    payload = json.loads(call_api(owner).content)
+    assert payload['events'] == []
+    assert payload['domains'] == [
+        {'name': 'idle.example', 'status': 'UNKNOWN', 'label': '', 'status_label': 'UNKNOWN'},
+        {'name': 'shared.example', 'status': 'OK', 'label': 'TLS certificate',
+         'status_label': 'OK'},
+    ]
+    assert 'diagnostic' not in json.dumps(payload) and 'secret_probe' not in json.dumps(payload)

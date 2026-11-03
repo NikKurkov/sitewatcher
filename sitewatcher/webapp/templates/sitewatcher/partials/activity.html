@@ -9,6 +9,8 @@
     data-paused-label="{% translate 'Animation paused' %}"
     data-reduced-label="{% translate 'Reduced motion' %}" data-mixed-label="{% translate 'Live + recorded replay' %}"
     data-log-only="{% translate 'More checks in log' %}" data-new-events="{% translate 'New events' %}"
+    data-pinned-label="{% translate 'Pinned' %}" data-selected-label="{% translate 'Selected domain' %}"
+    data-select-label="{% translate 'Select a dot to pin a domain' %}"
     data-follow-label="{% translate 'Follow latest' %}"
 >
     <div class="activity-heading">
@@ -44,6 +46,7 @@
     </div>
     <div class="activity-stage">
         <div class="activity-stage-topline" aria-hidden="true"><span>SiteWatcher <b>/</b> {% translate 'Signal room' %}</span><span class="activity-stage-direction">{% translate 'Probe' %}<i></i>{% translate 'Response' %}</span></div>
+        <div class="activity-field">
         <svg class="activity-scene" data-activity-scene viewBox="0 0 1200 480" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
             <defs>
                 <linearGradient id="activity-wire-gradient" x1="0" x2="1"><stop offset="0" stop-color="#00cfb0" stop-opacity=".5"/><stop offset=".6" stop-color="#40758a" stop-opacity=".3"/><stop offset="1" stop-color="#00cfb0" stop-opacity=".6"/></linearGradient>
@@ -67,6 +70,13 @@
             <g data-scene-nodes></g>
             <g data-scene-pulses></g>
         </svg>
+        <aside class="activity-map" aria-label="{% translate 'All domains' %}">
+            <div class="activity-map-heading"><h3>{% translate 'All domains' %} <span data-map-count>0</span></h3><button type="button" data-map-unpin hidden title="{% translate 'Unpin domain' %}" aria-label="{% translate 'Unpin domain' %}">×</button></div>
+            <p class="activity-map-key">{% translate 'Last saved check result' %}</p>
+            <div class="activity-map-grid" data-domain-map role="group" aria-label="{% translate 'Select a domain to keep its card open' %}"></div>
+            <p class="activity-map-detail" data-map-detail>{% translate 'Select a dot to pin a domain' %}</p>
+        </aside>
+        </div>
         <div class="activity-scene-empty" data-scene-empty hidden><span class="activity-empty-signal" aria-hidden="true"></span><p>{% translate 'No recent checks yet' %}</p><span>{% translate 'Signals will appear here when monitoring runs.' %}</span></div>
         <span class="activity-scene-overflow" data-scene-overflow hidden></span>
         <div class="activity-stage-bottomline"><span data-activity-status role="status">{% translate 'Connecting…' %}</span><span class="activity-readonly">{% translate 'Observation only' %}</span></div>
