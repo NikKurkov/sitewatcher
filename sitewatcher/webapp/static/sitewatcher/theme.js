@@ -26,20 +26,97 @@ document.addEventListener('click', async (event) => {
   }
 });
 
+// Submit native GET filters automatically, keeping focus across the resulting navigation.
+const filterFocusKey = 'sitewatcher_filter_focus';
+try {
+  const saved = JSON.parse(sessionStorage.getItem(filterFocusKey));
+  sessionStorage.removeItem(filterFocusKey);
+  const field = saved && document.getElementById(saved.id);
+  if (field && saved.path === location.pathname && field.value === saved.value) {
+    const disclosure = field.closest('details');
+    if (disclosure) disclosure.open = true;
+    field.focus();
+    if (field.type === 'search' && saved.cursor !== null) {
+      field.setSelectionRange(saved.cursor, saved.cursor);
+    }
+  }
+} catch {}
+
+document.querySelectorAll('.filter-form, .history-filters').forEach((form) => {
+  let timer;
+  const apply = () => {
+    clearTimeout(timer);
+    form.requestSubmit();
+  };
+  const search = (event) => {
+    if (event.target.type !== 'search') return;
+    clearTimeout(timer);
+    if (!event.isComposing) timer = setTimeout(apply, 400);
+  };
+  const targets = [form, ...(form.id ? document.querySelectorAll(`[form="${form.id}"]`) : [])];
+  targets.forEach((target) => {
+    target.addEventListener('input', search);
+    target.addEventListener('compositionstart', () => clearTimeout(timer));
+    target.addEventListener('compositionend', search);
+    target.addEventListener('change', (event) => {
+      if (event.target.type !== 'search') apply();
+    });
+  });
+  form.addEventListener('submit', () => {
+    clearTimeout(timer);
+    const field = document.activeElement;
+    if ((form.contains(field) || field?.form === form) && field.id) {
+      try {
+        sessionStorage.setItem(filterFocusKey, JSON.stringify({
+          id: field.id, value: field.value, path: location.pathname,
+          cursor: field.type === 'search' ? field.selectionStart : null,
+        }));
+      } catch {}
+    }
+  });
+});
+
+// Other owner pages open the overview's saved live panel without polling from a form.
+document.querySelectorAll('[data-activity-navigation]').forEach((link) => {
+  link.hidden = false;
+  link.addEventListener('click', () => {
+    try { localStorage.setItem('sitewatcher_live_activity', 'on'); } catch {}
+  });
+});
+
 // Refresh only read pages, preserving scroll and never interrupting a draft or disclosure.
 const refresh = document.querySelector('[data-auto-refresh]');
 if (refresh) {
   const enabled = refresh.querySelector('[data-refresh-enabled]');
   refresh.querySelector('[data-refresh-option]').hidden = false;
-  try { enabled.checked = sessionStorage.getItem('refresh') !== 'off'; } catch {}
-  enabled.addEventListener('change', () => {
-    try { sessionStorage.setItem('refresh', enabled.checked ? 'on' : 'off'); } catch {}
+  const isToggle = enabled.tagName === 'BUTTON';
+  const isEnabled = () => isToggle ? enabled.getAttribute('aria-pressed') === 'true' : enabled.checked;
+  const setEnabled = (value) => {
+    if (isToggle) {
+      enabled.setAttribute('aria-pressed', String(value));
+      enabled.title = value ? enabled.dataset.enabledLabel : enabled.dataset.disabledLabel;
+    } else {
+      enabled.checked = value;
+    }
+  };
+  try { setEnabled(sessionStorage.getItem('refresh') !== 'off'); } catch {}
+  enabled.addEventListener(isToggle ? 'click' : 'change', () => {
+    const value = isToggle ? !isEnabled() : enabled.checked;
+    setEnabled(value);
+    try { sessionStorage.setItem('refresh', value ? 'on' : 'off'); } catch {}
   });
   let draft = false;
-  document.querySelector('.filter-form')?.addEventListener('input', () => { draft = true; });
-  document.querySelector('.filter-form')?.addEventListener('change', () => { draft = true; });
+  const filters = document.querySelector('.filter-form');
+  if (filters) {
+    [filters, ...filters.elements].forEach((target) => {
+      target.addEventListener('input', () => { draft = true; });
+      target.addEventListener('change', () => { draft = true; });
+    });
+  }
   setInterval(() => {
-    if (enabled.checked && !document.hidden && !draft && !document.querySelector('details[open]')
+    if (isEnabled() && !document.hidden && !draft && !document.querySelector('details[open]')
+        && !document.querySelector('[data-live-activity]:not([hidden])')
+        && !document.querySelector('.domains-table[aria-busy=true], .domains-table[data-dragging=true]')
         && !document.querySelector('.status-tooltip:not([hidden])')
         && !document.activeElement.matches('input,select,textarea,button,[contenteditable]')) {
       location.reload();

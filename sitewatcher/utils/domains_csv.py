@@ -1,15 +1,15 @@
-# sitewatcher/utils/domains_csv.py
 from __future__ import annotations
 
 import csv
 import io
 import json
+from urllib.parse import urlsplit
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from .. import storage
 from ..config import AppConfig, ChecksModel, validate_domain_override, validation_message
-from .domains import normalize_domain
+from .domains import normalize_domain, normalize_site_url
 
 __all__ = ["HEADERS", "RowResult", "ImportReport", "export_domains_csv", "import_domains_csv"]
 
@@ -37,7 +37,8 @@ HEADERS: Tuple[str, ...] = (
     "interval_minutes",
 )
 LEGACY_HEADERS = HEADERS
-HEADERS = (*HEADERS, 'checks.rkn_domain', 'checks.rkn_ip')
+RKN_HEADERS = (*HEADERS, 'checks.rkn_domain', 'checks.rkn_ip')
+HEADERS = (*RKN_HEADERS, 'http_url')
 
 
 @dataclass
@@ -146,6 +147,7 @@ def _flatten_for_export(override: Dict) -> Dict[str, str]:
         return "" if v is None else ("true" if bool(v) else "false")
 
     return {
+        "http_url": (override["http_url"] or "-") if "http_url" in override else "",
         "checks.http_basic": b(checks.get("http_basic")),
         "checks.tls_cert": b(checks.get("tls_cert")),
         "checks.ping": b(checks.get("ping")),
@@ -285,7 +287,7 @@ def import_domains_csv(owner_id: int, data: bytes, *, mode: str = "merge", cfg: 
     has_header = len(first) >= 1 and first[0] == "domain"
     if has_header:
         header = first
-        if tuple(header) not in (HEADERS, LEGACY_HEADERS):
+        if tuple(header) not in (HEADERS, RKN_HEADERS, LEGACY_HEADERS, (*LEGACY_HEADERS, "http_url")):
             # Enforce exact header match to avoid accidental misalignment
             return ImportReport(errors=["invalid header; expected exact predefined header"], added=0, updated=0, skipped=0)
     else:
@@ -302,7 +304,8 @@ def import_domains_csv(owner_id: int, data: bytes, *, mode: str = "merge", cfg: 
         if not row or (len(row) == 1 and (row[0] or "").strip() == ""):
             continue
         columns = tuple(header) if has_header else (
-            HEADERS if len(row) >= len(HEADERS) else LEGACY_HEADERS)
+            HEADERS if len(row) >= len(HEADERS) else
+            RKN_HEADERS if len(row) >= len(RKN_HEADERS) else LEGACY_HEADERS)
         if len(row) < len(columns):
             report.skipped += 1
             msg = f"line {line_no}: not enough columns"
@@ -314,7 +317,10 @@ def import_domains_csv(owner_id: int, data: bytes, *, mode: str = "merge", cfg: 
         data_map = dict(zip(columns, row, strict=False))
         raw_domain = data_map["domain"]
         try:
-            domain = _normalize_domain(raw_domain)
+            target = normalize_site_url(raw_domain)
+            if not target:
+                raise ValueError('invalid website address')
+            domain = _normalize_domain(urlsplit(target).hostname)
         except Exception as e:
             report.skipped += 1
             msg = f"line {line_no}: domain '{raw_domain}': {e}"
@@ -327,6 +333,11 @@ def import_domains_csv(owner_id: int, data: bytes, *, mode: str = "merge", cfg: 
             existed = storage.domain_exists(owner_id, domain)
             current = storage.get_domain_override(owner_id, domain) if mode == "merge" and existed else None
             override = _build_override_from_row(data_map, mode=mode)
+            address = data_map.get('http_url', '').strip()
+            if address:
+                override['http_url'] = None if address == '-' else address
+            elif target != f'https://{domain}/':
+                override['http_url'] = target
             validate_domain_override(
                 cfg if cfg is not None else AppConfig(), domain, override, current,
             )

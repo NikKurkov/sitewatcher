@@ -1,7 +1,7 @@
 {% load i18n %}
 {% if stamp %}
-    <time datetime="{{ stamp.iso }}">{{ stamp.label }}</time>
-    <span class="muted"> · {% if stamp.future %}{% translate 'Timestamp is in the future' %}{% elif stamp.just_now %}{% translate 'Just now' %}{% else %}{% blocktranslate with elapsed=stamp.value|timesince %}{{ elapsed }} ago{% endblocktranslate %}{% endif %}</span>
+    <time datetime="{{ stamp.iso }}">{% if compact %}{{ stamp.compact_label }}{% else %}{{ stamp.label }}{% endif %}</time>
+    <span class="muted">{% if not compact and not no_separator %} · {% endif %}{% if stamp.future %}{% translate 'Timestamp is in the future' %}{% elif stamp.just_now %}{% translate 'Just now' %}{% else %}{% blocktranslate with elapsed=stamp.value|timesince %}{{ elapsed }} ago{% endblocktranslate %}{% endif %}</span>
 {% else %}
     <span class="muted">{% translate 'Not checked yet' %}</span>
 {% endif %}

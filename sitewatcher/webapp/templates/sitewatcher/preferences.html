@@ -1,6 +1,7 @@
 {% extends 'sitewatcher/base.html' %}
 {% load i18n %}
 {% block title %}{% translate 'Settings · SiteWatcher' %}{% endblock %}
+{% block page_scripts %}<script defer src="{% url 'asset' 'key_visibility.js' %}"></script>{% endblock %}
 {% block content %}
     <div class="page-heading">
         <div>
@@ -75,8 +76,8 @@
                     {% translate 'Use Find chats, choose your chat and save it. Then send a test notification.' %}
                 </li>
             </ol>
-            <details {% if form.bot_token.errors or form.chat_id.errors %}open{% endif %}>
-                <summary>{% translate 'Advanced: bot token and manual chat ID' %}</summary>
+            <details {% if form.bot_token.errors or form.chat_id.errors or form.telegram_proxy.errors %}open{% endif %}>
+                <summary>{% translate 'Advanced: bot token, proxy and manual chat ID' %}</summary>
                 <div class="field">
                     <label for="{{ form.bot_token.id_for_label }}">{{ form.bot_token.label }}</label>
                     {{ form.bot_token }}
@@ -88,6 +89,24 @@
                         </div>
                     {% endif %}
                     <p class="field-help">{% translate 'Leave blank to keep the configured token. Tokens are stored privately and never shown again. A running worker picks up token changes on its next tick. Restart a polling bot after changing its token.' %}</p>
+                </div>
+                <div class="field">
+                    <label for="{{ form.telegram_proxy.id_for_label }}">{{ form.telegram_proxy.label }}</label>
+                    {{ form.telegram_proxy }}
+                    {% if form.telegram_proxy.errors %}
+                        <div id="id_telegram_proxy_error">
+                            {% for error in form.telegram_proxy.errors %}
+                                <p class="field-error">{{ error }}</p>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                    <p class="field-help">{% translate 'Use an HTTP(S) or SOCKS5 URL, https://t.me/socks or tg://socks link. MTProto is not supported. Leave blank to keep the proxy. Credentials are stored privately and never shown again.' %}</p>
+                    <p class="field-help">{% if proxy_present %}{% translate 'Telegram proxy configured.' %}{% else %}{% translate 'No Telegram proxy configured; standard proxy environment settings still apply.' %}{% endif %}</p>
+                    {% if proxy_environment_override %}
+                        <p class="notice">{% translate 'Environment override: TELEGRAM_PROXY takes priority. Saved changes apply after that override is removed.' %}</p>
+                    {% endif %}
+                    <label class="checkbox-field">{{ form.remove_telegram_proxy }} {{ form.remove_telegram_proxy.label }}</label>
+                    <p class="field-help">{% translate 'Removing the saved proxy restores standard proxy environment settings. A running worker picks up proxy changes on its next tick. Restart a polling bot after changing its proxy.' %}</p>
                 </div>
                 <div class="field">
                     <label for="{{ form.chat_id.id_for_label }}">{{ form.chat_id.label }}</label>
@@ -102,6 +121,39 @@
                     <p class="field-help">{% translate 'Use a numeric chat ID, including the minus sign for a group. Leave blank to keep your destination. This changes delivery only; your existing domains and history stay with your account.' %}</p>
                 </div>
             </details>
+            <h2>VirusTotal</h2>
+                <div class="field" data-key-field data-key-present="{{ virustotal_present|yesno:'true,false' }}">
+                    <label for="{{ form.virustotal_api_key.id_for_label }}">{{ form.virustotal_api_key.label }}</label>
+                    <div class="secret-input">
+                        {{ form.virustotal_api_key }}
+                        <button class="icon-button key-visibility" type="button" data-key-visibility hidden
+                            aria-pressed="false" aria-controls="{{ form.virustotal_api_key.id_for_label }}"
+                            aria-label="{% translate 'Show API key' %}" title="{% translate 'Show API key' %}"
+                            data-show-label="{% translate 'Show API key' %}" data-hide-label="{% translate 'Hide API key' %}"
+                            data-error-label="{% translate 'Could not show the key. Reload Settings and try again.' %}"
+                        >
+                            <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                            <svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m3 3 18 18 M10 5h2c6 0 10 7 10 7a20 20 0 0 1-4 5 M6 6a21 21 0 0 0-4 6s4 7 10 7a14 14 0 0 0 5-1 M10 10l4 4"/></svg>
+                        </button>
+                    </div>
+                    <p class="field-error" role="status" data-key-status hidden></p>
+                    {% if form.virustotal_api_key.errors %}
+                        <div id="id_virustotal_api_key_error">
+                            {% for error in form.virustotal_api_key.errors %}
+                                <p class="field-error">{{ error }}</p>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                    <p class="field-help">{% translate 'Leave blank to keep the key. Use the eye button to show or hide it. Changes apply on the next malware probe without restarting the worker or bot.' %}</p>
+                    <p class="field-help">{% if virustotal_present %}{% translate 'VirusTotal API key configured.' %}{% else %}{% translate 'VirusTotal is not configured; malware checks need an API key.' %}{% endif %}</p>
+                    {% if virustotal_environment_override %}
+                        <p class="notice">{% translate 'Environment override: VIRUSTOTAL_API_KEY takes priority. Saved changes apply after that override is removed.' %}</p>
+                    {% elif virustotal_config_override %}
+                        <p class="notice">{% translate 'Installation override: malware.vt_api_key takes priority. Saved changes apply after that override is removed.' %}</p>
+                    {% endif %}
+                    <label class="checkbox-field">{{ form.remove_virustotal_api_key }} {{ form.remove_virustotal_api_key.label }}</label>
+                    <p class="field-help">{% translate 'This key is shared by this installation. Removing the saved key keeps environment and installation overrides. VirusTotal only reads existing URL reports; no URL is submitted for analysis.' %}</p>
+                </div>
             {% if not read_only %}
                 <div class="form-actions">
                     <button class="primary" type="submit">{% translate 'Save settings' %}</button>

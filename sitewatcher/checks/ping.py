@@ -1,4 +1,3 @@
-# sitewatcher/checks/ping.py
 from __future__ import annotations
 
 import asyncio

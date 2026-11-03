@@ -39,3 +39,16 @@ tests
 **/*.telegram-token
 .telegram-token-*
 **/.telegram-token-*
+
+# Private Telegram proxy settings and atomic-write temporary files.
+*.telegram-proxy
+.telegram-proxy-*
+**/*.telegram-proxy
+**/.telegram-proxy-*
+assets
+
+# Private VirusTotal API key and atomic-write temporary files.
+*.virustotal-key
+.virustotal-key-*
+**/*.virustotal-key
+**/.virustotal-key-*

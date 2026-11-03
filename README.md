@@ -1,41 +1,46 @@
 # SiteWatcher
 
-SiteWatcher monitors websites in a private browser workspace, with optional Telegram alerts and a revocable public status page. A web process and a monitoring worker share SQLite; no external database is needed.
+SiteWatcher следит за сайтами и показывает результаты в закрытой веб-панели. Уведомления в Telegram и публичная страница состояния подключаются по желанию. Веб-процесс и фоновый worker работают с одной SQLite: отдельный сервер базы данных не нужен.
 
-Checks: HTTP status and latency, TLS certificate, ping, page keywords, defacement markers, RKN listing, IP changes, IP blocklists, TCP ports, WHOIS/RDAP, and passive VirusTotal reputation. RKN has two independent checks: **RKN domain blocking** (`rkn_domain`) reports Critical for a domain or parent-domain listing, while **RKN IP listing** (`rkn_ip`) reports Warning for a listed DNS-resolved IPv4 address, which may belong to shared hosting. Both use the same cached index from Antifilter, with bol-van/rulist as fallback; neither proves actual provider-level blocking. IPv6 is not checked. Legacy `checks.rkn_block` and `schedules.rkn_block` configure both checks unless explicit new keys override them; `rkn.check_ip: false` globally disables the IP check. Existing combined results remain in history as **Legacy RKN blocking** and are not reused by the new checks. CSV backups include separate columns and still accept the old format.
+Доступные проверки: HTTP-ответ и скорость загрузки, сертификат TLS, ping, ключевые слова и признаки подмены страницы, реестр РКН, смена IP, IP-блоклисты, TCP-порты, WHOIS/RDAP и репутация в VirusTotal. Затратные проверки выключены по умолчанию или запускаются реже. Настройки и история привязаны к владельцу.
 
-Expensive checks are off by default or run less often. Each Telegram user owns their own domain list and overrides.
+## Быстрый запуск через Docker
 
-## Quick start with Docker
-
-Install Docker with the Compose plugin, then run these two commands from the checkout:
+Нужны Docker и плагин Compose. В каталоге проекта выполните:
 
 ```bash
 docker compose run --rm --build setup
 docker compose up -d
 ```
 
-Setup asks you to choose a username and hidden password. Open **http://127.0.0.1:8080**,
-sign in and add your first domain. No `.env`, Telegram token or YAML editing is required.
-The nonroot web and worker containers share `sitewatcher-data`; database, web secret
-and optional Telegram connection survive restarts. The host port binds only to loopback.
-Use `SITEWATCHER_PORT=8081` with both commands if port 8080 is occupied.
+Создайте имя пользователя и пароль, затем откройте **http://127.0.0.1:8080**. Можно сразу добавлять домены: `.env`, Telegram и редактирование YAML для этого не требуются. Если порт занят, задайте `SITEWATCHER_PORT=8081` при запуске Compose.
 
-`docker compose logs -f web worker` shows service logs. Stop with `docker compose down`;
-keep the volume (do not add `-v`). Back up before rebuilding/upgrading. For a standalone
-probe, use `docker compose run --rm web sitewatcher scan example.com --only http_basic,tls_cert`.
-The container always uses `/data/sitewatcher.db`.
+Контейнеры работают без root. База, ключ веб-панели и сохранённое подключение Telegram находятся в томе `sitewatcher-data` и сохраняются при перезапуске. Порт доступен только с локальной машины.
 
-After connecting Telegram in Settings, optional command polling starts with
-`docker compose --profile telegram up -d`. This bot uses `--no-scheduler`; the worker
-remains the sole scheduler. Restrict Telegram user IDs and pass optional Telegram proxy
-settings through a local Compose override before enabling a private bot. A native
-`sitewatcher bot` still runs the original combined bot/scheduler; stop the worker first,
-or use `sitewatcher bot --no-scheduler` for command polling alongside it.
+```bash
+# Просмотр журналов
+docker compose logs -f web worker
 
-## Quick start with Python
+# Остановка с сохранением данных
+docker compose down
 
-Python 3.12 or newer is required.
+# Разовая проверка без добавления домена
+docker compose run --rm web sitewatcher scan example.com --only http_basic,tls_cert
+```
+
+Не добавляйте `-v` к команде остановки, если нужно сохранить данные. Перед обновлением сделайте резервную копию. В контейнере используется база `/data/sitewatcher.db`.
+
+После подключения Telegram в настройках можно включить команды бота:
+
+```bash
+docker compose --profile telegram up -d
+```
+
+Этот бот запускается с `--no-scheduler`: расписанием продолжает управлять worker. Для закрытого бота передайте `TELEGRAM_ALLOWED_USER_IDS` через локальный Compose override.
+
+## Запуск из Python
+
+Поддерживаются Python 3.12–3.14 и SQLite 3.35+ с JSON1.
 
 ```bash
 python3.12 -m venv .venv
@@ -43,192 +48,169 @@ python3.12 -m venv .venv
 pip install -e .
 sitewatcher setup
 sitewatcher web
-# In a second terminal, activate the same environment and use the same working directory:
+```
+
+Во втором терминале из того же каталога:
+
+```bash
+. .venv/bin/activate
 sitewatcher worker
 ```
 
-The bot starts with built-in settings. An optional YAML file can be supplied with `--config config.yaml`; copy [the example](sitewatcher/data/config.yaml.example) and edit it. An explicitly specified but missing file causes an error. The `DATABASE_PATH` environment variable defaults to `./sitewatcher.db`. Its parent directory must exist. The process needs write access there and, when RKN is enabled, to the nearby `z_i_index.db` index.
+Откройте **http://127.0.0.1:8080**. Оба процесса должны использовать одну базу и одинаковую конфигурацию.
 
-Set `TELEGRAM_PROXY` for the bot connection. Set `http.proxy` in YAML for HTTP requests made by the checks. Set `TELEGRAM_ALERT_CHAT_ID` to send alerts to a fixed chat, otherwise they go to the user's most recent chat. VirusTotal needs `malware.vt_api_key` in YAML and the malware check enabled; its free-tier request limits are configurable. Protect that YAML file as a secret.
+По умолчанию база — `./sitewatcher.db`. Для постоянной установки задайте абсолютный `DATABASE_PATH`; его каталог должен существовать и быть доступен для записи. Рядом создаётся индекс РКН `z_i_index.db`.
 
-Unknown configuration keys, invalid thresholds, and malformed allowlists are rejected at startup. An empty `TELEGRAM_ALLOWED_USER_IDS` allows everyone; a private bot needs an explicit comma-separated list of positive user IDs. Domain overrides are validated before being saved. An explicit `0` keeps its documented meaning rather than selecting a default.
+Встроенной конфигурации достаточно для начала. Для изменения общих параметров скопируйте [пример YAML](sitewatcher/data/config.yaml.example) и передавайте `--config config.yaml` командам. Явно указанный отсутствующий файл, неизвестные ключи, неверные пороги и некорректные списки доступа отклоняются при запуске. Значение `0` сохраняет свой смысл и не заменяется значением по умолчанию.
 
-For optional colored console logs, install `pip install -e '.[rich]'` and set `logging.pretty.use_rich: true` in YAML.
+## Веб-панель
 
-## Bot commands
+### Домены и история
 
-| Command | Purpose |
+- Добавляйте до 50 доменов через запятую с общими настройками. Весь список проверяется до сохранения; при ошибке или дубликате он не сохраняется.
+- Нажмите звёздочку, чтобы поднять домен в избранное. Внутри избранных и остальных доменов сначала показываются проблемы.
+- Наведите курсор на ярлык критической ошибки или предупреждения либо перейдите к нему клавишей Tab: появятся причины и время каждой проверки.
+- В карточке домена доступны история за сутки, 7 и 30 дней, график времени ответа и фильтры последних проверок. Точки графика показывают время и значение при наведении или фокусе.
+- Поиск расположен рядом с заголовком «Домен», а заголовок «Статус» открывает список фильтров. Переключатель 24 ч / 7 дн. / 30 дн. находится в верхней сводке рядом со временем последней проверки. Примеры: [компьютер](docs/screenshots/header-filters-desktop.png), [телефон](docs/screenshots/header-filters-mobile.png). Поиск и фильтры применяются сразу. Диапазон дат включает оба выбранных дня в часовом поясе панели; история показывает до 100 подходящих записей. Фильтры истории не меняют период графика.
+
+Кнопка с сигналом в верхней панели открывает **«Проверки в реальном времени»**: тёмную сцену с сервером SiteWatcher, доменами и светящимися импульсами в духе PONG. Запрос летит к домену, ждёт результат и возвращается с его цветом. По умолчанию путь занимает четыре секунды в каждую сторону; скорость, пауза, повтор последних событий и полноэкранный режим управляют только изображением. Сам мониторинг работает в обычном темпе. Сохранённые события явно помечены как повтор.
+
+Под сценой находится небольшая прокручиваемая консоль: время, понятное название проверки, домен, результат и реальная длительность. Она обновляется каждые две секунды, в том числе на паузе анимации. При чтении старых строк автопрокрутка останавливается; кнопка возвращает к последним событиям. Карта показывает все сохранённые домены, включая сайты без недавних событий. Точки сохраняют своё место; цвет отражает последний сохранённый результат отдельной проверки, а наведение показывает домен, название проверки и состояние. Активный сайт разворачивается в карточку, после возвращения ответа задерживается на пару секунд и сворачивается обратно. Нажатие на точку или карточку закрепляет один домен; повторное нажатие или крестик открепляет его. Закрепление не запускает проверку. Сцена допускает до шести раскрытых карточек и трёх одновременных сигналов; на узком экране — до четырёх карточек и двух новых сигналов. Большая карта имеет собственную прокрутку, журнал хранит до 100 строк. Всплески событий не создают бесконечную очередь анимации.
+
+Включение запоминается в браузере. Выключение блока и скрытие вкладки прекращают опрос; системное предпочтение уменьшенного движения оставляет статичную схему и консоль. Пока сцена открыта, автообновление не перезагружает всю страницу. Открытие сцены не запускает проверки: она показывает события мониторинга, а не отдельные сетевые пакеты. [Обычный вид](docs/screenshots/signal-room-desktop.png), [полный экран](docs/screenshots/signal-room-expanded.png), [телефон](docs/screenshots/signal-room-mobile.png).
+
+Для выбранного домена доступен **Сетевой маршрут**: нажмите точку домена на карте и **Запросить маршрут**. Worker выполнит UDP-traceroute и далее будет обновлять его раз в час; обновления можно отключить. **Показать маршрут** разворачивает цепочку реальных узлов с IP, PTR-именами и временем ответа. Весь маршрут помещается в одной сцене: узлы показаны точками, сигналы проходят через них. На телефоне цепочка укладывается в несколько рядов. В самой сцене видны IP, имя и задержка выбранного узла; на коротких маршрутах подписи находятся также под точками. Карточка следует за сигналом, наведение показывает другой узел, щелчок закрепляет его (повторный снимает закрепление). Выбрать узел можно и кнопкой в полном списке, в том числе с клавиатуры. Горизонтальной прокрутки нет. Полный список узлов доступен под сценой. [Пример маршрута на тестовых данных](docs/screenshots/network-route-desktop.png).
+
+Трассировка ограничена 24 узлами и примерно 30 секундами. В Docker утилита уже установлена; при запуске из исходников установите системный пакет `traceroute`. Дополнительные привилегии не нужны. Измеряется маршрут от worker, а не от посетителя; UDP-путь может отличаться от HTTPS. Пропуски помечаются `*` и не меняют статус сайта. Обратное движение сигнала условное: обратный маршрут не измеряется. Маршруты и внутренние IP доступны только владельцу; на публичной странице остаётся карта HTTP-проверок.
+
+Надпись «Некоторые проверки просрочены» появляется после двух интервалов без нового результата: при интервале 5 минут — через 10 минут. Оценка свежести результатов остаётся отдельной и не продлевается этим порогом.
+
+Домены в основной таблице можно перетаскивать мышью за маркер слева. С клавиатуры — фокус на маркере и **Alt + ↑ / ↓**. Порядок сохраняется для рабочего пространства и восстанавливается после обновления страницы; избранные остаются сверху, перестановка доступна внутри своей группы. При активном фильтре скрытые домены сохраняют свои места. Если сервер не подтвердил сохранение, таблица возвращается к прежнему порядку и показывает сообщение.
+
+Кнопки с пиктограммами в верхней панели позволяют добавлять и проверять домены, обновлять страницу и включать автообновление. Названия видны в подсказках. Общая панель кнопок остаётся на тех же местах в настройках и других закрытых разделах; кнопка сигналов возвращает к визуализации на главной. На страницах форм автообновление недоступно, чтобы не сбрасывать ввод. В строках списка есть значки изменения, ручной проверки и приостановки/возобновления. Проверка и пауза сохраняют выбранные поиск, фильтр и период. В карточке домена сверху находятся изменение, проверка, приостановка и удаление; удаление требует текстового подтверждения.
+
+Ручная проверка сохраняет свежие результаты, но не отправляет сообщения в Telegram. Worker оценивает сохранённое состояние на следующем цикле. В веб-процессе одновременно выполняется одна ручная проверка; стандартный тайм-аут на домен — 120 секунд.
+
+### Настройки
+
+Английский язык включён по умолчанию; русский выбирается в настройках. Выбор сохраняется для учётной записи и страницы входа. Публичная страница использует язык владельца. Диагностика внешних сервисов и идентификаторы API/CSV могут оставаться на исходном языке.
+
+Часовой пояс по умолчанию — `Europe/Moscow`; время хранится в UTC. В списке доменов последняя проверка отображается компактно: `2026-11-03 15:46`. Переключатель светлой и тёмной темы запоминает выбор и с JavaScript сохраняет незаполненные формы.
+
+Адрес сайта можно вводить как `site.ru`, `http://site.ru` или `https://site.ru`, в том числе с каталогом: `site.ru/catalog/`. Без протокола используется HTTPS. Проверки доступности, ключевых слов и подмены страницы обращаются к заданному адресу; DNS, сертификат, регистрация, РКН и трассировка используют имя хоста. В редактировании HTTP/HTTPS выбирается слева от поля с доменом и каталогом. Можно изменить домен: история, избранное, порядок и настройки сохраняются; кэш прежнего хоста и сетевой маршрут не переносятся. Старые результаты остаются историей, а новый домен ожидает свежую проверку. Одна запись соответствует одному имени домена. Адрес сохраняется при CSV-экспорте и импорте. [Редактирование адреса на телефоне](docs/screenshots/domain-address-edit-mobile.png).
+
+Интервал проверки заранее заполнен. Унаследованные параметры показываются как `Default` с текущим значением. Ключевые слова задаются через запятую; фразы с запятыми заключайте в кавычки. TCP-порты принимают числа и диапазоны, например `1-1024, 2205`. Пустое поле наследует общий список, `-` очищает его. Индивидуальные параметры оставшихся портов сохраняются.
+
+Изменение `interval_minutes` у домена задаёт интервал для всех его проверок; `0` останавливает расписание. Без переопределения действуют интервалы `schedules.<check>.interval_minutes`. Планировщик просыпается каждую минуту; увеличение `scheduler.interval_minutes` уменьшает точность расписания. Ручные проверки могут использовать кэш согласно `cache_ttl_minutes`, плановые выполняются заново, когда наступает срок.
+
+Панель отклоняет устаревшие правки при одновременном редактировании. Пароли прокси повторно не показываются. Удаление индивидуального HTTP-прокси возвращает домен к общему клиенту, у которого может быть собственный прокси. CSV-экспорт содержит переопределения и может содержать учётные данные прокси — храните его как секрет. Импорт проверяет строки и сообщает об ошибках; замена затрагивает только перечисленные домены.
+
+## Telegram и прокси
+
+Telegram необязателен. В **Настройках → Дополнительные настройки**:
+
+1. Сохраните токен, полученный у BotFather.
+2. При необходимости сохраните прокси.
+3. Откройте бота, отправьте `/start`, затем нажмите «Найти чаты» в панели.
+4. Сохраните получателя и отправьте тестовое уведомление.
+
+Обычное сохранение настроек не отправляет сообщение. Поиск чатов не забирает обновления; webhook или работающий polling могут мешать поиску. В этом случае можно указать числовой ID чата вручную.
+
+Поддерживаются HTTP, HTTPS, SOCKS5 и ссылки Telegram SOCKS:
+
+```text
+http://proxy.example:8080
+https://proxy.example:8443
+socks5://proxy.example:1080
+https://t.me/socks?server=proxy.example&port=1080
+tg://socks?server=proxy.example&port=1080
+```
+
+Авторизация поддерживается через `user:password@` в URL или параметры `user` и `pass` в ссылке Telegram. Спецсимволы кодируйте как компоненты URL. Ссылки преобразуются локально, без открытия `t.me`. `socks5h` также принимается. MTProto-ссылки `t.me/proxy` с `secret` не поддерживаются: бот использует HTTPS Bot API, для MTProto нужен другой клиент.
+
+Сохранённые токен и прокси находятся рядом с базой в файлах `<имя-базы>.telegram-token` и `<имя-базы>.telegram-proxy` с правами `0600`. Поля не показывают сохранённые секреты; пустое поле оставляет значение, отдельное действие удаляет прокси. Файлы исключены из Git и Docker build context. Включайте их в защищённую резервную копию.
+
+Непустые `TELEGRAM_TOKEN` и `TELEGRAM_PROXY` в окружении имеют приоритет над сохранёнными значениями. Если отдельный прокси Telegram не задан, HTTPX сохраняет стандартное поведение переменных окружения прокси, включая `HTTPS_PROXY` и `ALL_PROXY`. Удаление сохранённого прокси не отключает эти переменные.
+
+Worker перечитывает токен и прокси между циклами. После их изменения перезапустите работающий polling-бот. Подключение панели, команды бота и отправка уведомлений используют одну настройку прокси. Для HTTP-проверок сайтов отдельно используется `http.proxy` в YAML или переопределение домена.
+
+Получатель уведомлений выбирается в порядке: `alerts.chat_id` в YAML, сохранённый чат владельца, `TELEGRAM_ALERT_CHAT_ID`. Смена получателя не меняет владельца доменов и истории. Пустой `TELEGRAM_ALLOWED_USER_IDS` разрешает доступ всем; для закрытого бота укажите разрешённые положительные ID через запятую.
+
+### Команды бота
+
+| Команда | Действие |
 | --- | --- |
-| `/add example.com` | Add domains with the short keyword and interval wizard. |
-| `/add_domain example.com` | Add a domain immediately with defaults. |
-| `/remove example.com`, `/remove_all`, `/list` | Manage your domains. |
-| `/check example.com`, `/check_all` | Run checks; add `--force` to skip cached results. An unknown domain is checked without adding it or sending alerts. |
-| `/status`, `/history` | Read saved results without running checks. |
-| `/cfg example.com`, `/cfg_set`, `/cfg_unset` | View and change a domain's settings. |
-| `/export_csv`, `/import_csv` | Back up and restore domains with overrides. |
-| `/clear_cache` | Clear WHOIS and RKN caches. |
-| `/stop_alerts`, `/start_alerts` | Toggle your alerts. |
-| `/help` | Show detailed syntax in the bot. |
+| `/add example.com` | Добавить домены с выбором ключевых слов и интервала. |
+| `/add_domain example.com` | Добавить домен со стандартными настройками. |
+| `/remove example.com`, `/remove_all`, `/list` | Управлять своими доменами. |
+| `/check example.com`, `/check_all` | Проверить домены; `--force` обходит кэш. Неизвестный домен не добавляется и не вызывает уведомлений. |
+| `/status`, `/history` | Посмотреть сохранённые результаты. |
+| `/cfg example.com`, `/cfg_set`, `/cfg_unset` | Просмотреть и изменить настройки домена. |
+| `/export_csv`, `/import_csv` | Сохранить и восстановить список с настройками. |
+| `/clear_cache` | Очистить кэш WHOIS и РКН. |
+| `/stop_alerts`, `/start_alerts` | Выключить или включить свои уведомления. |
+| `/help` | Показать подробный синтаксис. |
 
-A per-domain `interval_minutes` override applies to all enabled checks for that domain. Set it to `0` to stop scheduled checks. Without an override, every check uses its own `schedules.<check>.interval_minutes` value. The scheduler wakes every minute by default; a larger `scheduler.interval_minutes` gives coarser timing. Manual checks can use cached history according to `cache_ttl_minutes`; scheduled checks run live when due.
+## Проверки РКН и внешние сервисы
 
-## CLI
+РКН разделён на две независимые проверки:
 
-```bash
-sitewatcher scan example.com --only http_basic,tls_cert
-sitewatcher check_domain example.com --owner 123456789 --force
-sitewatcher check_all --owner 123456789
-sitewatcher doctor
-sitewatcher doctor --json
-```
+- **Блокировка домена** (`rkn_domain`): критическая ошибка при записи домена или его родительского домена в базе.
+- **IP в реестре** (`rkn_ip`): предупреждение при записи IPv4, полученного через DNS. IP может принадлежать общему хостингу.
 
-`scan` does not add a domain, save monitoring history, or send alerts. Some checks maintain their own local caches. `check_domain` and `check_all` save results. Use `--config path/to/config.yaml` with any command.
+Эти результаты отражают списки источников, а не доступность сайта у конкретного провайдера. IPv6 здесь не проверяется.
 
-`doctor` checks configuration, database schema/integrity and local permissions without initializing a database, running network checks, or contacting Telegram. Its exit code is `0` when the installation is ready and `1` when action is needed. JSON output contains credential presence flags, never their values. Web startup migrates storage additively; `--read-only` still requires owner authentication. A missing database with a writable parent is a valid fresh-install state for `doctor`.
+Основной источник — [Antifilter](https://antifilter.download/): `domains.lst`, `ip.lst` и `subnet.lst` из `/list/`. Резервный — [bol-van/rulist](https://github.com/bol-van/rulist): `reestr_hostname.txt`, `reestr_ipban4.txt` и `reestr_resolved_ip4.txt` из одного зафиксированного коммита. Используются точные IPv4 и CIDR, без приблизительных сводок `/24`. Неполный, устаревший или недоступный основной набор заменяется резервным целиком.
 
-## Local owner account
+Обновление индекса задаёт `rkn.cache_ttl_hours` — по умолчанию 12 часов. Максимальный возраст исходных файлов задаёт `rkn.max_source_age_hours` — по умолчанию 168 часов. У Antifilter берётся самая старая дата `Last-Modified` компонентов, у bol-van — самая старая дата изменения трёх файлов на выбранном коммите. Новый посторонний коммит не делает старые списки свежими. Отсутствующие, будущие и просроченные даты не позволяют подтвердить отсутствие записи. Если оба источника не прошли проверку, прежний индекс сохраняется, а результат становится неопределённым.
 
-Create the local dashboard account on the server with `sitewatcher setup`. It prompts for a username and a hidden password twice; passwords must be at least 12 characters and pass Django's common/numeric/personal-value checks. A terminal with hidden input is required. Setup is local only: there is no public registration or email reset.
+Старые `checks.rkn_block` и `schedules.rkn_block` задают обе проверки, если новые ключи не указаны явно. `rkn.check_ip: false` выключает проверку IP глобально. Старые объединённые результаты остаются в истории, но не участвуют в текущем статусе, кэше, уведомлениях и расписании. CSV принимает прежний формат. `rkn.source: z-i` и `rkn.z_i_url` принимаются для совместимости, но Zapret-Info больше не запрашивается; старый индекс перестраивается автоматически.
 
-Without `--owner`, setup creates a fresh local monitoring identity without Telegram and does not adopt any existing Telegram history. To deliberately bind the initial account to an existing monitoring owner, use `sitewatcher setup --owner <owner_id>`. Setup refuses a second account and never rebinds an existing workspace.
+Для VirusTotal включите проверку malware у домена и сохраните API-ключ в **Настройках → VirusTotal**. Ключ скрыт по умолчанию. Значок глаза показывает действующий ключ по отдельному авторизованному запросу и скрывает его повторным нажатием. Просмотр не сохраняет ключ заново; изменение поля явно заменяет его. [Пример поля](docs/screenshots/virustotal-key-settings.png). Пустое поле оставляет сохранённый ключ, отдельная галочка удаляет его. Ключ хранится рядом с базой в `<имя-базы>.virustotal-key` с правами `0600` и применяется при следующей проверке без перезапуска процессов. Приоритет: непустой `VIRUSTOTAL_API_KEY` в окружении, затем `malware.vt_api_key` в YAML, затем ключ из панели. Эти файлы содержат секреты; включайте их в защищённую резервную копию. Лимиты запросов настраиваются в YAML. Проверка только читает готовые отчёты VirusTotal и не отправляет сайт на сканирование; отсутствие ключа и отсутствие отчёта показываются как разные причины неопределённого результата. WHOIS/RDAP использует общую базу; для поддерживаемых российских зон доступен fallback на порт 43. DNSBL зависит от ответов DNS, ошибки запросов дают неопределённый результат. Базовая точка проверки смены IP хранится в основной базе отдельно для каждого владельца и разовых проверок. При переносе старой отдельной базы задайте `ipchange.db_path`: данные копируются один раз для каждой области без изменения исходника. Иначе первый запуск создаст новую точку отсчёта.
 
-For recovery, run `sitewatcher password` on the server. This resets the configured owner's password, clears its login lockout and invalidates existing authenticated sessions while preserving monitoring data. It requires no browser session and never displays the password. Browser password changes keep the current session and invalidate other sessions. Authentication uses database sessions with a 12-hour expiry and locks a username/client-address pair after five failures for 15 minutes; forwarded client-address headers are ignored.
+## Учётная запись и публичная страница
 
-## Unattended monitoring without Telegram
+`sitewatcher setup` создаёт локального владельца. Нужен терминал со скрытым вводом; пароль — от 12 символов с проверками Django. Публичной регистрации и сброса через почту нет.
 
-After `sitewatcher setup`, start automatic monitoring independently from the web process:
+Без `--owner` создаётся новая учётная запись мониторинга без присвоения существующей истории Telegram. Для намеренной привязки первой учётной записи используйте `sitewatcher setup --owner <owner_id>`. Повторная настройка не создаёт второго владельца и не меняет привязку. Параметр `web --owner` лишь проверяет существующую привязку, а не открывает чужие данные.
 
-```bash
-sitewatcher worker
-# In a separate process, using the same DATABASE_PATH and YAML:
-sitewatcher web --port 8080
-```
+Для восстановления доступа выполните на сервере `sitewatcher password`. Команда меняет пароль, снимает блокировку входа и завершает прежние сессии, сохраняя данные мониторинга. При смене пароля в панели текущая сессия остаётся, остальные завершаются. Сессия действует 12 часов; после пяти неудач пара «имя пользователя/адрес клиента» блокируется на 15 минут. Заголовки с пересланным адресом клиента игнорируются.
 
-The worker runs scheduled checks and UTC history cleanup without a Telegram token or update polling. If Telegram is configured, it uses the same destinations, incident retry and cooldown policy as the bot. Changes to stored domain settings and notification preferences take effect on later ticks. Startup warmup finishes before periodic work; paused domains remain idle. Only one scheduler may own a database: stop the scheduled bot before starting a worker, or disable the bot's scheduler for command-only polling. The shared lock is held until shutdown and released automatically after a crash.
+Публичная страница выключена по умолчанию. В настройках выберите свои домены и включите публикацию. Скопируйте выданную ссылку сразу: она показывается один раз. Перевыпуск ссылки отзывает старую; отключение закрывает доступ. Пустой выбор публикует пустую страницу.
 
-Last checked timestamps, measurement ages and overdue states describe saved observations; the dashboard does not claim a worker is running. Keep a worker or scheduled bot running for automatic checks. Ctrl-C and service-manager SIGTERM close active resources cleanly. History cleanup runs once per UTC day while the worker is up, with a catch-up on startup if today's cleanup time has passed; normal retention and optional Sunday optimization still apply.
+Публичные домены отображаются компактным списком с колонками состояния, истории, доли успешных проверок и времени последней проверки. Нажатие на строку раскрывает график и таблицу измерений; список работает и без JavaScript. Примеры: [компьютер](docs/screenshots/public-compact-light.png), [телефон](docs/screenshots/public-compact-mobile.png).
 
-## Local web dashboard
+Верхняя панель публичной страницы использует те же кнопки-пиктограммы с подсказками: карта, обновление и автообновление. Выбор периода находится в сводке рядом с последней проверкой. Кнопка сигнала включает ту же визуальную карту: медленный обмен, паузу, скорость, повтор, полный экран и закрепление сайта. В ней видны только опубликованные домены и их HTTP-проверки; остальные проверки и закрытые сайты не передаются гостю. Карта и консоль обновляются раз в две секунды. Изменение списка публикации учитывается при следующем опросе, а отзыв ссылки очищает карту. Включение запоминается отдельно от закрытой панели. [Карта на компьютере](docs/screenshots/public-map-desktop.png), [на телефоне](docs/screenshots/public-map-mobile.png).
 
-Run this alongside a worker or bot, with the same `DATABASE_PATH` and YAML configuration:
+Ссылка открывает HTTP-данные выбранных доменов: историю, время ответа, состояние свежести/паузы и события выполнения проверок. ID владельца, приватные домены, диагностические сообщения, сырые метрики и управление недоступны. Добавьте `data` к ссылке для JSON. Хранится только SHA-256 токена; ответы запрещают кэширование, индексацию и передачу referrer. При утечке перевыпустите ссылку. Reverse proxy должен отключать или скрывать журналирование `/status/`.
 
-```bash
-sitewatcher web --port 8080
-# Open http://127.0.0.1:8080
-```
+## Эксплуатация и восстановление
 
-Sign in with the account created by `sitewatcher setup`. Each account sees only its
-own domains and history. `--owner <owner_id>` verifies an existing workspace binding;
-it never grants access to another owner.
+На одну базу нужен **один веб-процесс и один планировщик**. Обычный `sitewatcher bot` уже содержит планировщик: остановите worker или запустите бот с `--no-scheduler`. Общая блокировка защищает от одновременного запуска планировщиков и освобождается после остановки или аварии.
 
-### Domains and history
+Worker выполняет проверки и очистку истории без Telegram. При настроенном Telegram он также отправляет уведомления. Ошибка доставки сохраняет ожидающее уведомление до следующего цикла. Ухудшение и восстановление обходят интервал повторных сообщений; одинаковая серьёзность соблюдает cooldown. Неудачная или отсутствующая проверка не считается успешной; восстановление требует свежих результатов включённых проверок.
 
-- Add one domain or up to 50 comma-separated domains with shared settings. The whole
-  batch is validated before saving; an invalid or duplicate domain leaves it unsaved.
-- Star a domain to keep it at the top. Within the favorite and ordinary groups,
-  problems appear first. Favorites do not change monitoring settings.
-- Hover or focus a Critical/Warning badge to see the affected checks, their diagnostics
-  and individual observation times. Missing and overdue checks are identified explicitly.
-- Open a domain for 24-hour, 7-day or 30-day HTTP history. Hover or focus a graph point
-  for its time and response latency. Empty intervals remain empty.
-- Filter recent check history by date range, check and state. Dates use the workspace
-  timezone, include both selected days, and return the latest 100 matching records.
-  These filters do not change the graph period.
+Очистка выполняется раз в сутки по UTC с догоняющим запуском при старте. Настроенные сроки хранения и воскресная оптимизация сохраняются. Ctrl-C и SIGTERM корректно закрывают ресурсы.
 
-**Successful checks** is the share of successful recorded HTTP checks among successful
-and failed checks. Unknown observations are excluded; this is not continuous-time uptime.
-The chart data table is also available without JavaScript. Current state, historical
-percentages and manual/scheduled observation counts remain separate.
+`/healthz` проверяет читаемость базы и схемы, а не активность worker или здоровье сайтов. Время последней проверки описывает сохранённое наблюдение. Автообновление панели и публичной страницы выполняется раз в минуту и приостанавливается при редактировании фильтра или открытой подсказке. Формы редактирования и входа не обновляются автоматически.
 
-Use the icon buttons at the top of a domain page to edit, check, pause/resume or remove
-it. Removal requires typed confirmation. **Check all domains now** is at the top of the
-overview. Manual checks save fresh results without sending Telegram messages; the
-worker evaluates saved state on its next tick. One manual run is allowed at a time in
-the web process, with the configured per-domain timeout (120 seconds by default).
+Режим `sitewatcher web --read-only` запрещает изменения мониторинга и предпочтений. Смена пароля, сессии и учёт попыток входа продолжают писать в базу; просмотр истории, CSV-экспорт и смена темы доступны.
 
-### Settings and notifications
-
-**Settings → Language** switches between English (default) and Russian. The choice is
-saved per account and remembered on the sign-in page. Browser language headers do not
-override it. Public pages use their publisher's language. Probe diagnostics and API/CSV
-identifiers retain their original format.
-
-The workspace timezone defaults to `Europe/Moscow`; observations are stored in UTC.
-The header's sun/switch/moon control remembers the chosen theme. Switching themes with
-JavaScript preserves unsaved forms; native theme links work without JavaScript.
-
-New domain forms prefill the check interval and show inherited values as **Default
-(On/Off)** or numeric placeholders. Required keywords accept a comma-separated list
-(quote phrases containing commas). TCP ports accept numbers and inclusive ranges such
-as `1-1024, 2205`. Blank lists inherit defaults; `-` clears them. Saved probe options are
-retained for ports kept in the list.
-
-Settings reject stale edits rather than overwriting concurrent changes. Proxy
-credentials are never redisplayed: keep, inherit, clear or set a new override. Clearing
-a domain proxy returns to the common HTTP client, which can have its own proxy.
-Private CSV backups may contain proxy credentials. Imports validate each row, skip
-concurrently changed merge targets and report failures. Replace affects listed domains
-only.
-
-Telegram is optional. To enable it, save a BotFather token in **Settings → Advanced**,
-open the bot and send `/start`, then choose **Find chats**, save a destination and use
-**Send test notification**. Saving settings sends no message. Discovery does not consume
-updates; a webhook or an active polling process can prevent discovery, so manual numeric
-chat IDs remain available.
-
-The token is stored beside the database as `<database-filename>.telegram-token` with
-mode `0600`. `TELEGRAM_TOKEN` in the environment takes precedence. Restart a running bot
-after changing its token; the worker reloads it at tick boundaries. Delivery uses
-`alerts.chat_id` from YAML, then the owner's saved chat, then `TELEGRAM_ALERT_CHAT_ID`.
-Settings shows the effective destination. Changing it does not change domain ownership
-or historical data. Bot API calls use `TELEGRAM_PROXY` and a finite timeout.
-
-### Public status
-
-Sharing is off by default. In **Settings → Public status page**, select owned domains
-and choose **Enable public status**. Copy the issued link immediately: it appears only
-in that response. **Rotate link** revokes the old link; **Disable public status** revokes
-all public access. An empty selection publishes an empty page.
-
-The link grants read-only aggregates for selected domains: HTTP history, percentages,
-response times and current freshness/paused state. It exposes no owner ID, private
-domains, diagnostic messages, raw metrics or management actions. Append `data` to the
-link for JSON. Responses use no-store, no-referrer and noindex headers; only the token's
-SHA-256 digest is stored.
-
-Keep public links private until you intend to share them, and rotate a link if exposed
-accidentally. Application logs redact bearer paths and Uvicorn access logging is
-disabled. A reverse proxy must also suppress or redact logs for `/status/`.
-
-### Operating the panel
-
-Keep one web process and one scheduler per database. `/healthz` checks database/schema
-readability, not worker activity or site health. The overview and public pages can
-refresh every minute; refresh pauses for a filter draft, open disclosure or status
-popup. Edit/settings/login pages never refresh automatically.
-
-For viewing only, use `sitewatcher web --read-only`. Monitoring and preference changes
-are rejected; password changes, sessions and login-attempt tracking still write to the
-database. History, private CSV downloads and theme switching remain available. Global
-YAML, API credentials and scheduler configuration are deployment settings.
-
-The server binds to IPv4 loopback by default. To use a remote installation, forward its
-port from your computer:
+По умолчанию сервер слушает `127.0.0.1`. Для доступа к удалённой установке можно открыть туннель:
 
 ```bash
 ssh -N -L 8080:127.0.0.1:8080 your-server
 ```
 
-Then open the same local URL. Port `0` selects an available port and prints its URL.
-Owner routes require login even through a tunnel. Management forms use session/CSRF
-protection and reject duplicate fields or bodies over 1 MiB. Back up the database and
-its private `.web-secret`/`.telegram-token` files before upgrading; upgrades add workspace
-language and domain favorite fields. Sessions remain valid across restarts when the
-web secret is retained. See [operations and recovery](docs/operations.md).
+Панель доступна по тому же локальному адресу и требует входа. Порт `0` выбирает свободный порт и выводит адрес. Формы защищены сессиями и CSRF, повторяющиеся поля и запросы больше 1 МиБ отклоняются.
 
-## Run as a service
+Для HTTPS за доверенным reverse proxy задайте конкретные `SITEWATCHER_WEB_ALLOWED_HOSTS`, включите `SITEWATCHER_WEB_HTTPS=1` и только при перезаписи `X-Forwarded-Proto` прокси включите `SITEWATCHER_WEB_TRUST_PROXY=1`. Не публикуйте порт приложения напрямую. `SITEWATCHER_WEB_BIND=0.0.0.0` используется внутри контейнера; Compose оставляет порт хоста локальным.
 
-Install into a persistent directory and use an absolute `DATABASE_PATH`. A minimal systemd service uses `WorkingDirectory` to locate `.env` and the SQLite file:
+Перед обновлением сохраните SQLite, YAML, `.env` и приватные файлы `.web-secret`, `.telegram-token`, `.telegram-proxy`, `.virustotal-key`. Индекс РКН можно восстановить. Миграции добавляют поля без удаления истории; сохранение веб-ключа оставляет сессии действительными после перезапуска. Подробности: [эксплуатация и восстановление](docs/operations.md), [проверка выпуска](docs/verification-owner-public-dashboard-2026-10-22.md).
+
+### Запуск через systemd
+
+Пример для установки в `/opt/sitewatcher` с абсолютным `DATABASE_PATH` в окружении службы:
 
 ```ini
 [Unit]
@@ -247,43 +229,46 @@ Restart=on-failure
 WantedBy=multi-user.target
 ```
 
-Use a single bot instance against the database. Back up the SQLite database and your YAML and `.env` files. The RKN index can be rebuilt. Checks that query public services need network access; ping may require operating-system ICMP permissions.
+Веб-панель запускается отдельной службой. Проверкам внешних сервисов нужен доступ к сети; ping может требовать разрешений ICMP.
 
-Alert delivery failures leave the pending state available for the next scheduler tick. Worsening states and recovery bypass the repeat cooldown; repeated alerts at the same severity honor it. Missing or failed checks produce an unknown result rather than a clean bill of health. Recovery requires recent enabled checks.
+## Командная строка и диагностика
 
-The IP-change baseline lives in the main database by default, including Docker's persistent volume. Each owner and ad hoc scans have separate baselines. To retain an existing standalone baseline, set `ipchange.db_path` to its old path; each scope copies that legacy baseline once without modifying it. Otherwise the first run establishes a new baseline. WHOIS/RDAP uses the configured database and can use port 43 for supported Russian TLDs when `whois.fallback_whois_if_missing_expiry` is enabled. DNSBL coverage depends on resolver responses; lookup failures are reported as unknown.
+```bash
+sitewatcher scan example.com --only http_basic,tls_cert
+sitewatcher check_domain example.com --owner 123456789 --force
+sitewatcher check_all --owner 123456789
+sitewatcher doctor
+sitewatcher doctor --json
+```
 
-See [operations and recovery](docs/operations.md) for backups, troubleshooting and upgrade verification.
+`scan` не добавляет домен, не сохраняет историю мониторинга и не отправляет уведомления; отдельные проверки могут вести собственный кэш. `check_domain` и `check_all` сохраняют результаты. Любая команда принимает `--config path/to/config.yaml`.
 
-## Development
+`doctor` проверяет конфигурацию, схему, целостность SQLite и права без создания базы и сетевых запросов. Код `0` означает готовность, `1` — необходимость исправлений. JSON содержит признаки наличия секретов, а не значения. Отсутствующая база с доступным для записи каталогом допустима для новой установки. Отчёты используют до 120 непустых временных интервалов; пробелы остаются неопределёнными. Кэш отчётов ограничен 8 записями, 4 МиБ и 60 секундами.
+
+## Оформление
+
+Исходный бренд-кит сохранён в [assets/brand](assets/brand/README.txt): логотипы для двух тем, знак, favicon, иконки приложений и аватар Telegram. [Предпросмотр набора](assets/brand/preview.png). Панель использует готовые SVG-логотипы, favicon и иконку для iOS; необходимые файлы включены в Python-пакет. Основные цвета — графитовый `#15202C` и бирюзовый `#00CFB0`; в светлой теме текстовые акценты затемнены для читаемости.
+
+## Разработка
+
+Сначала создайте виртуальное окружение, как описано выше, затем установите инструменты:
 
 ```bash
 pip install -e '.[dev]'
 ruff check sitewatcher tests
 pytest
+node --check sitewatcher/webapp/static/sitewatcher/theme.js
+node tests/test_web_controls.cjs
+node --check sitewatcher/webapp/static/sitewatcher/activity.js
+node tests/test_live_activity.cjs
+node --check sitewatcher/webapp/static/sitewatcher/key_visibility.js
+node tests/test_key_visibility.cjs
+python -m sitewatcher.main --help
+docker compose config --quiet
 ```
 
-GitHub Actions runs these checks on Python 3.12, 3.13 and 3.14 for pushes and pull requests. Tests use temporary databases and do not require a bot token or live network.
+GitHub Actions проверяет Python 3.12, 3.13 и 3.14, JavaScript, сборку пакета и контейнер без root. Тесты используют временные базы, подставные ответы и локальные тестовые серверы; настоящий Telegram-токен и внешние подключения не нужны.
 
-## Deployment and supported storage
+Для цветных журналов доступен `pip install -e '.[rich]'` и `logging.pretty.use_rich: true` в YAML.
 
-Use Python 3.12–3.14 with SQLite **3.35 or newer and JSON1**. `sitewatcher doctor`
-reports the linked SQLite version and analytics support. Reports use at most 120
-occupied buckets per period; missing intervals remain unknown. A process-local cache
-is capped at 8 entries/4 MiB/60 seconds and serializes cold builds. This installation
-supports one owner and one web process; use measurements before adding more processes.
-
-For HTTPS behind a trusted local reverse proxy, set `SITEWATCHER_WEB_ALLOWED_HOSTS`
-to explicit names, `SITEWATCHER_WEB_HTTPS=1` for secure session/CSRF cookies, and
-`SITEWATCHER_WEB_TRUST_PROXY=1` only when that proxy replaces `X-Forwarded-Proto`.
-The proxy must suppress access logs for `/status/` bearer URLs. Keep the application
-port private. `SITEWATCHER_WEB_BIND=0.0.0.0` is explicit container-internal binding;
-Compose still maps only host loopback. Native launch defaults to `127.0.0.1`.
-See [operations and rollback](docs/operations.md) and the
-[release verification](docs/verification-owner-public-dashboard-2026-10-22.md).
-
-To update interface translations, edit `sitewatcher/webapp/locale/ru/LC_MESSAGES/django.po` and run `python -m django compilemessages -l ru`. GNU gettext tools are needed only when editing catalogs; compiled translations are included in the package and container.
-
-RKN sources: `https://antifilter.download/list/domains.lst`, `ip.lst` and `subnet.lst` are the primary bundle. The fallback uses `reestr_hostname.txt`, `reestr_ipban4.txt` and `reestr_resolved_ip4.txt` from one pinned commit of `bol-van/rulist`. These include exact IPv4 addresses and CIDR networks; no approximate `/24` summary lists are used. A broken, incomplete or stale primary bundle triggers the fallback as a whole. Results retain provider, source update time and GitHub revision where applicable.
-
-`rkn.cache_ttl_hours` controls index refresh (default 12). `rkn.max_source_age_hours` bounds the declared source age (default 168 hours / 7 days): Antifilter uses the oldest component Last-Modified date; bol-van uses the oldest last-change timestamp of the three required files at its pinned commit (an unrelated newer repository commit cannot refresh old lists). Missing, future or expired timestamps cannot confirm a clean result. This is a conservative file-age check, not proof that every registry entry is current. If both providers fail validation, the previous index stays intact and the check reports UNKNOWN. The legacy index is rebuilt automatically; old z-i results are retained in history but bypassed for current status, cache, notifications and scheduling. Legacy `rkn.source: z-i`/`rkn.z_i_url` settings are accepted for configuration compatibility but never contact Zapret-Info.
+Переводы находятся в `sitewatcher/webapp/locale/ru/LC_MESSAGES/django.po`. После правок выполните `python -m django compilemessages -l ru`. GNU gettext нужен только для обновления каталогов; готовый `.mo` включён в пакет и контейнер.

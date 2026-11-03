@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import re
 from typing import List, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 __all__ = [
     "DOMAIN_RE",
-    "_PERMISSIVE_DOMAIN_RE",
     "normalize_domain",
+    "normalize_site_url",
     "parse_domains",
 ]
 
@@ -20,10 +21,6 @@ _LABEL = r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)"
 
 # Strict domain: at least two labels (e.g., example.com). ASCII only.
 DOMAIN_RE = re.compile(rf"^(?:{_LABEL}\.)+{_LABEL}$", re.IGNORECASE)
-
-# Permissive domain: same as strict here (kept for backward compatibility),
-# but separated in case we want to relax rules (e.g., single-label) later.
-_PERMISSIVE_DOMAIN_RE = DOMAIN_RE
 
 
 # -----------------------------------------------------------------------------
@@ -88,16 +85,29 @@ def parse_domains(args: List[str]) -> List[str]:
             d = normalize_domain(token)
             if not d:
                 continue
-            # Only accept reasonably-formed domains
-            if _PERMISSIVE_DOMAIN_RE.fullmatch(d):
-                out.append(d)
+            out.append(d)
 
     # De-duplicate while preserving order
-    seen: set[str] = set()
-    uniq: list[str] = []
-    for d in out:
-        if d not in seen:
-            uniq.append(d)
-            seen.add(d)
+    return list(dict.fromkeys(out))
 
-    return uniq
+
+def normalize_site_url(raw: str) -> Optional[str]:
+    """Validate an HTTP target, retaining its path/query and defaulting to HTTPS."""
+    value = str(raw or '').strip()
+    if not value or len(value) > 4096 or "\\" in value or any(
+        char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value
+    ):
+        return None
+    try:
+        parsed = urlsplit(value if re.match(r'^[a-z][a-z0-9+.-]*://', value, re.I)
+                          else 'https://' + value)
+        if parsed.scheme.lower() not in {'http', 'https'} or parsed.username is not None:
+            return None
+        host = normalize_domain(parsed.hostname or '')
+        port = parsed.port
+        if not host or parsed.netloc.endswith(':') or (port is not None and not 1 <= port <= 65535):
+            return None
+        authority = host + (f':{port}' if port is not None else '')
+        return urlunsplit((parsed.scheme.lower(), authority, parsed.path or '/', parsed.query, ''))
+    except (ValueError, UnicodeError):
+        return None

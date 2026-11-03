@@ -23,6 +23,15 @@ jobs:
           cache-dependency-path: pyproject.toml
       - run: python -m pip install -e '.[dev]'
       - run: ruff check sitewatcher tests
+      - name: Check browser scripts
+        run: |
+          node --check sitewatcher/webapp/static/sitewatcher/theme.js
+          node tests/test_web_controls.cjs
+          node --check sitewatcher/webapp/static/sitewatcher/activity.js
+          node tests/test_live_activity.cjs
+          node tests/test_route_view.cjs
+          node --check sitewatcher/webapp/static/sitewatcher/key_visibility.js
+          node tests/test_key_visibility.cjs
       - run: pytest
       - run: python -m sitewatcher.main --help
 
@@ -36,14 +45,27 @@ jobs:
           touch sitewatcher/data/docker-probe.yaml sitewatcher/data/docker-probe.sqlite
           touch sitewatcher/data/docker-probe.db-wal sitewatcher/data/.env.docker-probe
           touch sitewatcher/data/docker-probe.web-secret sitewatcher/data/docker-probe.telegram-token
+          touch sitewatcher/data/docker-probe.telegram-proxy sitewatcher/data/.telegram-proxy-docker-probe
+          touch sitewatcher/data/docker-probe.virustotal-key sitewatcher/data/.virustotal-key-docker-probe
       - run: docker compose build web
+      - name: Verify unprivileged loopback route
+        run: >-
+          docker run --rm --network none --cap-drop ALL --entrypoint python sitewatcher:local -c
+          "import asyncio, os;
+          from sitewatcher.checks.traceroute import TracerouteCheck;
+          assert os.getuid() != 0;
+          result = asyncio.run(TracerouteCheck('127.0.0.1').run());
+          assert result.metrics['reached'], result.metrics;
+          assert result.metrics['hops'][0]['ip'] == '127.0.0.1'"
       - run: docker compose run --rm web sitewatcher check_all
       - run: docker compose run --rm web sitewatcher doctor --json
       - name: Verify installed authenticated workspace and partials
         run: >-
           docker compose run --rm --workdir /tmp web python -c
-          "import os; from pathlib import Path;
+          "import os; from pathlib import Path; from importlib.util import find_spec;
           assert os.getuid() != 0;
+          assert find_spec('sitewatcher.web') is None;
+          assert find_spec('sitewatcher.bot.validators') is None;
           assert not any('docker-probe' in str(path) for path in Path('/app').rglob('*'));
           assert not Path('/app/.env').exists();
           from sitewatcher.webapp.bootstrap import configure_web, migrate_web_database;
@@ -54,4 +76,9 @@ jobs:
           assert 'No data' in render_to_string('sitewatcher/partials/chart.html');
           c=Client(); assert c.get('/', HTTP_HOST='localhost').status_code == 302;
           assert c.get('/assets/workspace.css', HTTP_HOST='localhost').status_code == 200;
+          assert c.get('/assets/logo-dark.svg', HTTP_HOST='localhost')['Content-Type'] == 'image/svg+xml';
+          assert c.get('/assets/favicon.ico', HTTP_HOST='localhost').status_code == 200;
+          assert c.get('/assets/activity.js', HTTP_HOST='localhost').status_code == 200;
+          assert c.get('/assets/key_visibility.js', HTTP_HOST='localhost').status_code == 200;
+          assert c.get('/api/activity', HTTP_HOST='localhost').status_code == 401;
           assert c.get('/healthz', HTTP_HOST='localhost').status_code == 200"

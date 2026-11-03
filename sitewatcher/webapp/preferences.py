@@ -1,10 +1,11 @@
 """Owner settings share the existing delivery preferences and UTC monitoring data."""
 import asyncio
+import os
 
 from django.utils.translation import gettext as _
 
 from django.conf import settings
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.debug import sensitive_post_parameters, sensitive_variables
 from django.views.decorators.http import require_http_methods
@@ -14,6 +15,8 @@ from sitewatcher.bot.utils import _resolve_alert_chat_id
 from sitewatcher.telegram_connection import (
     find_chats, load_bot_token, save_bot_token, send_test_notification,
 )
+from sitewatcher.telegram_proxy import load_proxy, save_proxy, remove_proxy
+from sitewatcher.virustotal_settings import load_api_key, save_api_key, remove_api_key
 from .accounts import owner_required
 from .forms import WorkspacePreferencesForm
 
@@ -32,7 +35,7 @@ def _destination(cfg, owner_id):
     return chat_id, source
 
 
-@sensitive_variables('token')
+@sensitive_variables('token', 'proxy', 'api_key', 'configured_key', 'form')
 def _render(request, form=None, *, error='', notice='', chats=None, status=200, public_link=''):
     owner_id = request.workspace.owner_id
     destination, source = _destination(settings.SITEWATCHER_CONFIG, owner_id)
@@ -49,10 +52,27 @@ def _render(request, form=None, *, error='', notice='', chats=None, status=200, 
     except (OSError, ValueError):
         token_present = False
         error = error or _('The saved Telegram connection could not be read. Save a new bot token.')
-    import os
+    try:
+        proxy = load_proxy()
+        proxy_present = bool(proxy)
+    except (OSError, ValueError):
+        proxy_present = False
+        error = error or _('The Telegram proxy could not be read. Save a new proxy or remove it.')
+    configured_key = settings.SITEWATCHER_CONFIG.malware.vt_api_key
+    try:
+        api_key = load_api_key(configured_key)
+        virustotal_present = bool(api_key)
+    except (OSError, ValueError):
+        virustotal_present = False
+        error = error or _('The VirusTotal key could not be read. Save a new key or remove it.')
     response = render(request, 'sitewatcher/preferences.html', {
         'form': form, 'read_only': settings.SITEWATCHER_READ_ONLY,
         'token_present': token_present, 'environment_override': bool(os.getenv('TELEGRAM_TOKEN', '').strip()),
+        'virustotal_present': virustotal_present,
+        'virustotal_environment_override': bool(os.getenv('VIRUSTOTAL_API_KEY', '').strip()),
+        'virustotal_config_override': bool(configured_key),
+        'proxy_present': proxy_present,
+        'proxy_environment_override': bool(os.getenv('TELEGRAM_PROXY', '').strip()),
         'destination': destination, 'destination_source': source,
         'alerts_enabled': storage.is_user_alerts_enabled(owner_id),
         'error': error, 'notice': notice, 'chats': chats or [],
@@ -66,8 +86,8 @@ def _render(request, form=None, *, error='', notice='', chats=None, status=200, 
 
 @owner_required
 @require_http_methods(['GET', 'HEAD', 'POST'])
-@sensitive_post_parameters('bot_token')
-@sensitive_variables('token', 'fields', 'form')
+@sensitive_post_parameters('bot_token', 'telegram_proxy', 'virustotal_api_key')
+@sensitive_variables('token', 'fields', 'form', 'api_key')
 def preferences(request):
     if request.method != 'POST':
         if set(request.GET) - {'saved'} or any(len(v) != 1 for _, v in request.GET.lists()):
@@ -79,14 +99,29 @@ def preferences(request):
     fields.pop('csrfmiddlewaretoken', None)
     action = fields.pop('action', 'save')
     if (request.GET or set(fields) - set(WorkspacePreferencesForm.base_fields)
-            or action not in {'save', 'test', 'find_chats'} or action != 'save' and fields):
+            or action not in {'save', 'test', 'find_chats', 'reveal_virustotal_key'} or action != 'save' and fields):
         return HttpResponse(_('Invalid request'), status=400)
+    if action == 'reveal_virustotal_key':
+        try:
+            api_key = load_api_key(settings.SITEWATCHER_CONFIG.malware.vt_api_key)
+        except (OSError, ValueError):
+            return JsonResponse({'error': 'Key unavailable'}, status=503,
+                                headers={'Cache-Control': 'no-store'})
+        return JsonResponse({'key': api_key or ''}, headers={'Cache-Control': 'no-store'})
     if action == 'save':
         form = WorkspacePreferencesForm(fields)
         if not form.is_valid():
             return _render(request, form, status=400)
         try:
             # Empty connection fields retain the existing configuration.
+            if form.cleaned_data['remove_virustotal_api_key']:
+                remove_api_key()
+            elif form.cleaned_data['virustotal_api_key']:
+                save_api_key(form.cleaned_data['virustotal_api_key'])
+            if form.cleaned_data['remove_telegram_proxy']:
+                remove_proxy()
+            elif form.cleaned_data['telegram_proxy']:
+                save_proxy(form.cleaned_data['telegram_proxy'])
             if form.cleaned_data['bot_token']:
                 save_bot_token(form.cleaned_data['bot_token'])
             if 'enabled' in fields:

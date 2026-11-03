@@ -3,8 +3,8 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: SiteWatcher 0.3.0\n"
-"Report-Msgid-Bugs-To: https://github.com/NikKurkov/sitewatcher/issues\n"
-"POT-Creation-Date: 2026-11-03 15:41+0300\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-11-03 16:19+0300\n"
 "PO-Revision-Date: 2026-11-03 11:00+0300\n"
 "Last-Translator: SiteWatcher contributors\n"
 "Language-Team: Russian\n"
@@ -699,72 +699,8 @@ msgstr ""
 msgid "Import CSV"
 msgstr "Импортировать CSV"
 
-msgid "Notifications"
-msgstr "Уведомления"
-
-msgid ""
-"Keep a worker or bot process running for automatic checks and optional "
-"Telegram notifications."
-msgstr ""
-"Для автоматических проверок и уведомлений в Telegram должен работать процесс "
-"worker или бота."
-
-msgid "Save notification setting"
-msgstr "Сохранить настройку уведомлений"
-
-msgid "Account"
-msgstr "Учётная запись"
-
-#, python-format
-msgid "Times are shown in %(timezone)s."
-msgstr "Время отображается в часовом поясе %(timezone)s."
-
-msgid "Change password"
-msgstr "Изменить пароль"
-
-msgid "Sign out"
-msgstr "Выйти"
-
-msgid "Domain backups and configuration"
-msgstr "Резервные копии и настройки доменов"
-
-msgid "Download domain CSV backup"
-msgstr "Скачать резервную копию доменов в CSV"
-
-msgid "Import domain CSV"
-msgstr "Импортировать домены из CSV"
-
-msgid ""
-"Global check defaults and scheduling are managed in your installation "
-"configuration."
-msgstr ""
-"Общие настройки проверок по умолчанию и расписание задаются в конфигурации "
-"установки."
-
 msgid "Overview · SiteWatcher"
 msgstr "Обзор · SiteWatcher"
-
-msgid "Your workspace"
-msgstr "Ваше рабочее пространство"
-
-msgid "Keep an eye on the sites that matter."
-msgstr "Следите за важными для вас сайтами."
-
-msgid ""
-"Run fresh checks for every domain and save the results. This can take a "
-"while."
-msgstr ""
-"Запустить новые проверки всех доменов и сохранить результаты. Это может "
-"занять некоторое время."
-
-msgid "Check all domains now"
-msgstr "Проверить все домены сейчас"
-
-msgid "Refresh now"
-msgstr "Обновить сейчас"
-
-msgid "Refresh every minute"
-msgstr "Обновлять каждую минуту"
 
 msgid "Monitoring summary"
 msgstr "Сводка мониторинга"
@@ -955,6 +891,21 @@ msgstr "Добавить %(domain)s в избранное"
 msgid "Favorite"
 msgstr "Избранный домен"
 
+msgid "Check all domains now"
+msgstr "Проверить все домены сейчас"
+
+msgid "Refresh now"
+msgstr "Обновить сейчас"
+
+msgid "Refresh every minute"
+msgstr "Обновлять каждую минуту"
+
+msgid "Disable automatic refresh"
+msgstr "Выключить автообновление"
+
+msgid "Enable automatic refresh"
+msgstr "Включить автообновление"
+
 msgid "History period"
 msgstr "Период истории"
 
@@ -1015,6 +966,15 @@ msgstr "Изменение пароля · SiteWatcher"
 
 msgid "← Settings"
 msgstr "← Настройки"
+
+msgid "Account"
+msgstr "Учётная запись"
+
+msgid "Change password"
+msgstr "Изменить пароль"
+
+msgid "Your workspace"
+msgstr "Ваше рабочее пространство"
 
 msgid "Choose how you see your monitoring and where to receive alerts."
 msgstr "Настройте отображение мониторинга и получение уведомлений."
@@ -1218,6 +1178,25 @@ msgstr "Заменить ссылку"
 msgid "Disable public status"
 msgstr "Отключить публичную страницу"
 
+msgid "Sign out"
+msgstr "Выйти"
+
+msgid "Domain backups and configuration"
+msgstr "Резервные копии и настройки доменов"
+
+msgid "Download domain CSV backup"
+msgstr "Скачать резервную копию доменов в CSV"
+
+msgid "Import domain CSV"
+msgstr "Импортировать домены из CSV"
+
+msgid ""
+"Global check defaults and scheduling are managed in your installation "
+"configuration."
+msgstr ""
+"Общие настройки проверок по умолчанию и расписание задаются в конфигурации "
+"установки."
+
 msgid "Service status · SiteWatcher"
 msgstr "Состояние сервисов · SiteWatcher"
 
@@ -1295,3 +1274,424 @@ msgstr ""
 "Текущая доступность учитывает интервал мониторинга для выявления "
 "просроченных HTTP-проверок. Сервисы с приостановленным мониторингом и "
 "сервисы без актуальных данных не считаются доступными."
+
+msgid "New Telegram proxy"
+msgstr "Новый прокси Telegram"
+
+msgid "Remove saved Telegram proxy"
+msgstr "Удалить сохранённый прокси Telegram"
+
+msgid "Choose a new proxy or remove the saved proxy."
+msgstr "Укажите новый прокси или выберите удаление сохранённого."
+
+msgid "Enter an HTTP(S) or SOCKS5 proxy URL, or a Telegram SOCKS link."
+msgstr "Введите URL прокси HTTP(S) или SOCKS5 либо ссылку Telegram SOCKS."
+
+msgid "MTProto proxy links are not supported. Use an HTTP(S) or SOCKS5 proxy."
+msgstr "Прокси MTProto не поддерживаются. Используйте прокси HTTP(S) или SOCKS5."
+
+msgid "The Telegram proxy could not be read. Save a new proxy or remove it."
+msgstr "Не удалось прочитать прокси Telegram. Сохраните новый прокси или удалите его."
+
+msgid "Advanced: bot token, proxy and manual chat ID"
+msgstr "Дополнительно: токен бота, прокси и ID чата вручную"
+
+msgid "Use an HTTP(S) or SOCKS5 URL, https://t.me/socks or tg://socks link. MTProto is not supported. Leave blank to keep the proxy. Credentials are stored privately and never shown again."
+msgstr "Укажите URL HTTP(S) или SOCKS5, ссылку https://t.me/socks или tg://socks. MTProto не поддерживается. Оставьте поле пустым, чтобы сохранить прокси. Учётные данные хранятся приватно и больше не показываются."
+
+msgid "Telegram proxy configured."
+msgstr "Прокси Telegram настроен."
+
+msgid "No Telegram proxy configured; standard proxy environment settings still apply."
+msgstr "Прокси Telegram не настроен; стандартные переменные окружения прокси продолжают действовать."
+
+msgid "Environment override: TELEGRAM_PROXY takes priority. Saved changes apply after that override is removed."
+msgstr "Приоритет окружения: используется TELEGRAM_PROXY. Сохранённые изменения вступят в силу после удаления этой переменной."
+
+msgid "Removing the saved proxy restores standard proxy environment settings. A running worker picks up proxy changes on its next tick. Restart a polling bot after changing its proxy."
+msgstr "После удаления сохранённого прокси снова используются стандартные переменные окружения прокси. Работающий воркер подхватит изменения на следующем цикле. После изменения прокси перезапустите бота, получающего обновления."
+
+msgid "New VirusTotal API key"
+msgstr "Новый API-ключ VirusTotal"
+
+msgid "Remove saved VirusTotal API key"
+msgstr "Удалить сохранённый API-ключ VirusTotal"
+
+msgid "Enter a VirusTotal API key without spaces or control characters."
+msgstr "Введите API-ключ VirusTotal без пробелов и управляющих символов."
+
+msgid "Choose a new VirusTotal key or remove the saved key."
+msgstr "Введите новый ключ VirusTotal или выберите удаление сохранённого ключа."
+
+msgid "The VirusTotal key could not be read. Save a new key or remove it."
+msgstr "Не удалось прочитать ключ VirusTotal. Сохраните новый ключ или удалите его."
+
+msgid "Advanced: bot token, proxy, VirusTotal key and manual chat ID"
+msgstr "Дополнительно: токен бота, прокси, ключ VirusTotal и ID чата"
+
+msgid "Leave blank to keep the key. It is stored privately and never shown again. Changes apply on the next malware probe without restarting the worker or bot."
+msgstr "Оставьте поле пустым, чтобы сохранить текущий ключ. Он хранится в закрытом файле и больше не отображается. Изменения применятся при следующей проверке угроз без перезапуска обработчика или бота."
+
+msgid "VirusTotal API key configured."
+msgstr "API-ключ VirusTotal настроен."
+
+msgid "VirusTotal is not configured; malware checks need an API key."
+msgstr "VirusTotal не настроен: для проверки угроз нужен API-ключ."
+
+msgid "Environment override: VIRUSTOTAL_API_KEY takes priority. Saved changes apply after that override is removed."
+msgstr "Задано через окружение: VIRUSTOTAL_API_KEY имеет приоритет. Сохранённые изменения применятся после удаления этой настройки окружения."
+
+msgid "Installation override: malware.vt_api_key takes priority. Saved changes apply after that override is removed."
+msgstr "Задано в конфигурации установки: malware.vt_api_key имеет приоритет. Сохранённые изменения применятся после удаления этой настройки."
+
+msgid "This key is shared by this installation. Removing the saved key keeps environment and installation overrides. VirusTotal only reads existing URL reports; no URL is submitted for analysis."
+msgstr "Ключ используется всей установкой. Удаление сохранённого ключа не меняет настройки окружения и конфигурации. VirusTotal только читает существующие отчёты об URL; адреса не отправляются на анализ."
+
+msgid "VirusTotal is not configured: API key is missing"
+msgstr "VirusTotal не настроен: отсутствует API-ключ"
+
+msgid "VirusTotal has no report for this URL"
+msgstr "В VirusTotal нет отчёта об этом URL"
+
+msgid "VirusTotal configuration could not be read securely"
+msgstr "Не удалось безопасно прочитать настройки VirusTotal"
+
+msgid "VT: not_found"
+msgstr "VirusTotal не вернул отчёт; результат проверки неизвестен."
+
+msgid "Running"
+msgstr "Выполняется"
+
+msgid "Interrupted"
+msgstr "Прервано"
+
+msgid "No completion received"
+msgstr "Нет результата завершения"
+
+msgid "Waiting for the next check"
+msgstr "Ожидание следующей проверки"
+
+msgid "No recent checks yet"
+msgstr "Недавних проверок пока нет"
+
+msgid "Activity is temporarily unavailable; reconnecting…"
+msgstr "Данные временно недоступны; подключаемся повторно…"
+
+msgid "Live checks"
+msgstr "Проверки в реальном времени"
+
+msgid "Connecting…"
+msgstr "Подключаемся…"
+
+msgid "Websites and services"
+msgstr "Сайты и сервисы"
+
+msgid "Show live checks"
+msgstr "Показать проверки в реальном времени"
+
+msgid "Hide live checks"
+msgstr "Скрыть проверки в реальном времени"
+
+msgid "Waiting for a result"
+msgstr "Ожидание результата"
+
+msgid "ms"
+msgstr "мс"
+
+msgid "About these figures"
+msgstr "О показателях"
+
+msgid "Find…"
+msgstr "Найти…"
+
+msgid "Status: all"
+msgstr "Статус: все"
+
+msgid "VirusTotal API key"
+msgstr "API-ключ VirusTotal"
+
+msgid "Show API key"
+msgstr "Показать API-ключ"
+
+msgid "Hide API key"
+msgstr "Скрыть API-ключ"
+
+msgid "Could not show the key. Reload Settings and try again."
+msgstr "Не удалось показать ключ. Обновите настройки и попробуйте ещё раз."
+
+msgid "Leave blank to keep the key. Use the eye button to show or hide it. Changes apply on the next malware probe without restarting the worker or bot."
+msgstr "Оставьте поле пустым, чтобы сохранить ключ. Значок глаза показывает или скрывает его. Изменения применяются при следующей проверке без перезапуска worker или бота."
+
+msgid "Automatic refresh is available on the overview"
+msgstr "Автообновление доступно на главной странице"
+
+msgid "Live"
+msgstr "Прямой эфир"
+
+msgid "Recorded replay"
+msgstr "Повтор записанных проверок"
+
+msgid "Animation paused"
+msgstr "Анимация приостановлена"
+
+msgid "Reduced motion"
+msgstr "Уменьшенное движение"
+
+msgid "Live + recorded replay"
+msgstr "Эфир + повтор"
+
+msgid "More checks in log"
+msgstr "Ещё проверок в журнале"
+
+msgid "New events"
+msgstr "Новых событий"
+
+msgid "Follow latest"
+msgstr "К последним событиям"
+
+msgid "Visualization controls"
+msgstr "Управление визуализацией"
+
+msgid "Pause"
+msgstr "Пауза"
+
+msgid "Resume"
+msgstr "Продолжить"
+
+msgid "Pause visualization"
+msgstr "Приостановить анимацию"
+
+msgid "Animation speed"
+msgstr "Скорость анимации"
+
+msgid "Very slow"
+msgstr "Очень медленно"
+
+msgid "Slow"
+msgstr "Медленно"
+
+msgid "Normal"
+msgstr "Обычно"
+
+msgid "Replay recent activity"
+msgstr "Повторять последние сохранённые проверки"
+
+msgid "Replay"
+msgstr "Повтор"
+
+msgid "Fullscreen"
+msgstr "На весь экран"
+
+msgid "Exit fullscreen"
+msgstr "Выйти из полноэкранного режима"
+
+msgid "Signal room"
+msgstr "Центр сигналов"
+
+msgid "Probe"
+msgstr "Запрос"
+
+msgid "Response"
+msgstr "Ответ"
+
+msgid "Monitoring hub"
+msgstr "Сервер мониторинга"
+
+msgid "Signals will appear here when monitoring runs."
+msgstr "Сигналы появятся, когда начнутся проверки."
+
+msgid "Observation only"
+msgstr "Режим наблюдения"
+
+msgid "Signals in this visualization"
+msgstr "Сигналы в этой визуализации"
+
+msgid "Sent"
+msgstr "Отправлено"
+
+msgid "Returned"
+msgstr "Вернулось"
+
+msgid "In flight"
+msgstr "В пути"
+
+msgid "Signal legend"
+msgstr "Обозначения сигналов"
+
+msgid "Animation follows recorded events; probe durations are shown in the log."
+msgstr "Анимация показывает записанные события. Реальное время проверки указано в консоли."
+
+msgid "Event console"
+msgstr "Консоль событий"
+
+msgid "Recent check events"
+msgstr "Последние события проверок"
+
+msgid "Latest checks"
+msgstr "Последние проверки"
+
+msgid "Pinned"
+msgstr "Закреплён"
+
+msgid "Selected domain"
+msgstr "Выбранный домен"
+
+msgid "Select a dot to pin a domain"
+msgstr "Нажмите на точку, чтобы закрепить домен"
+
+msgid "Unpin domain"
+msgstr "Открепить домен"
+
+msgid "Last saved check result"
+msgstr "Последний сохранённый результат проверки"
+
+msgid "Select a domain to keep its card open"
+msgstr "Выберите домен, чтобы оставить его карточку открытой"
+
+msgid "Domain order saved"
+msgstr "Порядок доменов сохранён"
+
+msgid "Could not confirm the new order. Reload the page and try again."
+msgstr "Не удалось подтвердить новый порядок. Обновите страницу и повторите попытку."
+
+msgid "Favorites stay at the top. Move domains within their group."
+msgstr "Избранные остаются сверху. Перемещайте домены внутри своей группы."
+
+msgid "Drag to reorder. Keyboard: Alt + Up or Down."
+msgstr "Перетащите для изменения порядка. С клавиатуры: Alt + ↑ или ↓."
+
+#, python-format
+msgid "Move %(domain)s"
+msgstr "Переместить %(domain)s"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Select a domain in the map to inspect its route."
+msgstr "Выберите домен на карте, чтобы посмотреть маршрут."
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "No route captured. Request a route to enable hourly updates."
+msgstr "Маршрут ещё не получен. Запросите его, чтобы включить обновление раз в час."
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Route queued for the worker"
+msgstr "Маршрут в очереди worker"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Worker is tracing the route…"
+msgstr "Worker определяет маршрут…"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Route captured"
+msgstr "Маршрут получен"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Partial route — some routers did not respond or the destination was not reached"
+msgstr "Неполный маршрут — часть узлов не ответила или конечный адрес не достигнут"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Route could not be captured. Request a refresh to try again."
+msgstr "Не удалось получить маршрут. Запросите обновление для повторной попытки."
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Hourly updates disabled"
+msgstr "Обновление раз в час выключено"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Captured"
+msgstr "Получен"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Refresh route · hourly updates on"
+msgstr "Обновить маршрут · раз в час"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Request route · enable hourly updates"
+msgstr "Запросить маршрут · включить раз в час"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Could not save the route request. Try again."
+msgstr "Не удалось сохранить запрос маршрута. Попробуйте ещё раз."
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "A route is already queued or running."
+msgstr "Маршрут уже в очереди или определяется."
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Route queued. Waiting for the worker."
+msgstr "Маршрут в очереди. Ожидаем worker."
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Hourly route updates disabled."
+msgstr "Обновление маршрута раз в час выключено."
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "No response"
+msgstr "Нет ответа"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Hop"
+msgstr "Узел"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Follow signal"
+msgstr "Следовать за сигналом"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Resume following signal"
+msgstr "Возобновить слежение"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Network route"
+msgstr "Сетевой маршрут"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Network route controls"
+msgstr "Управление сетевым маршрутом"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Disable hourly updates"
+msgstr "Выключить обновление раз в час"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Route view"
+msgstr "Показать маршрут"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "UDP trace from the monitoring worker. Routers may stay silent; missing replies do not mean the website is down. Requesting a route enables hourly updates. Only the forward route is measured; return animation is illustrative."
+msgstr "UDP-трассировка от worker мониторинга. Узлы могут не отвечать — это не означает, что сайт недоступен. Запрос включает обновление раз в час. Измеряется только прямой маршрут; обратное движение показано условно."
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Full hop list"
+msgstr "Все узлы маршрута"
+
+#: sitewatcher/templates/sitewatcher/domain_form.html
+msgid "Website addresses"
+msgstr "Адреса сайтов"
+
+#: sitewatcher/templates/sitewatcher/domain_form.html
+msgid "Website address"
+msgstr "Адрес сайта"
+
+#: sitewatcher/templates/sitewatcher/domain_form.html
+msgid "Connection protocol"
+msgstr "Протокол соединения"
+
+#: sitewatcher/templates/sitewatcher/domain_form.html
+msgid "Enter up to 50 website addresses separated by commas. Examples: site.ru, http://site.ru, site.ru/catalog/. HTTPS is used when no protocol is specified. Settings apply to every address."
+msgstr "Введите до 50 доменов через запятую. Примеры: site.ru, http://site.ru, site.ru/catalog/. Без протокола используется HTTPS. Настройки ниже применяются ко всем адресам."
+
+#: sitewatcher/templates/sitewatcher/domain_form.html
+msgid "Enter a hostname and optional path, such as site.ru or site.ru/catalog/. Choose HTTP or HTTPS on the left. You can change the domain; settings and history are retained."
+msgstr "Укажите домен и при необходимости каталог: site.ru или site.ru/catalog/. Протокол HTTP или HTTPS выберите слева. Домен можно изменить — настройки и история сохранятся."
+
+#: sitewatcher/templates/sitewatcher/domain_form.html
+msgid "Enter an HTTP(S) address using this domain."
+msgstr "Укажите корректный HTTP(S)-адрес этого домена."
+
+#: sitewatcher/templates/sitewatcher/domain_form.html
+msgid "Choose HTTP or HTTPS."
+msgstr "Выберите HTTP или HTTPS."
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Hostname unavailable"
+msgstr "Имя узла не определено"

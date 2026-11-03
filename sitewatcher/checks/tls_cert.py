@@ -1,4 +1,3 @@
-# sitewatcher/checks/tls_cert.py
 from __future__ import annotations
 
 import asyncio

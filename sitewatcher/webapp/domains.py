@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from threading import Lock
 from urllib.parse import urlencode, urlsplit
 
@@ -23,9 +24,10 @@ from sitewatcher.web_actions import (
     save_domain, settings_context,
 )
 from .accounts import owner_required
+from .models import Workspace
 from .forms import HistoryFiltersForm
 from .analytics import domain_report, overview_report
-from .presentation import check_label, domain_form_context, local_time, report_context, status_label
+from .presentation import check_label, diagnostic_message, domain_form_context, local_time, report_context, status_label
 
 # ponytail: one process-local manual run; run a single web process, use a job queue to scale.
 _check_lock = Lock()
@@ -122,6 +124,7 @@ def _page(request, view, domain='', *, error='', values=None, status=200):
             raise Http404('Domain not found') from None
         for item in history:
             item['check_label'] = check_label(item['check_name'])
+            item['message'] = diagnostic_message(item['message'])
             item['status_label'] = status_label(item['status'])
             item['observed'] = local_time(item['created_at'], request.workspace.timezone)
         return _render(request, 'domain_detail', {'report': report_context(report), 'row': row,
@@ -132,13 +135,11 @@ def _page(request, view, domain='', *, error='', values=None, status=200):
                                                  'history_filtered': any(request.GET.get(name)
                                                      for name in history_form.fields)},
                        status=200 if filters_valid else 400)
-    elif view == 'workspace':
-        context['alerts_enabled'] = storage.is_user_alerts_enabled(owner_id)
     if view == 'add' and values is None:
         context['values']['interval_minutes'] = str(context['defaults']['interval_minutes'])
     if values is not None:
         context['values'] = {**context.get('values', {}), **values, 'proxy': ''}
-        context['domain'] = values.get('domain', domain)
+        context['domain'] = values.get('original_domain', values.get('domain', domain))
         if 'revision' in values:
             context['revision'] = values['revision']
         if view == 'import':
@@ -159,6 +160,7 @@ def _row_context(row, zone):
     row['observed'] = local_time(row['last_checked_at'], zone)
     for check in row['checks']:
         check['label'] = check_label(check['name'])
+        check['message'] = diagnostic_message(check['message'])
         check['status_label'] = status_label(check['status'])
         check['observed'] = local_time(check['checked_at'], zone)
     row['problems'] = sorted(
@@ -171,6 +173,54 @@ FILTERS = {
     "all": _("All domains"), "problems": _("Problems"), "ok": _("Healthy"), "warn": _("Warnings"),
     "crit": _("Critical"), "unknown": _("No data"), "paused": _("Paused"), "stale": _("Overdue"),
 }
+
+def _sort_domains(rows, saved_order):
+    ranks = {name: rank for rank, name in enumerate(saved_order)}
+    rows.sort(key=lambda row: (not row['favorite'], row['name'] not in ranks,
+        ranks.get(row['name'], 0),
+        {'crit': 0, 'warn': 1, 'unknown': 2, 'ok': 3, 'paused': 4}[row['state']], row['name']))
+
+
+@owner_required(api=True)
+@require_POST
+def reorder(request):
+    if settings.SITEWATCHER_READ_ONLY:
+        return JsonResponse({'error': 'Read-only workspace'}, status=405)
+    form = dict(request.management_form)
+    form.pop('csrfmiddlewaretoken', None)
+    if request.GET or set(form) != {'order'}:
+        return JsonResponse({'error': 'Invalid request'}, status=400)
+    try:
+        order = json.loads(form['order'])
+        if (not isinstance(order, list) or len(order) < 2
+                or any(not isinstance(name, str) for name in order)
+                or len(set(order)) != len(order)):
+            raise ValueError('Invalid order')
+        rows = build_snapshot(settings.SITEWATCHER_CONFIG, request.workspace.owner_id)['domains']
+        for row in rows:
+            _row_context(row, request.workspace.timezone)
+        _sort_domains(rows, request.workspace.domain_order)
+        favorites = {row['name']: row['favorite'] for row in rows}
+        if any(name not in favorites for name in order):
+            return JsonResponse({'error': 'Domain not found'}, status=404)
+        if [favorites[name] for name in order] != sorted(
+                (favorites[name] for name in order), reverse=True):
+            raise ValueError('Favorites stay first')
+        # Replace only visible slots: filtered-out domains retain their relative positions.
+        selected = set(order)
+        replacement = iter(order)
+        merged = [next(replacement) if row['name'] in selected else row['name'] for row in rows]
+        updated = Workspace.objects.filter(
+            pk=request.workspace.pk, domain_order=request.workspace.domain_order,
+        ).update(domain_order=merged)
+        if not updated:
+            return JsonResponse({'error': 'Order changed; reload the page'}, status=409)
+    except (ValueError, TypeError, RecursionError):
+        return JsonResponse({'error': 'Invalid order'}, status=400)
+    except SnapshotError:
+        return JsonResponse({'error': 'Monitoring unavailable'}, status=503)
+    return JsonResponse({'saved': True})
+
 
 @owner_required
 @require_safe
@@ -191,8 +241,7 @@ def dashboard(request):
         for row in rows:
             _row_context(row, zone)
             row['report'] = reports.get(row['name'])
-        rows.sort(key=lambda row: (not row['favorite'], {'crit': 0, 'warn': 1, 'unknown': 2, 'ok': 3,
-                                    'paused': 4}[row['state']], row['name']))
+        _sort_domains(rows, request.workspace.domain_order)
         search = query.get('q', '').strip()
         filtered = [row for row in rows if search.lower() in row['name'] and (
             status == 'all' or status == 'problems' and (row['error'] or row['overall'] in {'CRIT', 'WARN'})
@@ -222,21 +271,32 @@ def status(request):
     return _private(JsonResponse({'owner_id': request.workspace.owner_id, **snapshot}))
 
 
-def _redirect(notice):
-    return _private(HttpResponse(status=303, headers={'Location': '/?' + urlencode({'notice': notice})}))
+def _redirect(notice, filters=None):
+    return _private(HttpResponse(status=303, headers={
+        'Location': '/?' + urlencode({'notice': notice, **(filters or {})}),
+    }))
+
+
+def _list_filters(form):
+    days, status = form.get('days', '1'), form.get('status', 'all')
+    if days not in {'1', '7', '30'} or status not in FILTERS:
+        raise ValueError('Invalid list filters')
+    return {'days': days, 'status': status, 'q': form.get('q', '')}
 
 
 def _act(request, action, form):
     cfg, owner_id = settings.SITEWATCHER_CONFIG, request.workspace.owner_id
+    filters = (_list_filters(form) if action in {'check', 'pause', 'resume'}
+               and any(key in form for key in ('q', 'status', 'days')) else {})
     if action == 'favorite':
         state = form.get('favorite')
-        days, status = form.get('days', '1'), form.get('status', 'all')
-        if state not in {'on', 'off'} or days not in {'1', '7', '30'} or status not in FILTERS:
+        filters = _list_filters(form)
+        if state not in {'on', 'off'}:
             raise ValueError('Invalid favorite setting')
         domain = _existing(owner_id, form.get('domain', ''))
         if not storage.set_domain_favorite(owner_id, domain, state == 'on'):
             raise Http404('Domain not found')
-        query = urlencode({'days': days, 'status': status, 'q': form.get('q', '')})
+        query = urlencode(filters)
         return _private(HttpResponse(status=303, headers={'Location': '/?' + query}))
     if action == 'add':
         count = add_domains(cfg, owner_id, form)
@@ -260,11 +320,11 @@ def _act(request, action, form):
                 run_manual_checks(cfg, owner_id, names)
             finally:
                 _check_lock.release()
-            return _redirect(_('Checks completed; results saved'))
+            return _redirect(_('Checks completed; results saved'), filters)
         if action == 'reset' and not form.get('revision'):
             raise ValueError('Reset requires the current settings revision')
         act_on_domain(cfg, owner_id, action, domain, revision=form.get('revision'))
-        return _redirect(_('Domain updated'))
+        return _redirect(_('Domain updated'), filters)
     if action == 'alerts':
         if form.get('enabled') not in {'on', 'off'}:
             raise ValueError('Invalid alert setting')
@@ -292,10 +352,12 @@ def _mutate(request, action):
     form.pop('csrfmiddlewaretoken', None)
     allowed = {'domain'}
     if action in {'add', 'save'}:
-        allowed.update((*NUMERIC_FIELDS, *LIST_FIELDS, 'revision', 'proxy_mode', 'proxy'))
+        allowed.update((*NUMERIC_FIELDS, *LIST_FIELDS, 'http_url', 'http_scheme', 'original_domain', 'revision', 'proxy_mode', 'proxy'))
         allowed.update(f'check.{name}' for name in ChecksModel.model_fields)
     elif action == 'favorite':
         allowed.update({'favorite', 'q', 'status', 'days'})
+    elif action in {'check', 'pause', 'resume'}:
+        allowed.update({'q', 'status', 'days'})
     elif action == 'delete':
         allowed.add('confirm')
     elif action == 'reset':
@@ -307,7 +369,7 @@ def _mutate(request, action):
     if request.GET or set(form) - allowed:
         return _private(HttpResponse(_('Invalid request'), status=400))
     if action == 'save':
-        _existing(request.workspace.owner_id, form.get('domain', ''))
+        _existing(request.workspace.owner_id, form.get('original_domain', form.get('domain', '')))
     try:
         return _act(request, action, form)
     except ValueError as error:
@@ -316,7 +378,7 @@ def _mutate(request, action):
                                          status=409))
         view = {'add': 'add', 'save': 'edit', 'import': 'import'}.get(action)
         if view:
-            return _page(request, view, form.get('domain', ''), error=str(error),
+            return _page(request, view, form.get('original_domain', form.get('domain', '')), error=str(error),
                          values=form, status=400)
         return _private(HttpResponse(_('Invalid action; reload the page'), status=400))
     except Http404:
@@ -335,7 +397,7 @@ def management(request, view):
             return _private(HttpResponse(_('Method not allowed'), status=405,
                                          headers={'Allow': 'GET, HEAD'}))
         return _mutate(request, {'add': 'add', 'edit': 'save', 'delete': 'delete',
-                                 'workspace': 'alerts', 'import': 'import'}[view])
+                                 'import': 'import'}[view])
     try:
         query = _query(request)
     except ValueError:

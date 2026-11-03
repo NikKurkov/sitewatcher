@@ -29,6 +29,7 @@ def test_new_context_and_create_normalizes_full_form():
     assert domain == DOMAIN
     override = storage.get_domain_override(OWNER, DOMAIN)
     assert override == {
+        'http_url': 'https://example.com/path',
         'interval_minutes': 0, 'keywords': [], 'ports': [80, {'port': 443}],
         'checks': {'ping': False}, 'tls_warn_days': 0,
     }
@@ -61,7 +62,7 @@ def test_edit_replaces_fields_and_preserves_proxy_until_explicit_change():
     context = web_actions.settings_context(cfg, OWNER, DOMAIN)
     assert secret not in str(context) and 'private-password' not in str(context)
     assert context['proxy_present'] is True
-    assert context['effective']['proxy'] == '[configured]'
+    assert context['values']['proxy_mode'] == 'keep'
     assert context['values']['proxy'] == ''
     edit(cfg, OWNER, {'domain': DOMAIN, 'proxy_mode': 'keep'})
     assert storage.get_domain_override(OWNER, DOMAIN) == {'proxy': secret}
@@ -196,9 +197,15 @@ def test_resume_does_not_replace_an_existing_positive_interval():
     assert storage.get_domain_override(OWNER, DOMAIN) == {'interval_minutes': 37}
 
 
-def test_new_settings_preview_does_not_inherit_an_unrelated_yaml_domain():
-    cfg = AppConfig.model_validate({'domains': [{'name': DOMAIN, 'interval_minutes': 0}]})
-    assert web_actions.settings_context(cfg, OWNER)['effective']['interval_minutes'] is None
+def test_new_settings_defaults_do_not_inherit_an_unrelated_yaml_domain():
+    cfg = AppConfig.model_validate({'domains': [{
+        'name': DOMAIN, 'interval_minutes': 0, 'http_timeout_s': 19, 'checks': {'ping': False},
+    }]})
+    context = web_actions.settings_context(cfg, OWNER)
+    assert context['values']['interval_minutes'] == ''
+    assert context['defaults']['interval_minutes'] == cfg.schedules.http_basic.interval_minutes
+    assert context['defaults']['http_timeout_s'] == cfg.defaults.http_timeout_s
+    assert context['defaults']['checks'] == cfg.defaults.checks.model_dump()
 
 
 def test_plain_lists_and_port_ranges_round_trip_without_losing_port_options():

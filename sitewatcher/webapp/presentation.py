@@ -15,6 +15,7 @@ _CHECK_LABELS = {
     'rkn_ip': _('RKN IP listing'), 'rkn_block': _('Legacy RKN blocking'), 'ports': _('TCP ports'),
     'whois': _('Domain registration'), 'ip_blacklist': _('IP blocklists'),
     'ip_change': _('IP address changes'), 'malware': _('Malware detection'),
+    'traceroute': _('Network route'),
 }
 _CHECK_HELP = {
     'rkn_domain': _('A domain or parent-domain listing is Critical.'),
@@ -22,6 +23,20 @@ _CHECK_HELP = {
 }
 _STATUS_LABELS = {'OK': _('OK'), 'WARN': _('WARN'), 'CRIT': _('CRIT'),
                   'UNKNOWN': _('UNKNOWN')}
+
+
+_DIAGNOSTIC_MESSAGES = {
+    'VirusTotal is not configured: API key is missing':
+        _('VirusTotal is not configured: API key is missing'),
+    'VirusTotal has no report for this URL': _('VirusTotal has no report for this URL'),
+    'VirusTotal configuration could not be read securely':
+        _('VirusTotal configuration could not be read securely'),
+    'VT: not_found': _('VT: not_found'),
+}
+
+
+def diagnostic_message(value):
+    return _DIAGNOSTIC_MESSAGES.get(value, value)
 
 
 def status_label(value):
@@ -44,7 +59,8 @@ def local_time(value, zone):
     except (ValueError, TypeError, AttributeError, OverflowError):
         return None
     age = (datetime.now(timezone.utc) - stamp).total_seconds()
-    return {'iso': stamp.isoformat(), 'label': label, 'value': stamp,
+    return {'iso': stamp.isoformat(), 'label': label,
+            'compact_label': local.strftime('%Y-%m-%d %H:%M'), 'value': stamp,
             'future': age < 0, 'just_now': 0 <= age < 60}
 
 
@@ -93,6 +109,8 @@ def domain_form_context(context, error):
         'keywords': _('Enter keywords separated by commas; quote phrases containing commas.'),
         'ports': _('Enter TCP ports (1–65535) or ranges, separated by commas.'),
         'proxy': _('Enter a supported proxy URL with a host.'),
+        'http_url': _('Enter an HTTP(S) address using this domain.'),
+        'http_scheme': _('Choose HTTP or HTTPS.'),
         'proxy_mode': _('Choose a valid proxy action.'),
     }
     field_errors = {key: message for key, message in messages.items()

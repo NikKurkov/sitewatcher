@@ -1,32 +1,9 @@
 {% extends 'sitewatcher/base.html' %}
 {% load i18n %}
 {% block title %}{% translate 'Overview · SiteWatcher' %}{% endblock %}
+{% block page_scripts %}<link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'route_view.js' %}"></script><script defer src="{% url 'asset' 'activity.js' %}"></script>{% if not read_only %}<script defer src="{% url 'asset' 'domain_order.js' %}"></script>{% endif %}{% endblock %}
 {% block content %}
-    <div class="page-heading">
-        <div>
-            <p class="eyebrow">{% translate 'Your workspace' %}</p>
-            <h1>{% translate 'Overview' %}</h1>
-            <p class="subtitle">{% translate 'Keep an eye on the sites that matter.' %}</p>
-        </div>
-        {% if not read_only %}
-            <div class="overview-actions">
-                <a class="button primary" href="/domains/new"><span aria-hidden="true">＋</span> {% translate 'Add domain' %}</a>
-                {% if total %}
-                    <form method="post" action="/domains/check">
-                        {% csrf_token %}
-                        <input type="hidden" name="domain" value="*">
-                        <button type="submit"
-                            title="{% translate 'Run fresh checks for every domain and save the results. This can take a while.' %}"
-                        >{% translate 'Check all domains now' %}</button>
-                    </form>
-                {% endif %}
-            </div>
-        {% endif %}
-    </div>
-    <div class="refresh-controls" data-auto-refresh>
-        <a class="button" href="">{% translate 'Refresh now' %}</a>
-        <label hidden data-refresh-option><input type="checkbox" checked data-refresh-enabled> {% translate 'Refresh every minute' %}</label>
-    </div>
+    <h1 class="sr-only">{% translate 'Overview' %}</h1>
     {% if notice %}
         <p class="notice" role="status">{{ notice }}</p>
     {% endif %}
@@ -39,53 +16,70 @@
                 <h2>{% if attention %}{% blocktranslate count count=attention %}{{ count }} domain needs attention{% plural %}{{ count }} domains need attention{% endblocktranslate %}{% elif summary.unknown == total %}{% translate 'Waiting for first results' %}{% elif summary.paused == total %}{% translate 'Monitoring is paused' %}{% else %}{% translate 'No active warnings' %}{% endif %}</h2>
                 <p>{% blocktranslate count count=total %}{{ count }} domain{% plural %}{{ count }} domains{% endblocktranslate %} <span aria-hidden="true">·</span> {% blocktranslate with count=healthy %}{{ count }} healthy{% endblocktranslate %}{% if summary.paused %} <span aria-hidden="true">·</span> {% blocktranslate with count=summary.paused %}{{ count }} paused{% endblocktranslate %}{% endif %}{% if summary.unknown %} <span aria-hidden="true">·</span> {% blocktranslate with count=summary.unknown %}{{ count }} without current results{% endblocktranslate %}{% endif %}</p>
             </div>
-            <div class="summary-time">
-                <span class="eyebrow">{% translate 'Last checked' %}</span>
-                {% include 'sitewatcher/partials/time.html' with stamp=observed %}
+            <div class="summary-controls">
+                <div class="summary-time">
+                    <span class="eyebrow">{% translate 'Last checked' %}</span>
+                    <div class="summary-timestamp">{% include 'sitewatcher/partials/time.html' with stamp=observed no_separator=True %}</div>
+                </div>
+                {% include 'sitewatcher/partials/periods.html' %}
             </div>
         </section>
-        <div class="list-toolbar">
-            <form method="get" class="filter-form" role="search">
-                <label class="sr-only" for="q">{% translate 'Find a domain' %}</label>
-                <input type="search" name="q" id="q" value="{{ query }}" placeholder="{% translate 'Find a domain…' %}">
-                <label class="sr-only" for="status">{% translate 'Filter domains' %}</label>
-                <select id="status" name="status">
-                    {% for value,label in filters %}
-                        <option value="{{ value }}" {% if value == status %}selected{% endif %}>{{ label }}</option>
-                    {% endfor %}
-                </select>
-                <input type="hidden" name="days" value="{{ report.days }}">
-                <button type="submit">{% translate 'Filter' %}</button>
-            </form>
-            {% include 'sitewatcher/partials/periods.html' %}
-        </div>
+        {% include 'sitewatcher/partials/activity.html' %}
         <section class="panel domain-list" aria-label="{% translate 'Domains' %}">
-            <table class="domains-table">
+            <p class="sr-only" data-order-status role="status"></p>
+            <table class="domains-table"{% if not read_only %} data-domain-order
+                data-saved="{% translate 'Domain order saved' %}"
+                data-failed="{% translate 'Could not confirm the new order. Reload the page and try again.' %}"
+                data-group="{% translate 'Favorites stay at the top. Move domains within their group.' %}"{% endif %}>
                 <caption class="sr-only">{% translate 'Domains, with favorites first. Historical percentages describe HTTP checks in the selected period.' %}</caption>
+                <colgroup>
+                    <col class="col-domain"><col class="col-status"><col class="col-history">
+                    <col class="col-success"><col class="col-time"><col class="col-actions">
+                </colgroup>
                 <thead>
                     <tr>
-                        <th scope="col">{% translate 'Domain' %}</th>
-                        <th scope="col">{% translate 'Status' %}</th>
-                        <th scope="col">{% translate 'HTTP history' %}</th>
-                        <th scope="col">{% translate 'Successful checks' %}</th>
-                        <th scope="col">{% translate 'Last checked' %}</th>
-                        <th scope="col">
+                        <th scope="col" class="header-domain">
+                            <form method="get" action="/" id="domain-filters" class="filter-form column-search" role="search">
+                                <label for="q">{% translate 'Domain' %}</label>
+                                <input type="search" name="q" id="q" value="{{ query }}"
+                                    placeholder="{% translate 'Find…' %}" aria-label="{% translate 'Find a domain' %}">
+                                <input type="hidden" name="days" value="{{ report.days }}">
+                                <noscript><button type="submit">{% translate 'Filter' %}</button></noscript>
+                            </form>
+                        </th>
+                        <th scope="col" class="header-status" aria-label="{% translate 'Status' %}">
+                            <select id="status" name="status" form="domain-filters" class="column-status"
+                                aria-label="{% translate 'Filter domains' %}" title="{% translate 'Filter domains' %}"
+                                {% if status != 'all' %}data-filtered{% endif %}
+                            >
+                                {% for value,label in filters %}
+                                    <option value="{{ value }}" {% if value == status %}selected{% endif %}>{% if value == 'all' %}{% translate 'Status: all' %}{% else %}{{ label }}{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </th>
+                        <th scope="col" class="header-metric">{% translate 'HTTP history' %}</th>
+                        <th scope="col" class="header-metric">{% translate 'Successful checks' %}</th>
+                        <th scope="col" class="header-metric">{% translate 'Last checked' %}</th>
+                        <th scope="col" class="header-metric">
                             <span class="sr-only">{% translate 'Actions' %}</span>
                         </th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for row in rows %}
-                        <tr>
+                        <tr data-domain-name="{{ row.name }}" data-favorite="{{ row.favorite|yesno:'true,false' }}">
                             <th scope="row" data-label="{% translate 'Domain' %}">
                                 <div class="domain-heading">
+                                    {% if not read_only %}<button type="button" class="domain-reorder-handle" data-domain-drag draggable="true" hidden
+                                        title="{% translate 'Drag to reorder. Keyboard: Alt + Up or Down.' %}"
+                                        aria-label="{% blocktranslate with domain=row.name %}Move {{ domain }}{% endblocktranslate %}"><svg width="12" height="18" viewBox="0 0 12 18" aria-hidden="true"><g fill="currentColor"><circle cx="3" cy="4" r="1.3"/><circle cx="9" cy="4" r="1.3"/><circle cx="3" cy="9" r="1.3"/><circle cx="9" cy="9" r="1.3"/><circle cx="3" cy="14" r="1.3"/><circle cx="9" cy="14" r="1.3"/></g></svg></button>{% endif %}
                                     {% include 'sitewatcher/partials/favorite.html' %}
                                     <div class="domain-heading-name">
                                         <a class="domain-name" href="/domains/history?domain={{ row.name|urlencode }}&amp;days={{ report.days }}">{{ row.name }}</a>
                                         {% if row.error %}
                                             <span class="row-note">{{ row.error }}</span>
                                         {% endif %}
-                                        {% if row.stale and row.observed and not row.paused %}
+                                        {% if row.overdue and row.observed and not row.paused %}
                                             <span class="row-note">{% translate 'Some checks are overdue' %}</span>
                                         {% endif %}
                                     </div>
@@ -107,15 +101,39 @@
                                 {% endif %}
                                 <span class="row-note">{% if row.report.totals.latency_ms != None %}{% blocktranslate with latency=row.report.totals.latency_ms|floatformat:0 %}Average response: {{ latency }} ms{% endblocktranslate %}{% else %}{% translate 'No latency data' %}{% endif %}</span>
                             </td>
-                            <td class="time-cell" data-label="{% translate 'Last checked' %}">{% include 'sitewatcher/partials/time.html' with stamp=row.observed %}</td>
+                            <td class="time-cell" data-label="{% translate 'Last checked' %}">
+                                <div class="last-checked">{% include 'sitewatcher/partials/time.html' with stamp=row.observed compact=True %}</div>
+                            </td>
                             <td class="row-action">
-                                {% if not read_only %}
-                                    <a href="/domains/edit?domain={{ row.name|urlencode }}"
-                                        aria-label="{% blocktranslate with domain=row.name %}Edit {{ domain }}{% endblocktranslate %}"
-                                    >{% translate 'Edit' %}</a>
-                                {% else %}
-                                    <a href="/domains/history?domain={{ row.name|urlencode }}">{% translate 'History' %}</a>
-                                {% endif %}
+                                <div class="domain-actions row-domain-actions">
+                                    {% if not read_only %}
+                                        <a class="button icon-button" href="/domains/edit?domain={{ row.name|urlencode }}"
+                                            title="{% translate 'Edit domain' %}"
+                                            aria-label="{% blocktranslate with domain=row.name %}Edit {{ domain }}{% endblocktranslate %}"
+                                        ><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m16 3 5 5-12 12-6 1 1-6Z M14 5l5 5"/></svg></a>
+                                        <form method="post" action="/domains/check">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="domain" value="{{ row.name }}">
+                                            <input type="hidden" name="q" value="{{ query }}">
+                                            <input type="hidden" name="status" value="{{ status }}">
+                                            <input type="hidden" name="days" value="{{ report.days }}">
+                                            <button class="icon-button" type="submit" title="{% translate 'Check now' %}" aria-label="{% translate 'Check now' %}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 7a9 9 0 1 0 1 8 M20 3v5h-5"/></svg></button>
+                                        </form>
+                                        <form method="post" action="{% if row.paused %}/domains/resume{% else %}/domains/pause{% endif %}">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="domain" value="{{ row.name }}">
+                                            <input type="hidden" name="q" value="{{ query }}">
+                                            <input type="hidden" name="status" value="{{ status }}">
+                                            <input type="hidden" name="days" value="{{ report.days }}">
+                                            <button class="icon-button" type="submit"
+                                                title="{% if row.paused %}{% translate 'Resume monitoring' %}{% else %}{% translate 'Pause monitoring' %}{% endif %}"
+                                                aria-label="{% if row.paused %}{% translate 'Resume monitoring' %}{% else %}{% translate 'Pause monitoring' %}{% endif %}"
+                                            ><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">{% if row.paused %}<path d="m8 4 12 8-12 8Z"/>{% else %}<path d="M8 5v14 M16 5v14"/>{% endif %}</svg></button>
+                                        </form>
+                                    {% else %}
+                                        <a class="button icon-button" href="/domains/history?domain={{ row.name|urlencode }}" title="{% translate 'History' %}" aria-label="{% translate 'History' %}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></a>
+                                    {% endif %}
+                                </div>
                             </td>
                         </tr>
                     {% empty %}
@@ -129,11 +147,6 @@
                 </tbody>
             </table>
         </section>
-        <div class="list-footnote">
-            <span class="legend"><span class="legend-item"><i class="key successful"></i>{% translate 'Successful' %}</span><span class="legend-item"><i class="key failed"></i>{% translate 'Failed' %}</span><span class="legend-item"><i class="key unknown"></i>{% translate 'Unknown / no observations' %}</span></span>
-            <span>{% blocktranslate count count=report.days %}HTTP observations · {{ count }} day{% plural %}HTTP observations · {{ count }} days{% endblocktranslate %}</span>
-        </div>
-        <p class="fine-print">{% translate 'Successful checks is the share of recorded HTTP checks that succeeded. Gaps are not counted as success.' %}</p>
     {% else %}
         <section class="panel empty-state">
             <div class="empty-symbol" aria-hidden="true">◎</div>

@@ -131,7 +131,7 @@
                 </div>
             {% endfor %}
             <div class="history-filter-actions">
-                <button type="submit">{% translate 'Filter' %}</button>
+                <noscript><button type="submit">{% translate 'Filter' %}</button></noscript>
                 <a href="?domain={{ report.domain|urlencode }}&amp;days={{ report.days }}#recent-history">{% translate 'Reset filters' %}</a>
             </div>
             <p class="field-help">{% blocktranslate with timezone=report.timezone %}Dates use {{ timezone }}. Up to 100 matching results are shown.{% endblocktranslate %}</p>

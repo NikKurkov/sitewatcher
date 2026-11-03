@@ -1,10 +1,11 @@
-"""Revocable public capabilities with a deliberately narrow, aggregate-only serializer."""
+"""Revocable public capabilities with narrow HTTP-only report and activity serializers."""
 import hashlib
 import logging
 import secrets
 
 from django.conf import settings
 from django.utils import translation
+from django.utils.crypto import salted_hmac
 from django.utils.translation import gettext as _
 from django.db import transaction
 from django.http import HttpResponse, JsonResponse
@@ -12,12 +13,13 @@ from django.shortcuts import render
 from django.views.decorators.debug import sensitive_variables
 from django.views.decorators.http import require_POST
 
-from sitewatcher import storage
+from sitewatcher import check_activity, storage
 from sitewatcher.reporting import build_snapshot
 from . import analytics
 from .accounts import owner_required
 from .models import Workspace
-from .presentation import local_time, report_context
+from .presentation import check_label, local_time, report_context, status_label
+from .activity import present_events
 
 
 def _totals(value):
@@ -64,8 +66,26 @@ def public_report(workspace, *, days):
             'domains': reports}
 
 
+def public_activity(workspace):
+    events, domains = check_activity.published_http(
+        workspace.owner_id, sorted(set(workspace.public_domains)),
+    )
+    present_events(events)
+    for event in events:
+        # Opaque per-link identifiers do not reveal the owner's global probe counter.
+        event['id'] = salted_hmac(
+            'sitewatcher.public_activity', workspace.public_token_hash + ':' + str(event['id']),
+            algorithm='sha256',
+        ).hexdigest()[:24]
+        event.pop('check_name')
+    for domain in domains:
+        domain['label'] = str(check_label('http_basic'))
+        domain['status_label'] = str(status_label(domain['status']))
+    return {'events': events, 'domains': domains}
+
+
 @sensitive_variables('token')
-def status(request, token, *, data=False):
+def status(request, token, *, data=False, activity=False):
     """Called inside the early bearer-path boundary; no owner/session middleware runs."""
     if request.method not in {'GET', 'HEAD'}:
         return HttpResponse(_('Method not allowed'), status=405, headers={'Allow': 'GET, HEAD'})
@@ -75,7 +95,11 @@ def status(request, token, *, data=False):
         return HttpResponse(_('Not found'), status=404)
     request.LANGUAGE_CODE = workspace.language
     with translation.override(workspace.language):
-        response = _status_page(request, workspace, data=data)
+        if activity:
+            response = (HttpResponse(_('Not found'), status=404) if request.GET
+                        else JsonResponse(public_activity(workspace)))
+        else:
+            response = _status_page(request, workspace, data=data)
     response['Content-Language'] = workspace.language
     return response
 

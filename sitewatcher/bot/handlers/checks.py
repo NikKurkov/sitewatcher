@@ -1,4 +1,3 @@
-# sitewatcher/bot/handlers/checks.py
 from __future__ import annotations
 
 import logging
@@ -13,7 +12,7 @@ from ...dispatcher import Dispatcher
 from ..formatting import _format_results, _format_results_summary
 from ..utils import safe_reply_html
 from ..alerts import maybe_send_alert
-from ..validators import DOMAIN_RE, normalize_domain
+from ...utils.domains import DOMAIN_RE, normalize_domain
 
 log = logging.getLogger(__name__)
 

@@ -10,7 +10,7 @@ import pytest
 from sitewatcher import storage
 from sitewatcher.bot.alerts import _is_fresh_ok_for_all
 from sitewatcher.bot.handlers.cfg import cmd_cfg, cmd_cfg_set, cmd_cfg_unset
-from sitewatcher.bot.jobs import due_checks
+from sitewatcher.scheduler import due_checks
 from sitewatcher.checks.base import CheckOutcome, Status
 from sitewatcher.config import AppConfig
 from sitewatcher.dispatcher import Dispatcher

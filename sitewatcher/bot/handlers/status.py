@@ -1,4 +1,3 @@
-# sitewatcher/bot/handlers/status.py
 from __future__ import annotations
 
 import html
@@ -20,7 +19,7 @@ from ...utils.results import (
     strip_cached_suffix as _strip_cached_suffix,
 )
 from ..alerts import _enabled_checks_for
-from ..validators import DOMAIN_RE
+from ...utils.domains import DOMAIN_RE
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +29,7 @@ FILTER_TOKENS = {"crit", "warn", "ok", "unknown", "problems"}
 
 # ---------------------------- small helpers ----------------------------
 
-def _parse_filters(args: Iterable[str], *, default_problems: bool) -> Set[str]:
+def _parse_filters(args: Iterable[str]) -> Set[str]:
     """Return desired status set: {'CRIT','WARN','OK','UNKNOWN'}."""
     mapping = {
         "crit": "CRIT",
@@ -49,7 +48,7 @@ def _parse_filters(args: Iterable[str], *, default_problems: bool) -> Set[str]:
             else:
                 out.add(v)
     if not out:
-        return {"CRIT", "WARN", "UNKNOWN"} if default_problems else {"CRIT", "WARN", "OK", "UNKNOWN"}
+        return {"CRIT", "WARN", "OK", "UNKNOWN"}
     return out
 
 
@@ -64,7 +63,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     # If first arg looks like a domain, delegate to detailed mode
     if args and (args[0] not in FILTER_TOKENS) and DOMAIN_RE.match(args[0]):
         domain = args[0]
-        filters = _parse_filters(args[1:], default_problems=False)
+        filters = _parse_filters(args[1:])
         return await cmd_status_one(update, context, domain=domain, filters=filters)
 
     owner_id = update.effective_user.id
@@ -80,8 +79,8 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         log.info("status.done", extra={"event": "status.done", "owner_id": owner_id, "lines": 0})
         return
 
-    # Default to problems-only for overall view
-    wanted = _parse_filters(args, default_problems=False)
+    # An explicit filter narrows the otherwise complete saved status view.
+    wanted = _parse_filters(args)
 
     cfg = context.application.bot_data["cfg"]
 
@@ -155,23 +154,13 @@ async def cmd_status_one(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     *,
-    domain: str | None = None,
-    filters: Set[str] | None = None,
+    domain: str,
+    filters: Set[str],
 ) -> None:
     """
     Detailed last known results for a single domain (no new checks).
     Shows each enabled check's latest stored status and message.
     """
-    msg = getattr(update, "effective_message", None)
-    if domain is None:
-        # If invoked directly, parse from args
-        args = [a.lower() for a in (context.args or [])]
-        if not args:
-            if msg:
-                await msg.reply_text("Usage: /status <domain> [crit|warn|ok|unknown|problems]")
-            return
-        domain = args[0]
-        filters = _parse_filters(args[1:], default_problems=False)
     name = domain
 
     owner_id = update.effective_user.id
@@ -199,8 +188,7 @@ async def cmd_status_one(
     items: List[Tuple[int, str, str]] = []  # (neg_sev, check, line)
     for chk, row in rows:
         st = row["status"].upper()
-        if st not in wanted and not (("CRIT" in wanted or "WARN" in wanted or "UNKNOWN" in wanted) and st in {"CRIT", "WARN", "UNKNOWN"}):
-            # simple membership check; above condition is redundant but explicit for clarity
+        if st not in wanted:
             continue
         ts = _fmt_ts(row["created_at"])
         bullet = _status_bullet(st)

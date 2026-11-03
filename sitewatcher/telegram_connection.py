@@ -11,6 +11,7 @@ import tempfile
 import httpx
 
 from . import storage
+from .telegram_proxy import load_proxy
 
 TOKEN_RE = re.compile(r'[0-9]{3,20}:[A-Za-z0-9_-]{20,200}\Z')
 
@@ -73,6 +74,13 @@ class _HideBotUrl(logging.Filter):
     """HTTP clients can log the Bot API credential in their request URL."""
 
     def filter(self, record):
+        # HTTPcore's SOCKS handshake traces include the raw username/password tuple.
+        if record.name == 'httpcore.socks':
+            record.msg = '[Telegram proxy transport]'
+            record.args = ()
+            record.exc_info = None
+            record.exc_text = None
+            return True
         record.msg = re.sub(r'https?://api\.telegram\.org/[^\s"\']+',
                             '[Telegram API]', record.getMessage())
         record.args = ()
@@ -87,7 +95,7 @@ for _name in ('httpx', 'httpcore.connection', 'httpcore.http11', 'httpcore.http2
 
 async def _call(token: str, method: str, payload: dict):
     try:
-        async with httpx.AsyncClient(timeout=10.0, proxy=os.getenv('TELEGRAM_PROXY') or None,
+        async with httpx.AsyncClient(timeout=10.0, proxy=load_proxy(),
                                      follow_redirects=False) as client:
             response = await client.post(f'https://api.telegram.org/bot{token}/{method}',
                                          json=payload)

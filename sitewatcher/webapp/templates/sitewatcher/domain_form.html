@@ -26,15 +26,25 @@
     >
         {% csrf_token %}
         <input type="hidden" name="revision" value="{{ revision }}">
+        {% if view == 'edit' %}<input type="hidden" name="original_domain" value="{{ values.original_domain }}">{% endif %}
         <div class="form-section">
             <h2>{% translate 'The basics' %}</h2>
             <div class="field">
-                <label for="domain">{% translate 'Domain' %}</label>
-                <input id="domain" name="domain" value="{{ values.domain }}" required autocomplete="off" placeholder="{% if view == 'add' %}example.com, example.org{% else %}example.com{% endif %}" {% if view == 'edit' %}readonly{% endif %} aria-describedby="domain-help{% if field_errors.domain %} domain-error{% endif %}" {% if field_errors.domain %}aria-invalid="true"{% endif %}>
+                <label for="domain">{% if view == 'add' %}{% translate 'Website addresses' %}{% else %}{% translate 'Website address' %}{% endif %}</label>
+                <div class="site-address-input">
+                {% if view == 'edit' %}
+                <select name="http_scheme" id="http_scheme" aria-label="{% translate 'Connection protocol' %}">
+                    <option value="https" {% if values.http_scheme == 'https' %}selected{% endif %}>HTTPS</option>
+                    <option value="http" {% if values.http_scheme == 'http' %}selected{% endif %}>HTTP</option>
+                </select>
+                {% endif %}
+                <input id="domain" name="domain" value="{{ values.domain }}" required autocomplete="off" placeholder="{% if view == 'add' %}https://example.com, http://example.org/catalog/{% else %}example.com{% endif %}" inputmode="url" autocapitalize="off" spellcheck="false" aria-describedby="domain-help{% if field_errors.domain %} domain-error{% endif %}" {% if field_errors.domain %}aria-invalid="true"{% endif %}>
+                </div>
                 {% if field_errors.domain %}
                     <p class="field-error" id="domain-error">{{ field_errors.domain }}</p>
                 {% endif %}
-                <p class="field-help" id="domain-help">{% if view == 'add' %}{% translate 'Enter up to 50 domains separated by commas, for example example.com, example.org. The settings below apply to every domain. No paths are needed.' %}{% else %}{% translate 'A hostname, such as example.com. No path is needed.' %}{% endif %}</p>
+                {% if field_errors.http_url %}<p class="field-error">{{ field_errors.http_url }}</p>{% endif %}
+                <p class="field-help" id="domain-help">{% if view == 'add' %}{% translate 'Enter up to 50 website addresses separated by commas. Examples: site.ru, http://site.ru, site.ru/catalog/. HTTPS is used when no protocol is specified. Settings apply to every address.' %}{% else %}{% translate 'Enter a hostname and optional path, such as site.ru or site.ru/catalog/. Choose HTTP or HTTPS on the left. You can change the domain; settings and history are retained.' %}{% endif %}</p>
             </div>
             {% include 'sitewatcher/partials/number_field.html' with field=interval %}
             <p class="field-help">{% translate 'Leave blank to use the default schedule. Use 0 to pause monitoring.' %}</p>

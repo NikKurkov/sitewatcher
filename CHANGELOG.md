@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Remove unused management markup, internal compatibility wrappers, obsolete planning
+  documents and unreferenced images. Share response metrics and use standard ordered
+  deduplication without changing monitoring settings or supported configuration keys.
+- Start the Django application directly from the CLI and cache Docker dependencies
+  separately from application source.
+- Respect individual status filters in detailed Telegram status reports.
+
 ## 0.3.0 — 2026-11-03
 
 ### Added

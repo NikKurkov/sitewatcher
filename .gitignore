@@ -48,3 +48,11 @@ coverage.xml
 
 # Project archives
 sitewatcher.zip
+
+# Private Telegram proxy settings and atomic-write temporary files.
+*.telegram-proxy
+.telegram-proxy-*
+
+# Private VirusTotal API key and atomic-write temporary files.
+*.virustotal-key
+.virustotal-key-*

@@ -1,4 +1,3 @@
-# sitewatcher/checks/ip_blacklist.py
 from __future__ import annotations
 
 import asyncio
@@ -214,8 +213,8 @@ class IpBlacklistCheck(BaseCheck):
             v6 = []
 
         # Deduplicate preserving order
-        v4 = _uniq_preserve(v4)
-        v6 = _uniq_preserve(v6)
+        v4 = list(dict.fromkeys(v4))
+        v6 = list(dict.fromkeys(v6))
         return v4, v6
 
     async def _probe_ip_zone(self, sem: asyncio.Semaphore, ip: str, zone: str) -> Optional[Hit]:
@@ -267,17 +266,6 @@ class IpBlacklistCheck(BaseCheck):
 
 
 # ----------------------------- helpers -----------------------------
-
-def _uniq_preserve(items: List[str]) -> List[str]:
-    """Deduplicate a list while preserving the first occurrence order."""
-    seen = set()
-    out: List[str] = []
-    for x in items:
-        if x not in seen:
-            seen.add(x)
-            out.append(x)
-    return out
-
 
 def _is_ip(s: str) -> bool:
     """Return True if the string is a valid IPv4/IPv6 address."""

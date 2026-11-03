@@ -12,6 +12,7 @@ class Workspace(models.Model):
     public_enabled = models.BooleanField(default=False)
     public_token_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
     public_domains = models.JSONField(default=list)
+    domain_order = models.JSONField(default=list)
 
     class Meta:
         constraints = [models.CheckConstraint(

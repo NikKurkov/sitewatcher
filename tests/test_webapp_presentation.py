@@ -318,7 +318,7 @@ def test_overview_shows_per_domain_latency_and_reading_order(owner, client):
     storage.save_history(41, 'fast.example', 'http_basic', 'OK', '',
                          {'final_code': 200, 'response_latency_ms': 125})
     body = get(client, '/').content.decode()
-    assert body.index('<h1>Overview') < body.index('data-auto-refresh')
+    assert body.index('data-auto-refresh') < body.index('<h1 class="sr-only">Overview')
     table = body[body.index('<tbody>'):body.index('</tbody>')]
     assert 'Average response: 125 ms' in table
     assert 'No latency data' in table
@@ -384,3 +384,123 @@ def test_dashboard_tooltip_explains_overdue_success_as_warning():
     assert row['state'] == 'warn'
     assert row['problems'][0]['stale'] is True
     assert row['problems'][0]['observed']['label'] == '03 Nov 2026, 13:00 MSK'
+
+
+def test_overview_actions_are_accessible_header_icons_without_intro(owner, client, settings):
+    storage.add_domain(41, 'one.example')
+    body = get(client, '/').content.decode()
+    header = body.split('<header class="topbar">', 1)[1].split('</header>', 1)[0]
+    assert 'class="topbar-actions"' in header
+    assert 'data-activity-toggle hidden' in header and 'aria-controls="live-checks"' in header
+    assert 'data-live-activity hidden' in body
+    assert '/assets/activity.js' in body
+    assert '/assets/activity.css' in body
+    assert 'href="/domains/new"' in header and 'action="/domains/check"' in header
+    assert 'aria-label="Refresh now"' in header
+    assert 'data-refresh-enabled' in header and 'aria-pressed="true"' in header
+    assert 'Your workspace' not in body and 'Keep an eye on the sites that matter.' not in body
+    assert '<h1>Overview</h1>' not in body
+    assert 'class="refresh-controls"' not in body
+    settings.SITEWATCHER_READ_ONLY = True
+    header = get(client, '/').content.decode().split('</header>', 1)[0]
+    assert 'href="/domains/new"' not in header and 'action="/domains/check"' not in header
+    assert 'data-refresh-enabled' in header and 'aria-label="Refresh now"' in header
+
+
+def test_settings_navigation_is_a_header_icon_and_marks_current_page(owner, client):
+    body = get(client, '/settings').content.decode()
+    header = body.split('<header class="topbar">', 1)[1].split('</header>', 1)[0]
+    assert '<nav' not in header
+    assert '<a class="brand" href="/" aria-label="SiteWatcher">' in header
+    import re
+    button = re.search(r'<a class="button icon-button settings-button"[^>]*>', header).group()
+    assert 'title="Settings"' in button and 'aria-label="Settings"' in button
+    assert 'aria-current="page"' in button
+    assert '<svg ' in header
+
+
+@pytest.mark.parametrize('route', ['/', '/settings', '/domains/new', '/password/',
+                                  '/domains/edit?domain=one.example',
+                                  '/domains/history?domain=one.example'])
+def test_owner_toolbar_keeps_order_and_limits_refresh_to_overview(owner, client, route):
+    storage.add_domain(41, 'one.example')
+    response = get(client, route)
+    assert response.status_code == 200
+    body = response.content.decode()
+    header = body.split('<header class="topbar">', 1)[1].split('</header>', 1)[0]
+    labels = ['Add domain', 'Check all domains now', 'Live checks', 'Refresh now',
+              'Refresh every minute', 'Settings', 'Dark theme']
+    positions = [header.index(f'aria-label="{label}"') for label in labels]
+    assert positions == sorted(positions)
+    assert 'method="post" action="/domains/check"' in header
+    assert 'csrfmiddlewaretoken' in header and 'name="domain" value="*"' in header
+    if route == '/':
+        assert 'data-auto-refresh' in header and 'data-activity-toggle' in header
+    else:
+        assert 'data-auto-refresh' not in body and 'data-refresh-option' not in body
+        assert 'data-activity-navigation hidden' in header
+        assert 'Automatic refresh is available on the overview' in header
+        assert '/assets/activity.js' not in body and 'data-live-activity' not in body
+
+
+def test_toolbar_domain_presence_is_owner_scoped_and_readonly(owner, client, settings):
+    storage.ensure_user(42)
+    storage.add_domain(42, 'other.example')
+    header = get(client, '/settings').content.decode().split('</header>', 1)[0]
+    assert 'Check all domains now' in header and 'Live checks' in header
+    assert 'action="/domains/check"' not in header
+    assert 'data-activity-navigation' not in header
+    storage.add_domain(41, 'own.example')
+    settings.SITEWATCHER_READ_ONLY = True
+    for route in ['/', '/settings', '/domains/new', '/password/']:
+        header = get(client, route).content.decode().split('</header>', 1)[0]
+        assert 'href="/domains/new"' not in header
+        assert 'action="/domains/check"' not in header
+
+
+def test_toolbar_context_skips_public_anonymous_and_unbound_requests(web_database, monkeypatch):
+    from types import SimpleNamespace
+    from sitewatcher.webapp import context_processors
+
+    def private_query_forbidden(*args, **kwargs):
+        raise AssertionError('Private toolbar queries must not run')
+
+    with monkeypatch.context() as patch:
+        patch.setattr(context_processors.connection, 'cursor', private_query_forbidden)
+        for request in [
+            SimpleNamespace(path='/status/[redacted]/'),
+            SimpleNamespace(path='/login/', user=SimpleNamespace(is_authenticated=False)),
+            SimpleNamespace(path='/login/', user=SimpleNamespace(is_authenticated=True)),
+        ]:
+            assert context_processors.owner_toolbar(request) == {}
+
+
+def test_toolbar_check_all_retains_native_csrf_protection(owner):
+    from django.test import Client
+
+    storage.add_domain(41, 'one.example')
+    protected = Client(enforce_csrf_checks=True)
+    protected.force_login(owner.user)
+    header = get(protected, '/settings').content.decode().split('</header>', 1)[0]
+    assert 'csrfmiddlewaretoken' in header
+    assert protected.post('/domains/check', {'domain': '*'},
+                          HTTP_HOST='localhost').status_code == 403
+
+
+def test_login_has_no_private_toolbar(owner, client):
+    header = get(client, '/login/').content.decode().split('</header>', 1)[0]
+    assert 'topbar-actions' not in header and 'settings-button' not in header
+
+
+@pytest.mark.parametrize(('zone', 'expected'), [
+    ('Europe/Moscow', '2026-11-03 15:46'), ('UTC', '2026-11-03 12:46'),
+])
+def test_compact_observation_timestamp_uses_workspace_timezone(zone, expected):
+    from django.template.loader import render_to_string
+    from sitewatcher.webapp.presentation import local_time
+    stamp = local_time('2026-11-03T12:46:00Z', zone)
+    body = render_to_string('sitewatcher/partials/time.html', {'stamp': stamp, 'compact': True})
+    assert f'>{expected}</time>' in body
+    assert 'MSK' not in body and 'UTC</time>' not in body
+    assert 'datetime="2026-11-03T12:46:00+00:00"' in body
+    assert ' · ' not in body

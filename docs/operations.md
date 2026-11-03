@@ -43,7 +43,7 @@ Docker images include application code and packaged examples only. Private YAML,
 - CSV exports may contain proxy credentials. Imports apply valid rows independently, reject concurrently changed merge targets, retain domains absent from the file and display added/updated/skipped counts. On errors, reselect the file or paste again; private CSV content is not redisplayed.
 - One web manual-check batch can run at a time. Other requests remain available. No separate scheduler or notification sender runs in the web process. A running bot sees newly saved states on its next tick.
 - Light/dark theme is a non-sensitive browser cookie. A small optional script changes the theme without discarding drafts; without JavaScript, theme links reload the saved page.
-- Every owner route requires login. Django sessions and CSRF protect mutations; login attempts are throttled. HTTPS deployments require explicit allowed hosts, secure cookies and a trusted proxy as described in README. Public bearer links expose only selected aggregate observations; disabling or rotating them revokes access immediately.
+- Every owner route requires login. Django sessions and CSRF protect mutations; login attempts are throttled. HTTPS deployments require explicit allowed hosts, secure cookies and a trusted proxy as described in README. Public bearer links expose only selected HTTP observations and scoped HTTP lifecycle events; disabling or rotating them revokes access immediately.
 
 ## Back up and restore
 
@@ -65,15 +65,34 @@ with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) 
 PY
 ```
 
-Keep `.env`, custom YAML, `<database>.web-secret` and `<database>.telegram-token` separately with restrictive permissions (secret/token files require mode 0600). Stop writes to settings while taking a coordinated backup; for the simplest consistent full backup, stop web, worker and bot first. Never put runtime credentials in release archives. `/export_csv` backs up domain settings only; it does not include history, alert state, or shared caches. Its keyword/port cells use JSON when needed; ordinary comma-separated keyword input remains accepted.
+Keep `.env`, custom YAML, `<database>.web-secret`, `<database>.telegram-token`, `<database>.telegram-proxy` and `<database>.virustotal-key` separately with restrictive permissions (private credential files require mode 0600). Stop writes to settings while taking a coordinated backup; for the simplest consistent full backup, stop web, worker and bot first. Never put runtime credentials in release archives. `/export_csv` backs up domain settings only; it does not include history, alert state, or shared caches. Its keyword/port cells use JSON when needed; ordinary comma-separated keyword input remains accepted.
 
-To restore, stop every worker, bot and web process, retain the current database **and its sidecars together** in a rollback directory, place the verified backup at `DATABASE_PATH`, restore its matching web-secret/token files, and restore file ownership and mode 0600. Do not reuse stale WAL/SHM files with a restored database. Start with `doctor`, then restart web and the single scheduler. Do not overlay an old database while a process still has it open. RKN indexes can be rebuilt; a configured standalone WHOIS/IP-change database needs its own backup if retaining that state matters.
+To restore, stop every worker, bot and web process, retain the current database **and its sidecars together** in a rollback directory, place the verified backup at `DATABASE_PATH`, restore its matching web-secret/token/proxy/VirusTotal key files, and restore file ownership and mode 0600. Do not reuse stale WAL/SHM files with a restored database. Start with `doctor`, then restart web and the single scheduler. Do not overlay an old database while a process still has it open. RKN indexes can be rebuilt; a configured standalone WHOIS/IP-change database needs its own backup if retaining that state matters.
+
+## Live check activity
+
+The optional overview panel reads `/api/activity` every two seconds while enabled and
+visible. It never starts probes. Lifecycle rows are shared through SQLite across web,
+worker and bot; the table retains at most 1,000 rows per owner and the API returns the
+latest 100. Cached and ephemeral probes do not create activity. Telemetry writes have
+a short timeout and cannot prevent a monitoring probe when telemetry storage fails.
+When a positive domain timeout is configured, a missing finish beyond that timeout
+plus ten seconds is shown as interrupted, not as a successful response. Without an
+execution deadline the panel waits for a completion without inferring interruption.
+Stopping/restarting a worker can leave unfinished rows.
+
+The domain-row overdue notice waits for two configured check intervals. Saved-result
+freshness and scheduling still use the original interval.
+
+VirusTotal keys can be stored in Advanced settings. `VIRUSTOTAL_API_KEY` overrides
+YAML `malware.vt_api_key`, which overrides the private saved file. Every probe reloads
+the effective key. Missing configuration and missing passive reports remain UNKNOWN.
 
 ## Configuration and maintenance
 
 - Use one scheduler per database: worker or scheduled bot. Command-only bot polling can coexist. Use one web process; manual-check and cold analytics build locks are process-local.
 - Empty `TELEGRAM_ALLOWED_USER_IDS` intentionally permits everyone. Malformed nonempty values stop bot startup.
-- `TELEGRAM_PROXY` applies to both Bot API replies and `getUpdates` polling. It is separate from the HTTP-check proxy settings.
+- Telegram proxy settings apply to Bot API replies, `getUpdates` polling and web connection checks. HTTP(S), SOCKS5 and Telegram SOCKS links are accepted. A nonempty `TELEGRAM_PROXY` overrides the private saved proxy; without either, standard HTTPX proxy environment variables still apply. The worker reloads changes between ticks; restart polling after a change. These settings are separate from HTTP-check proxies.
 - Daily history cleanup uses `history.cleanup_time` in UTC. `retention_days: 0` removes history older than the current time; it does not disable cleanup. Weekly compaction runs on Sunday in UTC.
 - Cleanup and compaction run in worker threads. Cancelling the scheduler does not interrupt a SQLite maintenance operation that has already started; allow it to finish before replacing the database.
 - Per-domain `interval_minutes: 0` pauses scheduled checks. Manual checks remain available. Explicit zero latency/alert thresholds are preserved.
@@ -93,7 +112,7 @@ No live credentials, public-service probes, or real Telegram sends are needed fo
 
 ## Upgrade and rollback rehearsal
 
-Stop all three services and make a verified SQLite backup plus copies of both private
+Stop all three services and make a verified SQLite backup plus copies of all private
 sidecar credentials before installing a release. Setup/web migrations add framework
 tables and `history.source`; they do not rename monitoring tables or move owners.
 Corrupt legacy overrides are retained and shown as errors, never silently reset.

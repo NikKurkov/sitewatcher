@@ -29,7 +29,7 @@ class ManagementBodyMiddleware:
         if request.method == 'POST' and request.path in {
             '/domains/new', '/domains/edit', '/domains/add', '/domains/save',
             '/domains/delete', '/domains/pause', '/domains/resume', '/domains/reset',
-            '/domains/check', '/domains/favorite', '/workspace', '/settings', '/settings/public', '/alerts', '/import',
+            '/domains/check', '/domains/favorite', '/domains/reorder', '/domains/route', '/workspace', '/settings', '/settings/public', '/alerts', '/import',
         }:
             try:
                 length = request.META.get('CONTENT_LENGTH', '')
@@ -71,7 +71,7 @@ class PublicStatusMiddleware:
         from .public import status
 
         query_string = request.META.get('QUERY_STRING', '')
-        match = re.fullmatch(r'/status/([A-Za-z0-9_-]{43})/(data)?', request.path_info)
+        match = re.fullmatch(r'/status/([A-Za-z0-9_-]{43})/(data|activity)?', request.path_info)
         request.path = request.path_info = '/status/[redacted]/'
         for key in ('PATH_INFO', 'RAW_URI', 'REQUEST_URI', 'QUERY_STRING', 'HTTP_REFERER'):
             request.META.pop(key, None)
@@ -82,7 +82,8 @@ class PublicStatusMiddleware:
         try:
             request.get_host()  # The owner CommonMiddleware is intentionally bypassed.
             request.GET = QueryDict(query_string, encoding=request.encoding)
-            response = status(request, match[1], data=bool(match[2])) if match else HttpResponse(
+            response = status(request, match[1], data=match[2] == 'data',
+                              activity=match[2] == 'activity') if match else HttpResponse(
                 'Not found', status=404)
         except DisallowedHost:
             response = HttpResponse('Invalid host', status=400)

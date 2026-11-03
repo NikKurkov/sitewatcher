@@ -69,6 +69,49 @@ class WorkspacePreferencesForm(forms.Form):
                                     'autocomplete': 'new-password', 'spellcheck': 'false',
                                 }))
 
+    telegram_proxy = forms.CharField(label=_('New Telegram proxy'), required=False, max_length=2048,
+                                    widget=forms.PasswordInput(render_value=False, attrs={
+                                        'autocomplete': 'new-password', 'spellcheck': 'false',
+                                    }))
+    remove_telegram_proxy = forms.BooleanField(label=_('Remove saved Telegram proxy'), required=False)
+
+    virustotal_api_key = forms.CharField(
+        label=_('VirusTotal API key'), required=False, max_length=2048,
+        widget=forms.PasswordInput(render_value=False, attrs={
+            'autocomplete': 'new-password', 'spellcheck': 'false',
+        }))
+    remove_virustotal_api_key = forms.BooleanField(
+        label=_('Remove saved VirusTotal API key'), required=False)
+
+    def clean_virustotal_api_key(self):
+        from sitewatcher.virustotal_settings import validate_api_key
+        value = self.cleaned_data['virustotal_api_key']
+        if value:
+            try:
+                return validate_api_key(value)
+            except ValueError as error:
+                raise ValidationError(_(str(error))) from None
+        return ''
+
+    def clean_telegram_proxy(self):
+        from sitewatcher.telegram_proxy import normalize_proxy
+        value = self.cleaned_data['telegram_proxy']
+        if value:
+            try:
+                return normalize_proxy(value)
+            except ValueError as error:
+                raise ValidationError(_(str(error))) from None
+        return ''
+
+    def clean(self):
+        data = super().clean()
+        if data.get('telegram_proxy') and data.get('remove_telegram_proxy'):
+            self.add_error('telegram_proxy', _('Choose a new proxy or remove the saved proxy.'))
+        if data.get('virustotal_api_key') and data.get('remove_virustotal_api_key'):
+            self.add_error('virustotal_api_key',
+                           _('Choose a new VirusTotal key or remove the saved key.'))
+        return data
+
     def clean_timezone(self):
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
         value = self.cleaned_data['timezone']

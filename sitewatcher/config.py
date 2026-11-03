@@ -1,4 +1,3 @@
-# sitewatcher/config.py
 from __future__ import annotations
 
 import os
@@ -13,7 +12,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from urllib.parse import urlsplit
 
-from .utils.domains import normalize_domain
+from .utils.domains import normalize_domain, normalize_site_url
 
 
 # -------------------------- Checks & Schedules --------------------------
@@ -262,6 +261,7 @@ class Defaults(ConfigModel):
 
 class DomainOverride(ConfigModel):
     """Validated partial settings; missing fields inherit their configured value."""
+    http_url: Optional[str] = None
     http_timeout_s: Optional[int] = Field(None, gt=0)
     interval_minutes: Optional[int] = Field(None, ge=0)
     latency_warn_ms: Optional[int] = Field(None, ge=0)
@@ -274,6 +274,16 @@ class DomainOverride(ConfigModel):
 
     _proxy = field_validator("proxy")(_validate_proxy)
 
+    @field_validator("http_url")
+    @classmethod
+    def validate_http_url(cls, value):
+        if value is None:
+            return None
+        normalized = normalize_site_url(value)
+        if not normalized:
+            raise ValueError("Enter a valid HTTP or HTTPS website address")
+        return normalized
+
     @field_validator("ports", mode="before")
     @classmethod
     def normalize_ports(cls, value):
@@ -284,6 +294,19 @@ class DomainOverride(ConfigModel):
 
 class DomainConfig(DomainOverride):
     name: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def retain_target_url(cls, value):
+        if isinstance(value, dict) and isinstance(value.get('name'), str):
+            target = normalize_site_url(value['name'])
+            if not target:
+                raise ValueError("Invalid website address")
+            host = urlsplit(target).hostname
+            value = {**value, 'name': host}
+            if 'http_url' not in value and target != f'https://{host}/':
+                value['http_url'] = target
+        return value
 
     @field_validator("name")
     @classmethod
@@ -437,6 +460,7 @@ class ResolvedSettings:
     checks: ChecksModel
     ports: Optional[List[PortSpec]]
     interval_minutes: int | None = None
+    http_url: str = ""
 
 
 def resolve_settings(cfg: AppConfig, domain: str, override: Optional[dict] = None) -> ResolvedSettings:
@@ -460,7 +484,7 @@ def resolve_settings(cfg: AppConfig, domain: str, override: Optional[dict] = Non
     if override is not None:
         validated = DomainOverride.model_validate(override).model_dump(exclude_unset=True)
         validated = {
-            key: value for key, value in validated.items() if value is not None or key == "proxy"
+            key: value for key, value in validated.items() if value is not None or key in {"proxy", "http_url"}
         }
         checks = validated.pop("checks", None)
         if checks is not None:
@@ -468,11 +492,15 @@ def resolve_settings(cfg: AppConfig, domain: str, override: Optional[dict] = Non
         values.update(validated)
     ports = values.pop("ports", ports)
     interval = values.pop("interval_minutes", interval)
+    http_url = values.pop("http_url", None) or normalize_site_url(domain)
+    if not http_url or urlsplit(http_url).hostname != normalized:
+        raise ValueError("http_url: Website address must use this domain")
     validated_defaults = Defaults.model_validate(values)
     if not cfg.rkn.check_ip:
         validated_defaults.checks.rkn_ip = False
     return ResolvedSettings(
         name=normalized,
+        http_url=http_url,
         **validated_defaults.model_dump(exclude={"checks"}),
         checks=validated_defaults.checks,
         ports=[PortSpec.model_validate(port) for port in ports] if ports is not None else None,

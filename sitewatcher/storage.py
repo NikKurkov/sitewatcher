@@ -45,6 +45,17 @@ CREATE TABLE IF NOT EXISTS domain_overrides (
   FOREIGN KEY(owner_id, domain) REFERENCES domains(owner_id, name) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS domain_routes (
+  owner_id INTEGER NOT NULL,
+  domain TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  state TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  result_json TEXT,
+  PRIMARY KEY(owner_id, domain),
+  FOREIGN KEY(owner_id, domain) REFERENCES domains(owner_id, name) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_id INTEGER NOT NULL,
@@ -62,6 +73,19 @@ CREATE INDEX IF NOT EXISTS idx_history_owner_domain_check_created
 
 CREATE INDEX IF NOT EXISTS idx_history_owner_domain_check_id
   ON history(owner_id, domain, check_name, id DESC);
+
+CREATE TABLE IF NOT EXISTS check_activity (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_id INTEGER NOT NULL,
+  domain TEXT NOT NULL,
+  check_name TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  status TEXT NOT NULL,
+  elapsed_ms INTEGER,
+  FOREIGN KEY(owner_id, domain) REFERENCES domains(owner_id, name) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_check_activity_owner_id ON check_activity(owner_id, id DESC);
 
 CREATE TABLE IF NOT EXISTS whois_state (
   domain TEXT PRIMARY KEY,
@@ -402,19 +426,30 @@ def minutes_since_last(owner_id: int, domain: str, check_name: str) -> Optional[
     return age_min
 
 
+
+def is_current_observation(domain: str, metrics_json: str | None) -> bool:
+    """Keep a renamed monitor's archived host measurements out of its current state."""
+    try:
+        metrics = json.loads(metrics_json or '{}')
+    except (ValueError, TypeError):
+        return True  # Existing consumers classify malformed legacy metrics themselves.
+    return not isinstance(metrics, dict) or metrics.get('original_domain', domain) == domain
+
+
 def last_check_ages(owner_id: int, domain: str) -> dict[str, float]:
     """Minutes since each check's latest result, from a single owner-scoped query."""
     _ensure_initialized()
     with closing(_connect()) as conn:
         rows = conn.execute(
-            "SELECT check_name, MAX(created_at) FROM history WHERE owner_id=? AND domain=? "
-            "GROUP BY check_name",
+            "SELECT h.check_name,h.created_at,h.metrics_json FROM history h JOIN "
+            "(SELECT MAX(id) AS id FROM history WHERE owner_id=? AND domain=? "
+            "GROUP BY check_name) latest ON h.id=latest.id",
             (int(owner_id), domain.lower()),
         ).fetchall()
     now = datetime.now(timezone.utc)
     ages = {}
-    for name, timestamp in rows:
-        if not name or not timestamp:
+    for name, timestamp, metrics in rows:
+        if not name or not timestamp or not is_current_observation(domain, metrics):
             continue
         try:
             observed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
@@ -437,7 +472,8 @@ def latest_check_results(owner_id: int, domain: str) -> dict[str, sqlite3.Row]:
             ") latest ON h.id=latest.latest_id",
             (int(owner_id), domain.lower()),
         ).fetchall()
-    return {row["check_name"]: row for row in rows}
+    return {row["check_name"]: row for row in rows
+            if is_current_observation(domain, row["metrics_json"])}
 
 
 # ---------- WHOIS cache (shared) ----------
@@ -581,6 +617,55 @@ def set_domain_override(
         _store_domain_override(conn, owner_id, domain, current)
     return current
 
+
+
+def rename_domain(owner_id: int, old: str, new: str, override: dict, *,
+                  expected_revision: str) -> None:
+    """Move one owned monitor atomically, retaining history/order and resetting host state."""
+    _ensure_initialized()
+    with _write_connection() as conn:
+        row = conn.execute('SELECT * FROM domains WHERE owner_id=? AND name=?',
+                           (owner_id, old)).fetchone()
+        if row is None:
+            raise ValueError('Domain not found')
+        if domain_override_revision(_read_domain_override(conn, owner_id, old)) != expected_revision:
+            raise ValueError('Settings changed; reload this page before saving')
+        if conn.execute('SELECT 1 FROM domains WHERE owner_id=? AND name=?',
+                        (owner_id, new)).fetchone():
+            raise ValueError('Domain already exists')
+        conn.execute('INSERT INTO domains(owner_id,name,favorite,created_at) VALUES(?,?,?,?)',
+                     (owner_id, new, row['favorite'], row['created_at']))
+        # Keep historical measurements, but never use the previous host's last result as cache.
+        latest = conn.execute('SELECT id,metrics_json FROM history WHERE id IN '
+                              '(SELECT MAX(id) FROM history WHERE owner_id=? AND domain=? '
+                              'GROUP BY check_name)', (owner_id, old)).fetchall()
+        for result in latest:
+            try:
+                metrics = json.loads(result['metrics_json'] or '{}')
+            except (ValueError, TypeError):
+                metrics = {}
+            if not isinstance(metrics, dict):
+                metrics = {}
+            metrics.setdefault('original_domain', old)
+            conn.execute('UPDATE history SET metrics_json=? WHERE id=?',
+                         (json.dumps(metrics), result['id']))
+        conn.execute('UPDATE history SET domain=? WHERE owner_id=? AND domain=?',
+                     (new, owner_id, old))
+        _store_domain_override(conn, owner_id, new, override)
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='webapp_workspace'").fetchone():
+            workspace = conn.execute('SELECT domain_order,public_domains FROM webapp_workspace '
+                                     'WHERE owner_id=?', (owner_id,)).fetchone()
+            if workspace:
+                for field in ('domain_order', 'public_domains'):
+                    names = json.loads(workspace[field])
+                    if isinstance(names, list):
+                        names = list(dict.fromkeys(new if name == old else name for name in names))
+                        conn.execute(f'UPDATE webapp_workspace SET {field}=? WHERE owner_id=?',
+                                     (json.dumps(names), owner_id))
+        conn.execute('DELETE FROM owner_dns_state WHERE owner_id=? AND domain IN (?,?)',
+                     (owner_id, old, new))
+        # Cascades discard old route/activity/alert state rather than attaching it to another host.
+        conn.execute('DELETE FROM domains WHERE owner_id=? AND name=?', (owner_id, old))
 
 def create_domains_with_overrides(owner_id: int, overrides: dict[str, dict]) -> None:
     """Create a validated batch for one owner, rolling back on conflicts or write errors."""

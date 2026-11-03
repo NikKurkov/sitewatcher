@@ -31,7 +31,7 @@ def _timestamp(value: str | None) -> datetime | None:
 def _domain_snapshot(cfg, name, raw_override, histories, now):
     row = {
         'name': name, 'overall': 'UNKNOWN', 'paused': not cfg.scheduler.enabled,
-        'stale': False, 'last_checked_at': None, 'next_due_at': None, 'checks': [], 'error': None,
+        'stale': False, 'overdue': False, 'last_checked_at': None, 'next_due_at': None, 'checks': [], 'error': None,
     }
     try:
         override = json.loads(raw_override) if raw_override is not None else None
@@ -66,6 +66,9 @@ def _domain_snapshot(cfg, name, raw_override, histories, now):
                 due_at = checked_at + timedelta(minutes=interval)
             except OverflowError:
                 due_at = now
+        # Give the dashboard notice one extra interval without treating old results as fresh.
+        if checked_at is not None and not row['paused']:
+            row['overdue'] |= (now - checked_at).total_seconds() >= interval * 120
         stale = not row['paused'] and due_at <= now
         raw_status = saved['status'] if saved is not None else 'UNKNOWN'
         status = status_text(raw_status)
@@ -137,7 +140,8 @@ def build_snapshot(cfg: AppConfig, owner_id: int, *, now: datetime | None = None
     except (sqlite3.Error, OSError, ValueError):
         raise SnapshotError('Monitoring database is unavailable') from None
 
-    histories = {(row['domain'], row['check_name']): row for row in history}
+    histories = {(row['domain'], row['check_name']): row for row in history
+                 if storage.is_current_observation(row['domain'], row['metrics_json'])}
     rows = [{**_domain_snapshot(cfg, row['name'], row['data_json'], histories, now),
              'favorite': bool(row['favorite'])} for row in domains]
     summary = dict.fromkeys(('total', 'ok', 'warn', 'crit', 'unknown', 'paused', 'stale'), 0)

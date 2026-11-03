@@ -309,3 +309,156 @@ assert not storage.DEFAULT_DB.exists()
     assert '0600' in result.stdout
     assert str(private_path) not in result.stdout + result.stderr
     assert 'Traceback' not in result.stderr
+
+
+def test_proxy_settings_keep_remove_override_and_no_secret_echo(owner, client, monkeypatch):
+    from sitewatcher.telegram_proxy import load_proxy, proxy_path
+    monkeypatch.delenv('TELEGRAM_PROXY', raising=False)
+    proxy = 'http://user:private-proxy-password@proxy.example:3128'
+    assert post(client, {'telegram_proxy': proxy}).status_code == 303
+    assert load_proxy() == proxy
+    assert stat.S_IMODE(proxy_path().stat().st_mode) == 0o600
+    assert post(client, {'telegram_proxy': '', 'timezone': 'UTC'}).status_code == 303
+    assert load_proxy() == proxy
+    response = post(client, {'telegram_proxy': 'tg://proxy?secret=private-invalid', 'enabled': 'off'})
+    assert response.status_code == 400
+    assert b'MTProto' in response.content and b'private-invalid' not in response.content
+    assert storage.is_user_alerts_enabled(31)
+    response = post(client, {'telegram_proxy': proxy, 'timezone': 'Invalid/Zone'})
+    assert response.status_code == 400 and b'private-proxy-password' not in response.content
+    monkeypatch.setenv('TELEGRAM_PROXY', 'socks5://deployment.example:1080')
+    response = client.get('/settings', HTTP_HOST='localhost')
+    assert b'TELEGRAM_PROXY' in response.content
+    assert b'private-proxy-password' not in response.content
+    assert b'deployment.example' not in response.content
+    assert post(client, {'remove_telegram_proxy': 'on'}).status_code == 303
+    assert not proxy_path().exists()
+    assert load_proxy() == 'socks5://deployment.example:1080'
+    assert post(client, {'remove_telegram_proxy': 'on', 'telegram_proxy': proxy}).status_code == 400
+
+
+@pytest.fixture
+def virustotal_file(tmp_path, monkeypatch):
+    from sitewatcher import virustotal_settings
+    monkeypatch.delenv('VIRUSTOTAL_API_KEY', raising=False)
+    monkeypatch.setattr(virustotal_settings, 'key_path', lambda: tmp_path / 'private.virustotal-key')
+    return virustotal_settings.key_path()
+
+
+def test_virustotal_settings_private_keep_set_remove_and_precedence(
+        owner, client, settings, monkeypatch, virustotal_file):
+    from sitewatcher.virustotal_settings import load_api_key
+    key = 'private-virustotal-test-key'
+    response = post(client, {'virustotal_api_key': key})
+    assert response.status_code == 303
+    assert 'virustotal_api_key' in response.wsgi_request.sensitive_post_parameters
+    assert response['Cache-Control'] == 'no-store'
+    assert load_api_key() == key
+    assert stat.S_IMODE(virustotal_file.stat().st_mode) == 0o600
+    assert post(client, {'virustotal_api_key': '', 'timezone': 'UTC'}).status_code == 303
+    assert load_api_key() == key
+    for route in ('/settings', '/workspace', '/api/status', '/'):
+        response = client.get(route, HTTP_HOST='localhost')
+        assert key.encode() not in response.content
+    response = client.get('/settings', HTTP_HOST='localhost')
+    assert b'VirusTotal API key configured.' in response.content
+    settings.SITEWATCHER_CONFIG.malware.vt_api_key = 'installation-key'
+    response = client.get('/settings', HTTP_HOST='localhost')
+    assert b'malware.vt_api_key' in response.content and b'installation-key' not in response.content
+    monkeypatch.setenv('VIRUSTOTAL_API_KEY', 'deployment-private-key')
+    response = client.get('/settings', HTTP_HOST='localhost')
+    assert b'VIRUSTOTAL_API_KEY' in response.content
+    assert b'deployment-private-key' not in response.content
+    assert post(client, {'remove_virustotal_api_key': 'on'}).status_code == 303
+    assert not virustotal_file.exists()
+    assert load_api_key(settings.SITEWATCHER_CONFIG.malware.vt_api_key) == 'deployment-private-key'
+
+
+def test_virustotal_settings_invalid_and_conflicting_fields_are_private_and_atomic(
+        owner, client, virustotal_file):
+    from sitewatcher.virustotal_settings import load_api_key, save_api_key
+    save_api_key('saved-private-key')
+    for fields in (
+        {'virustotal_api_key': 'new-private-key', 'remove_virustotal_api_key': 'on'},
+        {'virustotal_api_key': 'private-invalid key'},
+        {'virustotal_api_key': 'private-invalid\nkey'},
+        {'virustotal_api_key': 'x' * 2049},
+    ):
+        response = post(client, {**fields, 'enabled': 'off'})
+        assert response.status_code == 400
+        assert b'private-invalid' not in response.content
+        assert b'new-private-key' not in response.content
+        assert load_api_key() == 'saved-private-key'
+        assert storage.is_user_alerts_enabled(31)
+    virustotal_file.chmod(0o644)
+    response = client.get('/settings', HTTP_HOST='localhost')
+    assert response.status_code == 200
+    assert b'The VirusTotal key could not be read' in response.content
+    assert b'saved-private-key' not in response.content
+    assert post(client, {'remove_virustotal_api_key': 'on'}).status_code == 303
+    assert not virustotal_file.exists()
+
+
+def test_virustotal_settings_auth_owner_boundary_csrf_and_readonly(
+        owner, client, settings, virustotal_file):
+    fields = {'virustotal_api_key': 'private-test-key'}
+    assert post(Client(), fields).status_code == 302
+    secure = Client(enforce_csrf_checks=True)
+    secure.force_login(owner.user)
+    assert post(secure, fields).status_code == 403
+    assert post(client, {**fields, 'owner_id': '99'}).status_code == 400
+    settings.SITEWATCHER_READ_ONLY = True
+    assert post(client, fields).status_code == 405
+    assert post(client, {'remove_virustotal_api_key': 'on'}).status_code == 405
+    assert not virustotal_file.exists()
+
+
+@pytest.mark.parametrize('source', ['saved', 'environment', 'yaml'])
+def test_virustotal_key_reveal_is_explicit_private_and_does_not_save(
+        owner, client, settings, monkeypatch, virustotal_file, source):
+    import secrets
+    from sitewatcher.virustotal_settings import save_api_key
+    monkeypatch.delenv('VIRUSTOTAL_API_KEY', raising=False)
+    key = secrets.token_urlsafe(32)
+    if source == 'saved':
+        save_api_key(key)
+    elif source == 'environment':
+        monkeypatch.setenv('VIRUSTOTAL_API_KEY', key)
+    else:
+        settings.SITEWATCHER_CONFIG = AppConfig(malware={'vt_api_key': key})
+    before = virustotal_file.read_bytes() if virustotal_file.exists() else None
+    assert key.encode() not in client.get('/settings', HTTP_HOST='localhost').content
+    response = post(client, {'action': 'reveal_virustotal_key'})
+    assert response.status_code == 200
+    assert response.json() == {'key': key}
+    assert 'no-store' in response['Cache-Control']
+    assert (virustotal_file.read_bytes() if virustotal_file.exists() else None) == before
+    assert post(client, {'action': 'reveal_virustotal_key', 'timezone': 'UTC'}).status_code == 400
+    owner.refresh_from_db()
+    assert owner.timezone == 'Europe/Moscow'
+
+
+def test_virustotal_key_reveal_requires_owner_csrf_and_safe_storage(
+        owner, client, settings, monkeypatch, virustotal_file):
+    import secrets
+    from sitewatcher.virustotal_settings import save_api_key
+    monkeypatch.delenv('VIRUSTOTAL_API_KEY', raising=False)
+    key = secrets.token_urlsafe(32)
+    save_api_key(key)
+    assert post(Client(), {'action': 'reveal_virustotal_key'}).status_code == 302
+    outsider = get_user_model().objects.create_user(username='no-reveal-workspace')
+    unbound = Client()
+    unbound.force_login(outsider)
+    assert post(unbound, {'action': 'reveal_virustotal_key'}).status_code == 403
+    secure = Client(enforce_csrf_checks=True)
+    secure.force_login(owner.user)
+    assert post(secure, {'action': 'reveal_virustotal_key'}).status_code == 403
+    secure.get('/settings', HTTP_HOST='localhost')
+    response = post(secure, {'action': 'reveal_virustotal_key',
+                            'csrfmiddlewaretoken': secure.cookies['csrftoken'].value})
+    assert response.status_code == 200 and response.json()['key'] == key
+    virustotal_file.chmod(0o644)
+    response = post(client, {'action': 'reveal_virustotal_key'})
+    assert response.status_code == 503 and key.encode() not in response.content
+    settings.SITEWATCHER_READ_ONLY = True
+    assert post(client, {'action': 'reveal_virustotal_key'}).status_code == 405

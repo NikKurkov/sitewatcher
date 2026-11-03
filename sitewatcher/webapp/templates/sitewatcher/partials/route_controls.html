@@ -1,0 +1,38 @@
+{% load i18n %}
+<div class="activity-route" data-route-controls
+    data-select="{% translate 'Select a domain in the map to inspect its route.' %}"
+    data-empty="{% translate 'No route captured. Request a route to enable hourly updates.' %}"
+    data-queued="{% translate 'Route queued for the worker' %}"
+    data-running="{% translate 'Worker is tracing the route…' %}"
+    data-ready="{% translate 'Route captured' %}"
+    data-partial="{% translate 'Partial route — some routers did not respond or the destination was not reached' %}"
+    data-error="{% translate 'Route could not be captured. Request a refresh to try again.' %}"
+    data-disabled="{% translate 'Hourly updates disabled' %}"
+    data-captured="{% translate 'Captured' %}"
+    data-refresh="{% translate 'Refresh route · hourly updates on' %}"
+    data-enable="{% translate 'Request route · enable hourly updates' %}"
+    data-pending="{% translate 'Saving…' %}"
+    data-failed="{% translate 'Could not save the route request. Try again.' %}"
+    data-conflict="{% translate 'A route is already queued or running.' %}"
+    data-saved="{% translate 'Route queued. Waiting for the worker.' %}"
+    data-stopped="{% translate 'Hourly route updates disabled.' %}"
+    data-no-response="{% translate 'No response' %}"
+    data-hostname-unavailable="{% translate 'Hostname unavailable' %}"
+    data-hop="{% translate 'Hop' %}"
+    data-ms="{% translate 'ms' %}"
+>
+    <div class="activity-route-heading">
+        <div class="activity-route-context"><strong>{% translate 'Network route' %}</strong><span data-route-domain></span></div>
+        <div class="activity-route-actions" role="group" aria-label="{% translate 'Network route controls' %}">
+            <button type="button" class="activity-control" data-route-refresh disabled>{% translate 'Request route · enable hourly updates' %}</button>
+            <button type="button" class="activity-control" data-route-disable disabled>{% translate 'Disable hourly updates' %}</button>
+            <button type="button" class="activity-control" data-route-toggle aria-pressed="false" disabled>{% translate 'Route view' %}</button>
+        </div>
+    </div>
+    <p class="activity-route-state" data-route-state role="status" aria-live="polite">{% translate 'Select a domain in the map to inspect its route.' %}</p>
+    <p class="activity-route-note">{% translate 'UDP trace from the monitoring worker. Routers may stay silent; missing replies do not mean the website is down. Requesting a route enables hourly updates. Only the forward route is measured; return animation is illustrative.' %}</p>
+    <details class="activity-route-details" data-route-details hidden>
+        <summary>{% translate 'Full hop list' %} <span data-route-captured></span></summary>
+        <ol data-route-list></ol>
+    </details>
+</div>
