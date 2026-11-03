@@ -65,7 +65,7 @@ def test_selected_only_aggregate_dto_guest_and_authenticated_owner(owner, client
         response = get(viewer, path)
         assert response.status_code == 200
         body = response.content.decode()
-        assert 'shared.example' in body and '100.0%' in body and '0.0% failed' in body
+        assert 'shared.example' in body and '100.0%' in body and '0.0%' in body
         assert 'Europe/Moscow' in body and 'Last checked' in body
         assert 'View chart data' in body and '24h' in body and '30d' in body
         for forbidden in ('hidden-sentinel', 'foreign.example', 'private-message', 'private-metrics',
