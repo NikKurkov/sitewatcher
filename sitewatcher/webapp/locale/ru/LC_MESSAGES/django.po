@@ -1274,3 +1274,39 @@ msgstr ""
 "Текущая доступность учитывает интервал мониторинга для выявления "
 "просроченных HTTP-проверок. Сервисы с приостановленным мониторингом и "
 "сервисы без актуальных данных не считаются доступными."
+
+msgid "New Telegram proxy"
+msgstr "Новый прокси Telegram"
+
+msgid "Remove saved Telegram proxy"
+msgstr "Удалить сохранённый прокси Telegram"
+
+msgid "Choose a new proxy or remove the saved proxy."
+msgstr "Укажите новый прокси или выберите удаление сохранённого."
+
+msgid "Enter an HTTP(S) or SOCKS5 proxy URL, or a Telegram SOCKS link."
+msgstr "Введите URL прокси HTTP(S) или SOCKS5 либо ссылку Telegram SOCKS."
+
+msgid "MTProto proxy links are not supported. Use an HTTP(S) or SOCKS5 proxy."
+msgstr "Прокси MTProto не поддерживаются. Используйте прокси HTTP(S) или SOCKS5."
+
+msgid "The Telegram proxy could not be read. Save a new proxy or remove it."
+msgstr "Не удалось прочитать прокси Telegram. Сохраните новый прокси или удалите его."
+
+msgid "Advanced: bot token, proxy and manual chat ID"
+msgstr "Дополнительно: токен бота, прокси и ID чата вручную"
+
+msgid "Use an HTTP(S) or SOCKS5 URL, https://t.me/socks or tg://socks link. MTProto is not supported. Leave blank to keep the proxy. Credentials are stored privately and never shown again."
+msgstr "Укажите URL HTTP(S) или SOCKS5, ссылку https://t.me/socks или tg://socks. MTProto не поддерживается. Оставьте поле пустым, чтобы сохранить прокси. Учётные данные хранятся приватно и больше не показываются."
+
+msgid "Telegram proxy configured."
+msgstr "Прокси Telegram настроен."
+
+msgid "No Telegram proxy configured; standard proxy environment settings still apply."
+msgstr "Прокси Telegram не настроен; стандартные переменные окружения прокси продолжают действовать."
+
+msgid "Environment override: TELEGRAM_PROXY takes priority. Saved changes apply after that override is removed."
+msgstr "Приоритет окружения: используется TELEGRAM_PROXY. Сохранённые изменения вступят в силу после удаления этой переменной."
+
+msgid "Removing the saved proxy restores standard proxy environment settings. A running worker picks up proxy changes on its next tick. Restart a polling bot after changing its proxy."
+msgstr "После удаления сохранённого прокси снова используются стандартные переменные окружения прокси. Работающий воркер подхватит изменения на следующем цикле. После изменения прокси перезапустите бота, получающего обновления."

@@ -10,6 +10,11 @@ from . import auth_views, domains, preferences, public
 ASSETS = {
     'workspace.css': 'text/css; charset=utf-8',
     'theme.js': 'application/javascript; charset=utf-8',
+    'logo-light.svg': 'image/svg+xml',
+    'logo-dark.svg': 'image/svg+xml',
+    'favicon.svg': 'image/svg+xml',
+    'favicon.ico': 'image/x-icon',
+    'apple-touch-icon.png': 'image/png',
 }
 
 

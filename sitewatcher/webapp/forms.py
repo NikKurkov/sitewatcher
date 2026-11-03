@@ -69,6 +69,28 @@ class WorkspacePreferencesForm(forms.Form):
                                     'autocomplete': 'new-password', 'spellcheck': 'false',
                                 }))
 
+    telegram_proxy = forms.CharField(label=_('New Telegram proxy'), required=False, max_length=2048,
+                                    widget=forms.PasswordInput(render_value=False, attrs={
+                                        'autocomplete': 'new-password', 'spellcheck': 'false',
+                                    }))
+    remove_telegram_proxy = forms.BooleanField(label=_('Remove saved Telegram proxy'), required=False)
+
+    def clean_telegram_proxy(self):
+        from sitewatcher.telegram_proxy import normalize_proxy
+        value = self.cleaned_data['telegram_proxy']
+        if value:
+            try:
+                return normalize_proxy(value)
+            except ValueError as error:
+                raise ValidationError(_(str(error))) from None
+        return ''
+
+    def clean(self):
+        data = super().clean()
+        if data.get('telegram_proxy') and data.get('remove_telegram_proxy'):
+            self.add_error('telegram_proxy', _('Choose a new proxy or remove the saved proxy.'))
+        return data
+
     def clean_timezone(self):
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
         value = self.cleaned_data['timezone']

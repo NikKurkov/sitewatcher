@@ -62,6 +62,17 @@ def test_packaged_template_and_allowlisted_assets(web_database, client, monkeypa
     assert response.status_code == 200
     assert b'color-scheme' in response.content
     assert response['Content-Type'] == 'text/css; charset=utf-8'
+    for name, mime, signature in (
+        ('logo-light.svg', 'image/svg+xml', b'<svg'),
+        ('logo-dark.svg', 'image/svg+xml', b'<svg'),
+        ('favicon.svg', 'image/svg+xml', b'<svg'),
+        ('favicon.ico', 'image/x-icon', b'\x00\x00\x01\x00'),
+        ('apple-touch-icon.png', 'image/png', b'\x89PNG'),
+    ):
+        response = client.get('/assets/' + name, HTTP_HOST='localhost')
+        assert response.status_code == 200
+        assert response['Content-Type'] == mime
+        assert signature in response.content
     for name in ('../settings.py', 'settings.py', 'unknown.js'):
         assert client.get('/assets/' + name, HTTP_HOST='localhost').status_code == 404
 

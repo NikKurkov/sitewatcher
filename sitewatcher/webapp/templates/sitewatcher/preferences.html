@@ -75,8 +75,8 @@
                     {% translate 'Use Find chats, choose your chat and save it. Then send a test notification.' %}
                 </li>
             </ol>
-            <details {% if form.bot_token.errors or form.chat_id.errors %}open{% endif %}>
-                <summary>{% translate 'Advanced: bot token and manual chat ID' %}</summary>
+            <details {% if form.bot_token.errors or form.chat_id.errors or form.telegram_proxy.errors %}open{% endif %}>
+                <summary>{% translate 'Advanced: bot token, proxy and manual chat ID' %}</summary>
                 <div class="field">
                     <label for="{{ form.bot_token.id_for_label }}">{{ form.bot_token.label }}</label>
                     {{ form.bot_token }}
@@ -88,6 +88,24 @@
                         </div>
                     {% endif %}
                     <p class="field-help">{% translate 'Leave blank to keep the configured token. Tokens are stored privately and never shown again. A running worker picks up token changes on its next tick. Restart a polling bot after changing its token.' %}</p>
+                </div>
+                <div class="field">
+                    <label for="{{ form.telegram_proxy.id_for_label }}">{{ form.telegram_proxy.label }}</label>
+                    {{ form.telegram_proxy }}
+                    {% if form.telegram_proxy.errors %}
+                        <div id="id_telegram_proxy_error">
+                            {% for error in form.telegram_proxy.errors %}
+                                <p class="field-error">{{ error }}</p>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                    <p class="field-help">{% translate 'Use an HTTP(S) or SOCKS5 URL, https://t.me/socks or tg://socks link. MTProto is not supported. Leave blank to keep the proxy. Credentials are stored privately and never shown again.' %}</p>
+                    <p class="field-help">{% if proxy_present %}{% translate 'Telegram proxy configured.' %}{% else %}{% translate 'No Telegram proxy configured; standard proxy environment settings still apply.' %}{% endif %}</p>
+                    {% if proxy_environment_override %}
+                        <p class="notice">{% translate 'Environment override: TELEGRAM_PROXY takes priority. Saved changes apply after that override is removed.' %}</p>
+                    {% endif %}
+                    <label>{{ form.remove_telegram_proxy }} {{ form.remove_telegram_proxy.label }}</label>
+                    <p class="field-help">{% translate 'Removing the saved proxy restores standard proxy environment settings. A running worker picks up proxy changes on its next tick. Restart a polling bot after changing its proxy.' %}</p>
                 </div>
                 <div class="field">
                     <label for="{{ form.chat_id.id_for_label }}">{{ form.chat_id.label }}</label>

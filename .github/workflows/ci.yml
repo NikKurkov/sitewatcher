@@ -40,6 +40,7 @@ jobs:
           touch sitewatcher/data/docker-probe.yaml sitewatcher/data/docker-probe.sqlite
           touch sitewatcher/data/docker-probe.db-wal sitewatcher/data/.env.docker-probe
           touch sitewatcher/data/docker-probe.web-secret sitewatcher/data/docker-probe.telegram-token
+          touch sitewatcher/data/docker-probe.telegram-proxy sitewatcher/data/.telegram-proxy-docker-probe
       - run: docker compose build web
       - run: docker compose run --rm web sitewatcher check_all
       - run: docker compose run --rm web sitewatcher doctor --json
@@ -60,4 +61,6 @@ jobs:
           assert 'No data' in render_to_string('sitewatcher/partials/chart.html');
           c=Client(); assert c.get('/', HTTP_HOST='localhost').status_code == 302;
           assert c.get('/assets/workspace.css', HTTP_HOST='localhost').status_code == 200;
+          assert c.get('/assets/logo-dark.svg', HTTP_HOST='localhost')['Content-Type'] == 'image/svg+xml';
+          assert c.get('/assets/favicon.ico', HTTP_HOST='localhost').status_code == 200;
           assert c.get('/healthz', HTTP_HOST='localhost').status_code == 200"

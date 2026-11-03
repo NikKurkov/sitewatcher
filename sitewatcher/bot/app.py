@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import asyncio
 from contextlib import nullcontext
 
@@ -11,6 +10,7 @@ from telegram.request import HTTPXRequest
 
 from .. import scheduler_lock, storage
 from ..config import AppConfig, get_bot_token_from_env
+from ..telegram_proxy import load_proxy
 from .alerts import AlertDeduper
 from .router import register_handlers
 from .jobs import register_jobs
@@ -32,13 +32,14 @@ def run_bot(cfg: AppConfig) -> None:
 
 def _run_polling(cfg: AppConfig, token: str) -> None:
     allowed_ids = _parse_allowed_user_ids()
+    proxy = load_proxy()
 
     request = HTTPXRequest(
         http_version="1.1",
         connect_timeout=10.0,
         read_timeout=30.0,
         write_timeout=30.0,
-        proxy=os.getenv("TELEGRAM_PROXY"),  # e.g. http://user:pass@host:3128
+        proxy=proxy,
         connection_pool_size=32,
         pool_timeout=10.0,
     )
@@ -46,7 +47,7 @@ def _run_polling(cfg: AppConfig, token: str) -> None:
     app = (
         Application.builder()
         .token(token)
-        .get_updates_proxy(os.getenv("TELEGRAM_PROXY"))
+        .get_updates_proxy(proxy)
         .request(request)
         # ConversationHandler requires ordered updates.
         .concurrent_updates(False)
@@ -103,7 +104,7 @@ def _run_polling(cfg: AppConfig, token: str) -> None:
         extra={
             "event": "bot.start",
             "cooldown_sec": cooldown,
-            "proxy_set": bool(os.getenv("TELEGRAM_PROXY")),
+            "proxy_set": bool(proxy),
         },
     )
 

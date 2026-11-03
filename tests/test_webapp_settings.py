@@ -309,3 +309,29 @@ assert not storage.DEFAULT_DB.exists()
     assert '0600' in result.stdout
     assert str(private_path) not in result.stdout + result.stderr
     assert 'Traceback' not in result.stderr
+
+
+def test_proxy_settings_keep_remove_override_and_no_secret_echo(owner, client, monkeypatch):
+    from sitewatcher.telegram_proxy import load_proxy, proxy_path
+    monkeypatch.delenv('TELEGRAM_PROXY', raising=False)
+    proxy = 'http://user:private-proxy-password@proxy.example:3128'
+    assert post(client, {'telegram_proxy': proxy}).status_code == 303
+    assert load_proxy() == proxy
+    assert stat.S_IMODE(proxy_path().stat().st_mode) == 0o600
+    assert post(client, {'telegram_proxy': '', 'timezone': 'UTC'}).status_code == 303
+    assert load_proxy() == proxy
+    response = post(client, {'telegram_proxy': 'tg://proxy?secret=private-invalid', 'enabled': 'off'})
+    assert response.status_code == 400
+    assert b'MTProto' in response.content and b'private-invalid' not in response.content
+    assert storage.is_user_alerts_enabled(31)
+    response = post(client, {'telegram_proxy': proxy, 'timezone': 'Invalid/Zone'})
+    assert response.status_code == 400 and b'private-proxy-password' not in response.content
+    monkeypatch.setenv('TELEGRAM_PROXY', 'socks5://deployment.example:1080')
+    response = client.get('/settings', HTTP_HOST='localhost')
+    assert b'TELEGRAM_PROXY' in response.content
+    assert b'private-proxy-password' not in response.content
+    assert b'deployment.example' not in response.content
+    assert post(client, {'remove_telegram_proxy': 'on'}).status_code == 303
+    assert not proxy_path().exists()
+    assert load_proxy() == 'socks5://deployment.example:1080'
+    assert post(client, {'remove_telegram_proxy': 'on', 'telegram_proxy': proxy}).status_code == 400

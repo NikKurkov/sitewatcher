@@ -5,7 +5,6 @@ from asyncio import sleep
 from contextlib import AsyncExitStack
 from datetime import datetime, timedelta, timezone
 import logging
-import os
 import random
 from time import monotonic
 from types import SimpleNamespace
@@ -19,6 +18,7 @@ from .bot import jobs
 from .bot.alerts import AlertDeduper
 from .config import AppConfig
 from .telegram_connection import load_bot_token
+from .telegram_proxy import load_proxy
 
 log = logging.getLogger(__name__)
 
@@ -30,30 +30,31 @@ async def run_worker(cfg: AppConfig) -> None:
             context = SimpleNamespace(bot=None, application=SimpleNamespace(bot_data={
                 'cfg': cfg, 'alert_deduper': AlertDeduper(cfg.alerts.effective_cooldown),
             }))
-            current_token = None
+            current_connection = None
 
             async def refresh_telegram():
-                nonlocal current_token
+                nonlocal current_connection
                 try:
                     token = load_bot_token()
-                except ValueError:
-                    token = None
+                    proxy = load_proxy()
+                except (OSError, ValueError):
+                    token, proxy = None, None
                     log.warning('worker.telegram.configuration_invalid')
-                if token == current_token and (context.bot is not None or token is None):
+                if (token, proxy) == current_connection and (context.bot is not None or token is None):
                     return
                 context.bot = None
                 await clients.aclose()
-                current_token = token
+                current_connection = (token, proxy)
                 if not token:
                     return
                 try:
                     # Own both requests explicitly so failed/partial Bot initialization closes them.
                     request = await clients.enter_async_context(HTTPXRequest(
-                        proxy=os.getenv('TELEGRAM_PROXY') or None, connection_pool_size=32,
+                        proxy=proxy, connection_pool_size=32,
                         connect_timeout=10, read_timeout=30, write_timeout=30, pool_timeout=10,
                     ))
                     updates_request = await clients.enter_async_context(HTTPXRequest(
-                        proxy=os.getenv('TELEGRAM_PROXY') or None,
+                        proxy=proxy,
                     ))
                     bot = Bot(token=token, request=request, get_updates_request=updates_request)
                     clients.push_async_callback(bot.shutdown)

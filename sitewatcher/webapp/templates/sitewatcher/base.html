@@ -13,6 +13,9 @@
         {% endif %}
         <meta name="color-scheme" content="light dark">
         <title>{% block title %}SiteWatcher{% endblock %}</title>
+        <link rel="icon" href="{% url 'asset' 'favicon.svg' %}" type="image/svg+xml">
+        <link rel="icon" href="{% url 'asset' 'favicon.ico' %}" sizes="any">
+        <link rel="apple-touch-icon" href="{% url 'asset' 'apple-touch-icon.png' %}">
         <link rel="stylesheet" href="{% url 'asset' 'workspace.css' %}">
         <script defer src="{% url 'asset' 'theme.js' %}"></script>
     </head>
@@ -20,7 +23,10 @@
         <a class="skip-link" href="#content">{% translate 'Skip to content' %}</a>
         <header class="topbar">
             <div class="topbar-inner">
-                <a class="brand" href="{% if public_view %}?days={{ report.days }}{% else %}/{% endif %}"><span class="brand-mark" aria-hidden="true">◉</span> SiteWatcher</a>
+                <a class="brand" href="{% if public_view %}?days={{ report.days }}{% else %}/{% endif %}" aria-label="SiteWatcher">
+                    <img class="brand-light" src="{% url 'asset' 'logo-light.svg' %}" width="157" height="32" alt="">
+                    <img class="brand-dark" src="{% url 'asset' 'logo-dark.svg' %}" width="157" height="32" alt="">
+                </a>
                 {% if user.is_authenticated and not public_view %}
                     <nav class="main-nav" aria-label="{% translate 'Main navigation' %}">
                         <a href="/" {% if request.path == '/' %}aria-current="page"{% endif %}>{% translate 'Overview' %}</a>

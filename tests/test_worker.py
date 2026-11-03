@@ -611,3 +611,50 @@ def test_bot_command_only_cli_disables_scheduler(monkeypatch):
     monkeypatch.setattr(main, 'run_bot', lambda cfg: received.append(cfg.scheduler.enabled))
     main.main()
     assert received == [False]
+
+
+def test_saved_proxy_change_rebuilds_worker_clients_without_resetting_alerts(monkeypatch):
+    from sitewatcher import worker
+    from sitewatcher.telegram_proxy import save_proxy, remove_proxy
+    monkeypatch.delenv('TELEGRAM_PROXY', raising=False)
+    monkeypatch.setenv('TELEGRAM_TOKEN', '123:offline')
+    save_proxy('http://first.example:80')
+    storage.add_domain(7, 'example.com')
+    probes(monkeypatch)
+    instances, proxies, dedupers = [], [], []
+    original_request = worker.HTTPXRequest
+    original_results = worker.jobs.process_results
+
+    def request(**kwargs):
+        proxies.append(kwargs['proxy'])
+        return original_request(**kwargs)
+
+    async def results(context, *args, **kwargs):
+        dedupers.append(context.application.bot_data['alert_deduper'])
+        await original_results(context, *args, **kwargs)
+
+    class Bot:
+        def __init__(self, **kwargs):
+            self.closed = False
+            instances.append(self)
+
+        async def initialize(self):
+            pass
+
+        async def shutdown(self):
+            self.closed = True
+
+    def boundary(number):
+        if number == 1:
+            save_proxy('tg://socks?server=second.example&port=1080')
+        elif number == 2:
+            remove_proxy()
+
+    monkeypatch.setattr(worker, 'Bot', Bot)
+    monkeypatch.setattr(worker, 'HTTPXRequest', request)
+    monkeypatch.setattr(worker.jobs, 'process_results', results)
+    run_ticks(monkeypatch, config(), sleeps=3, on_sleep=boundary)
+    assert len(instances) == 3 and all(bot.closed for bot in instances)
+    assert proxies == ['http://first.example:80'] * 2 + ['socks5://second.example:1080'] * 2 + [None] * 2
+    assert dedupers and all(item is dedupers[0] for item in dedupers)
+    assert storage.get_alert_state(7, 'example.com')['last_overall'] == 'OK'
