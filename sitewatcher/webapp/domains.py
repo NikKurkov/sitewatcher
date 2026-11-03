@@ -132,8 +132,6 @@ def _page(request, view, domain='', *, error='', values=None, status=200):
                                                  'history_filtered': any(request.GET.get(name)
                                                      for name in history_form.fields)},
                        status=200 if filters_valid else 400)
-    elif view == 'workspace':
-        context['alerts_enabled'] = storage.is_user_alerts_enabled(owner_id)
     if view == 'add' and values is None:
         context['values']['interval_minutes'] = str(context['defaults']['interval_minutes'])
     if values is not None:
@@ -335,7 +333,7 @@ def management(request, view):
             return _private(HttpResponse(_('Method not allowed'), status=405,
                                          headers={'Allow': 'GET, HEAD'}))
         return _mutate(request, {'add': 'add', 'edit': 'save', 'delete': 'delete',
-                                 'workspace': 'alerts', 'import': 'import'}[view])
+                                 'import': 'import'}[view])
     try:
         query = _query(request)
     except ValueError:

@@ -1,4 +1,3 @@
-# sitewatcher/bot/handlers/domains.py
 from __future__ import annotations
 
 import html
@@ -9,7 +8,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 
 from ... import storage
-from ..validators import normalize_domain
+from ...utils.domains import normalize_domain
 from ..utils import safe_reply_html
 
 # Module-level logger for structured events

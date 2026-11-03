@@ -5,7 +5,7 @@ import pytest
 
 from sitewatcher import scheduler, storage
 from sitewatcher.bot import jobs
-from sitewatcher.bot.jobs import due_checks
+from sitewatcher.scheduler import due_checks
 from sitewatcher.checks.base import CheckOutcome, Status
 from sitewatcher.config import AppConfig, ChecksModel
 

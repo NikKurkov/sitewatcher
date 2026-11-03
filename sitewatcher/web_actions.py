@@ -4,7 +4,6 @@ from __future__ import annotations
 import csv
 import io
 import json
-from dataclasses import asdict
 from datetime import datetime
 
 from . import storage
@@ -14,7 +13,6 @@ from .config import (
     validation_message,
 )
 from .utils.domains import normalize_domain
-from .utils.secrets import redact_configuration
 
 
 NUMERIC_FIELDS = (
@@ -94,7 +92,7 @@ def _domain(owner_id: int, raw: str, *, existing: bool = True) -> str:
 
 
 def settings_context(cfg: AppConfig, owner_id: int, domain: str | None = None) -> dict:
-    """Return raw editable overrides and a credential-redacted effective preview."""
+    """Return editable overrides and defaults without exposing proxy credentials."""
     name = _domain(owner_id, domain) if domain is not None else ''
     try:
         override = (storage.get_domain_override(owner_id, name) or {}) if name else {}
@@ -114,16 +112,11 @@ def settings_context(cfg: AppConfig, owner_id: int, domain: str | None = None) -
             values[f'check.{key}'] = (
                 'on' if checks[key] else 'off'
             ) if key in checks else ''
-        preview = asdict(effective)
-        preview['checks'] = effective.checks.model_dump()
-        preview['ports'] = [port.model_dump() for port in effective.ports] if (
-            effective.ports is not None
-        ) else None
         revision = storage.domain_override_revision(override)
         values['revision'] = revision
         return {
             'domain': name, 'values': values, 'check_names': list(ChecksModel.model_fields),
-            'proxy_present': bool(effective.proxy), 'effective': redact_configuration(preview),
+            'proxy_present': bool(effective.proxy),
             'defaults': {**{key: getattr(defaults, key) for key in NUMERIC_FIELDS},
                          'checks': defaults.checks.model_dump(), 'interval_minutes': (
                 defaults.interval_minutes if defaults.interval_minutes is not None

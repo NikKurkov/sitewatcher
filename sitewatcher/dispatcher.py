@@ -1,4 +1,3 @@
-# sitewatcher/dispatcher.py
 from __future__ import annotations
 
 import asyncio
@@ -455,7 +454,6 @@ class Dispatcher:
 
             mcfg = getattr(self.cfg, "malware", object())
             timeout_s = getattr(mcfg, "timeout_s", 10.0)
-            follow_redirects = getattr(mcfg, "follow_redirects", True)
 
             # Rate limit snapshot (for metrics)
             lim = getattr(mcfg, "vt_limits", None)
@@ -475,7 +473,6 @@ class Dispatcher:
                     client=self._client,
                     vt_cfg=vt_cfg,
                     timeout_s=float(timeout_s),
-                    follow_redirects=bool(follow_redirects),
                     vt_limiter=self._vt_limiter,
                     vt_max_wait_s=vt_max_wait_s,
                     vt_limits_snapshot=vt_limits_snapshot,

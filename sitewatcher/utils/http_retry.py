@@ -1,4 +1,3 @@
-# sitewatcher/utils/http_retry.py
 from __future__ import annotations
 
 import asyncio
@@ -210,10 +209,6 @@ async def get_with_retries(
                         **(log_extra or {}),
                     },
                 )
-                raise
-
-            # Async cancellation should not be masked
-            if isinstance(e, asyncio.CancelledError):  # defensive; not in tuple above
                 raise
 
             # Sleep with backoff + jitter, then retry

@@ -1,4 +1,3 @@
-# sitewatcher/bot/constants.py
 """Bot-level constants shared across handlers."""
 
 # Conversation states for /add

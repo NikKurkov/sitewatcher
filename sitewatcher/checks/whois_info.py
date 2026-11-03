@@ -1,4 +1,3 @@
-# sitewatcher/checks/whois_info.py
 from __future__ import annotations
 
 import asyncio

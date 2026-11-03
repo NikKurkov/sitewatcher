@@ -1,4 +1,3 @@
-# sitewatcher/bot/utils.py
 from __future__ import annotations
 
 import asyncio
@@ -9,7 +8,7 @@ import logging
 import os
 import re
 import time
-from typing import Any, Awaitable, Callable, Optional, Set, TypeVar
+from typing import Any, Awaitable, Callable, Optional, Set
 from datetime import timedelta
 
 from .. import storage
@@ -23,8 +22,6 @@ log = logging.getLogger(__name__)
 # Keys used in application.bot_data
 BUSY_USERS_KEY = "busy_users"
 BUSY_USERS_LOCK_KEY = "busy_users_lock"
-
-T = TypeVar("T")
 
 # -----------------------------------------------------------------------------
 # Small value parsers / format helpers
@@ -42,26 +39,9 @@ def _parse_bool(s: str | None) -> Optional[bool]:
     return None
 
 
-def _parse_scalar_or_list(val: str | None) -> Optional[list[str] | str]:
-    """
-    Parse a value that can be either a scalar or a list of scalars.
-
-    - Accepts comma- or whitespace-separated lists.
-    - Returns None for empty input.
-    - Returns a single string if only one token found (for backward compatibility).
-    """
-    if val is None:
-        return None
-    s = str(val).strip()
-    if not s:
-        return None
-    # Split by commas or any whitespace
-    tokens = [t.strip() for t in re.split(r"[,\s]+", s) if t.strip()]
-    if not tokens:
-        return None
-    if len(tokens) == 1:
-        return tokens[0]
-    return tokens
+def _parse_list(val: str | None) -> list[str]:
+    """Parse comma- or whitespace-separated values."""
+    return [token for token in re.split(r"[,\s]+", val or "") if token]
 
 
 def _format_preview_dict(d: Any) -> str:

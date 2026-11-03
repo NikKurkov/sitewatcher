@@ -1,4 +1,3 @@
-# sitewatcher/bot/handlers/history.py
 from __future__ import annotations
 
 import html
@@ -15,7 +14,7 @@ from ... import storage
 from ..utils import safe_reply_html
 from ..formatting import _fmt_ts
 from ...utils.results import status_emoji as _status_emoji, strip_cached_suffix as _strip_cached_suffix
-from ..validators import DOMAIN_RE
+from ...utils.domains import DOMAIN_RE
 
 log = logging.getLogger(__name__)
 

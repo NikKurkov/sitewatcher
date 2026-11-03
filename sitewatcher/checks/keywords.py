@@ -1,4 +1,3 @@
-# sitewatcher/checks/keywords.py
 from __future__ import annotations
 
 import logging
@@ -159,6 +158,16 @@ class KeywordsCheck(BaseCheck):
         total = len(self._kw_list)
         missing: List[str] = [self._kw_list[i] for i, k in enumerate(self._kw_lower) if k not in body_lower]
         missing_cnt = len(missing)
+        metrics = {
+            "url": str(r.url),
+            "status_code": code,
+            "bytes": len(r.content or b""),
+            "keywords_total": total,
+            "keywords_missing": missing_cnt,
+            "final_url": str(r.url),
+            "redirects": redirects,
+            "latency_ms": elapsed_ms,
+        }
 
         if code >= 400:
             log.warning(
@@ -176,17 +185,7 @@ class KeywordsCheck(BaseCheck):
                 self.name,
                 Status.CRIT,
                 f"HTTP {code}",
-                {
-                    "url": str(r.url),
-                    "status_code": code,
-                    "bytes": len(r.content or b""),
-                    "keywords_total": total,
-                    "keywords_missing": missing_cnt,
-                    "missing": missing,
-                    "final_url": str(r.url),
-                    "redirects": redirects,
-                    "latency_ms": elapsed_ms,
-                },
+                {**metrics, "missing": missing},
             )
 
         if missing_cnt:
@@ -203,17 +202,7 @@ class KeywordsCheck(BaseCheck):
                 self.name,
                 Status.WARN,
                 f"missing: {', '.join(missing)}",
-                {
-                    "url": str(r.url),
-                    "status_code": code,
-                    "bytes": len(r.content or b""),
-                    "keywords_total": total,
-                    "keywords_missing": missing_cnt,
-                    "missing": missing,
-                    "final_url": str(r.url),
-                    "redirects": redirects,
-                    "latency_ms": elapsed_ms,
-                },
+                {**metrics, "missing": missing},
             )
 
         # All good
@@ -234,15 +223,5 @@ class KeywordsCheck(BaseCheck):
             self.name,
             base_status,
             "all keywords present",
-            {
-                "url": str(r.url),
-                "status_code": code,
-                "bytes": len(r.content or b""),
-                "keywords_total": total,
-                "keywords_missing": 0,
-                "found_count": total,
-                "final_url": str(r.url),
-                "redirects": redirects,
-                "latency_ms": elapsed_ms,
-            },
+            {**metrics, "found_count": total},
         )

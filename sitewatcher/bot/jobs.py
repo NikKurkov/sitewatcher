@@ -1,4 +1,3 @@
-# sitewatcher/bot/jobs.py
 from __future__ import annotations
 
 import asyncio
@@ -12,7 +11,6 @@ from telegram.ext import Application, ContextTypes
 from .. import storage
 from ..config import AppConfig
 from .. import scheduler
-from ..scheduler import due_checks as due_checks
 from .alerts import AlertDeduper, _complete_results, _overall_from_results, maybe_send_alert, safe_send_message
 from .utils import _resolve_alert_chat_id
 

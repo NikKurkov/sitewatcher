@@ -46,8 +46,10 @@ jobs:
       - name: Verify installed authenticated workspace and partials
         run: >-
           docker compose run --rm --workdir /tmp web python -c
-          "import os; from pathlib import Path;
+          "import os; from pathlib import Path; from importlib.util import find_spec;
           assert os.getuid() != 0;
+          assert find_spec('sitewatcher.web') is None;
+          assert find_spec('sitewatcher.bot.validators') is None;
           assert not any('docker-probe' in str(path) for path in Path('/app').rglob('*'));
           assert not Path('/app/.env').exists();
           from sitewatcher.webapp.bootstrap import configure_web, migrate_web_database;

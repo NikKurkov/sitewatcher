@@ -4,7 +4,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: SiteWatcher 0.3.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-03 16:02+0300\n"
+"POT-Creation-Date: 2026-11-03 16:19+0300\n"
 "PO-Revision-Date: 2026-11-03 11:00+0300\n"
 "Last-Translator: SiteWatcher contributors\n"
 "Language-Team: Russian\n"
@@ -699,48 +699,6 @@ msgstr ""
 msgid "Import CSV"
 msgstr "Импортировать CSV"
 
-msgid "Notifications"
-msgstr "Уведомления"
-
-msgid ""
-"Keep a worker or bot process running for automatic checks and optional "
-"Telegram notifications."
-msgstr ""
-"Для автоматических проверок и уведомлений в Telegram должен работать процесс "
-"worker или бота."
-
-msgid "Save notification setting"
-msgstr "Сохранить настройку уведомлений"
-
-msgid "Account"
-msgstr "Учётная запись"
-
-#, python-format
-msgid "Times are shown in %(timezone)s."
-msgstr "Время отображается в часовом поясе %(timezone)s."
-
-msgid "Change password"
-msgstr "Изменить пароль"
-
-msgid "Sign out"
-msgstr "Выйти"
-
-msgid "Domain backups and configuration"
-msgstr "Резервные копии и настройки доменов"
-
-msgid "Download domain CSV backup"
-msgstr "Скачать резервную копию доменов в CSV"
-
-msgid "Import domain CSV"
-msgstr "Импортировать домены из CSV"
-
-msgid ""
-"Global check defaults and scheduling are managed in your installation "
-"configuration."
-msgstr ""
-"Общие настройки проверок по умолчанию и расписание задаются в конфигурации "
-"установки."
-
 msgid "Overview · SiteWatcher"
 msgstr "Обзор · SiteWatcher"
 
@@ -1009,6 +967,12 @@ msgstr "Изменение пароля · SiteWatcher"
 msgid "← Settings"
 msgstr "← Настройки"
 
+msgid "Account"
+msgstr "Учётная запись"
+
+msgid "Change password"
+msgstr "Изменить пароль"
+
 msgid "Your workspace"
 msgstr "Ваше рабочее пространство"
 
@@ -1213,6 +1177,25 @@ msgstr "Заменить ссылку"
 
 msgid "Disable public status"
 msgstr "Отключить публичную страницу"
+
+msgid "Sign out"
+msgstr "Выйти"
+
+msgid "Domain backups and configuration"
+msgstr "Резервные копии и настройки доменов"
+
+msgid "Download domain CSV backup"
+msgstr "Скачать резервную копию доменов в CSV"
+
+msgid "Import domain CSV"
+msgstr "Импортировать домены из CSV"
+
+msgid ""
+"Global check defaults and scheduling are managed in your installation "
+"configuration."
+msgstr ""
+"Общие настройки проверок по умолчанию и расписание задаются в конфигурации "
+"установки."
 
 msgid "Service status · SiteWatcher"
 msgstr "Состояние сервисов · SiteWatcher"

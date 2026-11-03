@@ -1,4 +1,3 @@
-# sitewatcher/main.py
 from __future__ import annotations
 
 import argparse
@@ -20,7 +19,7 @@ from .bot import run_bot
 from .config import AppConfig, ChecksModel, load_config, validate_config, validation_message
 from .dispatcher import Dispatcher
 from .logging_setup import setup_logging
-from .bot.validators import DOMAIN_RE, normalize_domain
+from .utils.domains import DOMAIN_RE, normalize_domain
 from .utils.results import (
     overall_from_results as _overall_from,
     status_text as _status_str,
@@ -233,11 +232,11 @@ def main() -> None:
             raise SystemExit(str(error) or "Account input was cancelled") from None
         return
     if args.mode == "web":
-        from .web import run_web
+        from .webapp.bootstrap import run_asgi
         from django.db import DatabaseError
 
         try:
-            run_web(cfg, args.owner, port=args.port, read_only=args.read_only)
+            run_asgi(cfg, owner_id=args.owner, port=args.port, read_only=args.read_only)
         except ValueError as error:
             if str(error) == "Web owner does not match a configured workspace; run sitewatcher setup":
                 raise SystemExit(str(error)) from None

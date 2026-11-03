@@ -1,4 +1,3 @@
-# sitewatcher/bot/handlers/cfg.py
 from __future__ import annotations
 
 import html
@@ -12,7 +11,7 @@ from ... import storage
 from ...config import AppConfig, ChecksModel, resolve_settings, validate_domain_override, validation_message
 from ...utils.domains import normalize_domain
 from ...utils.secrets import redact_configuration
-from ..utils import _parse_bool, _parse_scalar_or_list, _format_preview_dict, safe_reply_html
+from ..utils import _parse_bool, _parse_list, _format_preview_dict, safe_reply_html
 
 log = logging.getLogger(__name__)
 
@@ -127,14 +126,12 @@ async def cmd_cfg_set(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         patch = {key: iv}
 
     elif key in ("keywords", "ports"):
-        v = _parse_scalar_or_list(val)
-        if v is None:
+        v = _parse_list(val)
+        if not v:
             if msg:
                 await msg.reply_text(f"{key}: empty value")
             log.warning("cfg.set.empty", extra={"event": "cfg.set.empty", "key": key})
             return
-        if isinstance(v, str):
-            v = [v]
         patch = {key: v}
 
     elif key == "proxy":

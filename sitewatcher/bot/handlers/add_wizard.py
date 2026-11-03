@@ -1,4 +1,3 @@
-# sitewatcher/bot/handlers/add_wizard.py
 from __future__ import annotations
 
 import html
@@ -12,7 +11,7 @@ from ... import storage
 from ...config import resolve_settings, validate_domain_override
 from ..constants import ADD_WAIT_INTERVAL, ADD_WAIT_KEYWORDS, ALLOWED_INTERVALS
 from ..utils import requires_auth, safe_reply_html
-from ..validators import parse_domains
+from ...utils.domains import parse_domains
 
 log = logging.getLogger(__name__)
 
@@ -97,14 +96,7 @@ async def cmd_add_keywords_text(update: Update, context: ContextTypes.DEFAULT_TY
             )
         return ADD_WAIT_KEYWORDS
 
-    kws_raw = txt.split()
-    seen = set()
-    kws: List[str] = []
-    for k in kws_raw:
-        kk = k.strip()
-        if kk and kk not in seen:
-            kws.append(kk)
-            seen.add(kk)
+    kws = list(dict.fromkeys(txt.split()))
 
     st["keywords"] = kws
     st["keywords_enabled"] = True

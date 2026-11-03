@@ -1,4 +1,3 @@
-# sitewatcher/utils/domains_csv.py
 from __future__ import annotations
 
 import csv

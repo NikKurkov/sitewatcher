@@ -88,16 +88,7 @@ def parse_domains(args: List[str]) -> List[str]:
             d = normalize_domain(token)
             if not d:
                 continue
-            # Only accept reasonably-formed domains
-            if _PERMISSIVE_DOMAIN_RE.fullmatch(d):
-                out.append(d)
+            out.append(d)
 
     # De-duplicate while preserving order
-    seen: set[str] = set()
-    uniq: list[str] = []
-    for d in out:
-        if d not in seen:
-            uniq.append(d)
-            seen.add(d)
-
-    return uniq
+    return list(dict.fromkeys(out))
