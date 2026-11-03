@@ -23,6 +23,17 @@
       this.saveGeneration = 0;
       this.message = '';
       this.paddles = [];
+      this.detail = document.createElement('div');
+      this.detail.className = 'activity-hop-detail';
+      this.detail.hidden = true;
+      this.detailNodes = {};
+      for (const key of ['index', 'ip', 'hostname', 'rtt']) {
+        const node = document.createElement(key === 'ip' ? 'code' : 'span');
+        node.className = `activity-hop-${key}`;
+        this.detailNodes[key] = node;
+        this.detail.append(node);
+      }
+      this.scroll?.append(this.detail);
       this.group = svgElement('g', {'data-route-hops': '', class: 'scene-route-hops'});
       const nodes = this.svg?.querySelector('[data-scene-nodes]');
       if (nodes) nodes.before(this.group);
@@ -84,17 +95,25 @@
       this.signature = signature;
       this.panel.dataset.routeActive = String(active);
       if (changed) {
+        if (!active || this.displayHops !== hops) {
+          this.pinnedHop = null;
+          this.shownHop = 0;
+        }
+        this.inspectedHop = null;
         this.geometry = null;
         this.group.replaceChildren();
         this.paddles = [];
         if (active) this.draw(hops, result);
       }
+      this.detail.hidden = !active;
+      if (active) this.showHop(this.inspectedHop ?? this.pinnedHop ?? this.shownHop ?? 0);
       this.paintControls();
       this.paintList(hops, result);
       this.geometrySignature = this.active ? JSON.stringify([this.selectedName, this.geometry]) : '';
       if (previousGeometry !== this.geometrySignature) this.onChange?.();
     }
     draw(hops, result) {
+      this.displayHops = hops;
       // A responding destination belongs to the existing domain card, not a second router.
       const routers = result.reached && hops.at(-1).ip === result.destination_ip
         ? hops.slice(0, -1) : hops;
@@ -116,14 +135,29 @@
           ? `${hop.rtt_ms.toFixed(1)} ${this.text('ms')}` : this.text('noResponse');
         group.append(
           svgElement('title', {}, `${this.text('hop')} ${hop.ttl}: ${ip} ${hop.hostname || ''} · ${rtt}`),
+          svgElement('circle', {class: 'scene-route-hit', r: 16}),
           svgElement('circle', {class: 'scene-route-paddle', r: compact ? 8 : 6}),
           svgElement('text', {class: 'scene-route-ttl', y: compact ? -18 : -15,
             'text-anchor': 'middle'}, String(hop.ttl))
         );
-        // Dense routes stay readable as dots; full addresses remain in tooltips and the list.
+        group.addEventListener('pointerenter', () => {
+          this.inspectedHop = index;
+          this.showHop(index);
+        });
+        group.addEventListener('pointerleave', () => { this.inspectedHop = null; });
+        group.addEventListener('click', () => {
+          this.pinnedHop = this.pinnedHop === index ? null : index;
+          this.showHop(index);
+        });
+        // Short routes have room for inline labels; dense routes use the shared detail card.
         if (!compact && routers.length <= 4 && ip.length <= 18) {
           group.append(svgElement('text', {class: 'scene-route-ip', y: 32,
             'text-anchor': 'middle'}, ip));
+          group.append(svgElement('text', {class: 'scene-route-ptr', y: 50,
+            'text-anchor': 'middle'}, hop.hostname?.length > 22
+              ? `${hop.hostname.slice(0, 19)}…` : hop.hostname || '—'));
+          group.append(svgElement('text', {class: 'scene-route-rtt', y: 68,
+            'text-anchor': 'middle'}, rtt));
         }
         this.group.append(group);
         this.paddles.push(group);
@@ -131,6 +165,22 @@
       points.push({x: target.x - 20, y: target.y});
       this.geometry = {width: compact ? 620 : 1200, height: compact ? 640 : 480,
         compact, hub, target, points, destination_ip: result.destination_ip || null};
+    }
+    showHop(index) {
+      const hop = this.displayHops?.[index];
+      if (!this.active || !hop) return;
+      this.shownHop = index;
+      const signature = JSON.stringify([this.selectedName, hop]);
+      if (signature === this.detailSignature) return;
+      this.detailSignature = signature;
+      this.detail.dataset.ttl = String(hop.ttl);
+      this.detailNodes.index.textContent = `${this.text('hop')} ${hop.ttl}`;
+      this.detailNodes.ip.textContent = hop.ip || '*';
+      this.detailNodes.hostname.textContent = hop.hostname || this.text('hostnameUnavailable');
+      this.detailNodes.hostname.title = this.detailNodes.hostname.textContent;
+      this.detailNodes.ip.title = hop.ip || '*';
+      this.detailNodes.rtt.textContent = typeof hop.rtt_ms === 'number' && Number.isFinite(hop.rtt_ms)
+        ? `${hop.rtt_ms.toFixed(1)} ${this.text('ms')}` : this.text('noResponse');
     }
     paintControls() {
       const route = this.route();
@@ -179,6 +229,19 @@
         if (hop.hostname) row.append(` — ${hop.hostname}`);
         row.append(typeof hop.rtt_ms === 'number' && Number.isFinite(hop.rtt_ms)
           ? ` · ${hop.rtt_ms.toFixed(1)} ${this.text('ms')}` : ` · ${this.text('noResponse')}`);
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'route-hop-choice';
+        button.setAttribute('aria-label', `${this.text('hop')} ${hop.ttl}: ${row.textContent}`);
+        button.append(...row.childNodes);
+        button.addEventListener('click', () => {
+          this.desired = true;
+          this.render();
+          const index = hops.indexOf(hop);
+          this.pinnedHop = this.pinnedHop === index ? null : index;
+          this.showHop(index);
+        });
+        row.append(button);
         list.append(row);
       }
       const captured = this.find('[data-route-captured]');
@@ -233,6 +296,8 @@
       const progress = flight ? Math.max(0, Math.min(1, flight.phase === 'out'
         ? flight.progress : flight.phase === 'back' ? 1 - flight.progress : 1)) : null;
       const segments = this.geometry.points.length - 1;
+      this.showHop(this.inspectedHop ?? this.pinnedHop ?? (progress === null ? 0
+        : Math.min(this.hops().length - 1, Math.floor(progress * segments))));
       this.paddles.forEach((paddle, index) => {
         paddle.classList.toggle('is-traversed', progress !== null && progress * segments >= index + 1);
         paddle.classList.toggle('is-current', progress !== null

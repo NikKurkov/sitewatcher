@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 class Element {
+  get childNodes() { return this.children; }
   constructor() { this.dataset = {}; this.children = []; this.classList = {add(){}, toggle(){}}; this.style = {}; this.textContent = ''; }
   setAttribute(key, value) { this[key] = value; }
   append(...items) { this.children.push(...items); }
@@ -16,6 +17,7 @@ require(process.cwd() + '/sitewatcher/webapp/static/sitewatcher/route_view.js');
 const svg = new Element();
 svg.elements = {'[data-scene-nodes]': new Element()};
 const controls = new Element();
+Object.assign(controls.dataset, {hostnameUnavailable:'Hostname unavailable', noResponse:'No response', hop:'Hop', ms:'ms'});
 controls.elements = Object.fromEntries(['refresh','disable','toggle','follow','domain','state','details','list','captured'].map(key => [`[data-route-${key}]`, new Element()]));
 const panel = new Element();
 panel.elements = {'[data-route-controls]': controls, '[data-activity-scene]': svg};
@@ -35,8 +37,17 @@ assert.equal(view.geometry.points.length, 3);
 assert.equal(view.geometry.points[0].x, view.geometry.hub.x + 95 * view.geometry.hub.scale);
 assert.equal(view.geometry.points.at(-1).x, view.geometry.target.x - 20);
 assert.equal(view.paddles.length, 1);
+view.showHop(0);
+assert.equal(view.detailNodes.hostname.textContent, 'Hostname unavailable');
+assert.equal(view.detailNodes.rtt.textContent, 'No response');
+view.showHop(1);
+assert.equal(view.detailNodes.ip.textContent, '203.0.113.2');
+assert.equal(view.detailNodes.hostname.textContent, 'example.test');
+assert.match(view.detailNodes.rtt.textContent, /^2\.0 /);
 assert.equal(view.geometry.width, 1200);
+view.pinnedHop = 1;
 view.resize(320);
+assert.equal(view.pinnedHop, 1);
 assert.equal(view.geometry.width, 620);
 assert.equal(view.geometry.compact, true);
 view.resize(1200);
@@ -61,6 +72,7 @@ global.fetch = async () => { requests++; return {ok:true,json:async()=>({saved:t
  assert.equal(requests, 1);
  assert.equal(view.route().state, 'queued');
  view.reset();
+ assert.equal(view.detail.hidden, true);
  assert.equal(view.active, false);
  assert.equal(view.geometry, null);
  assert.equal(view.selectedName, null);

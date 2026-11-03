@@ -1691,3 +1691,7 @@ msgstr "Укажите корректный HTTP(S)-адрес этого дом
 #: sitewatcher/templates/sitewatcher/domain_form.html
 msgid "Choose HTTP or HTTPS."
 msgstr "Выберите HTTP или HTTPS."
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Hostname unavailable"
+msgstr "Имя узла не определено"
