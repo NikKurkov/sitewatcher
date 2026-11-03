@@ -5,37 +5,19 @@ import asyncio
 import logging
 import uuid
 import random
-from typing import Optional, Sequence, List
+from typing import Optional, Sequence
 
 from telegram.ext import Application, ContextTypes
 
 from .. import storage
-from ..config import AppConfig, resolve_settings
-from ..dispatcher import Dispatcher
+from ..config import AppConfig
+from .. import scheduler
+from ..scheduler import due_checks as due_checks
 from .alerts import AlertDeduper, _complete_results, _overall_from_results, maybe_send_alert, safe_send_message
 from .utils import _resolve_alert_chat_id
 
 # Module-level logger
 log = logging.getLogger(__name__)
-
-
-def due_checks(cfg: AppConfig, owner_id: int, domain: str, *, warmup: bool = False) -> list[str]:
-    """Select enabled checks whose most recent run is older than their interval."""
-    if not cfg.scheduler.enabled:
-        return []
-    override = storage.get_domain_override(owner_id, domain) or {}
-    domain_interval = override.get("interval_minutes")
-    if domain_interval is not None and int(domain_interval) <= 0:
-        return []
-    checks = resolve_settings(cfg, domain, override).checks.model_dump()
-    ages = storage.last_check_ages(owner_id, domain)
-    return [
-        name for name, enabled in checks.items()
-        if enabled and (name not in ages or ages[name] >= (
-            int(domain_interval) if domain_interval is not None
-            else getattr(cfg.schedules, name).interval_minutes
-        ))
-    ]
 
 
 def _new_run_id() -> str:
@@ -61,7 +43,10 @@ def register_jobs(app: Application, cooldown: int) -> None:
 
     jq = app.job_queue
     interval_min = cfg.scheduler.interval_minutes
-    first_delay = random.randint(10, 30)  # small jitter to avoid thundering herd
+    first_delay = random.randint(0, cfg.scheduler.jitter_seconds)  # small jitter to avoid thundering herd
+
+    # A timer delay cannot guarantee baseline completion before periodic alerts.
+    app.bot_data["scheduler_warmup_pending"] = cfg.scheduler.run_on_startup
 
     # One-time warmup job (baseline without alerts)
     if cfg.scheduler.run_on_startup:
@@ -102,10 +87,14 @@ async def job_warmup(context: ContextTypes.DEFAULT_TYPE) -> None:
         log.info("scheduler.warmup.done", extra={"event": "scheduler.warmup.done", "run_id": run_id})
     except Exception as e:  # pragma: no cover
         log.exception("Unhandled error in job_warmup: %s", e, extra={"event": "scheduler.warmup.error", "run_id": run_id})
+    finally:
+        context.application.bot_data["scheduler_warmup_pending"] = False
 
 
 async def job_periodic(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Periodic job: run checks for all users/domains and emit alerts."""
+    if context.application.bot_data.get("scheduler_warmup_pending", False):
+        return
     run_id = _new_run_id()
     try:
         cfg: AppConfig = context.application.bot_data["cfg"]
@@ -126,78 +115,27 @@ async def _run_checks_for_all_domains(
     warmup: bool,
     run_id: Optional[str],
 ) -> None:
-    """Run checks for all domains across all owners.
-
-    Args:
-        context: PTB job context.
-        warmup: If True, do not send alerts (baseline initialization).
-        run_id: Correlation id for this whole scheduler iteration.
-    """
+    """Connect the shared tick to Telegram baseline and alert delivery."""
     cfg: AppConfig = context.application.bot_data["cfg"]
 
-    owners: Sequence[int] = storage.list_users()
-    if not owners:
-        log.debug("No users found; nothing to check", extra={"event": "scheduler.nousers", "run_id": run_id})
-        return
+    async def on_results(owner_id: int, domain: str, results: list, *, warmup: bool) -> None:
+        await process_results(context, owner_id, domain, results, warmup=warmup, run_id=run_id)
 
-    domains_conc = int(getattr(cfg.scheduler, "domains_concurrency", 5) or 5)
-    sem = asyncio.Semaphore(max(1, domains_conc))
+    await scheduler.run_tick(cfg, warmup=warmup, on_results=on_results, run_id=run_id)
 
-    total_domains = 0
-    for owner_id in owners:
-        total_domains += len(storage.list_domains(owner_id))
 
-    log.debug(
-        "scheduler.batch.summary",
-        extra={"event": "scheduler.batch.summary", "run_id": run_id, "owners": len(owners), "domains": total_domains, "warmup": warmup},
-    )
-
-    async with Dispatcher(cfg) as d:
-
-        async def _run_one(owner_id: int, domain: str) -> None:
-            async with sem:
-                try:
-                    selected = due_checks(cfg, owner_id, domain, warmup=warmup)
-                    if not selected:
-                        return
-                    results = await d.run_for(owner_id, domain, only_checks=selected, use_cache=False, run_id=run_id)
-                except Exception as e:
-                    log.exception(
-                        "Checks failed for owner=%s domain=%s: %s", owner_id, domain, e,
-                        extra={"event": "domain.error", "run_id": run_id, "owner_id": owner_id, "domain": domain},
-                    )
-                    return
-
-                # Persist each check result to history
-                storage.save_histories(owner_id, domain, results)
-
-                # Send alerts (unless warmup)
-                if warmup and storage.get_alert_state(owner_id, domain) is None:
-                    baseline = _overall_from_results(_complete_results(cfg, owner_id, domain, results))
-                    storage.upsert_alert_state(owner_id, domain, baseline, None)
-                elif not warmup:
-                    try:
-                        await maybe_send_alert(update=None, context=context, owner_id=owner_id, domain=domain, results=results)
-                    except Exception as e:
-                        log.exception(
-                            "Alert send failed for owner=%s domain=%s: %s", owner_id, domain, e,
-                            extra={"event": "alert.error", "run_id": run_id, "owner_id": owner_id, "domain": domain},
-                        )
-
-        tasks: List[asyncio.Task[None]] = []
-
-        for owner_id in owners:
-            domains = storage.list_domains(owner_id)
-            if not domains:
-                continue
-            for name in domains:
-                tasks.append(asyncio.create_task(_run_one(owner_id, name)))
-
-        if not tasks:
-            log.debug("No domains to check", extra={"event": "scheduler.nodomains", "run_id": run_id})
-            return
-
-        await asyncio.gather(*tasks)
+async def process_results(context, owner_id: int, domain: str, results: list, *,
+                          warmup: bool, run_id: str | None = None) -> None:
+    """Shared baseline and retry adapter for polling and unattended monitoring."""
+    cfg: AppConfig = context.application.bot_data["cfg"]
+    if warmup and storage.get_alert_state(owner_id, domain) is None:
+        baseline = _overall_from_results(_complete_results(cfg, owner_id, domain, results))
+        storage.upsert_alert_state(owner_id, domain, baseline, None)
+    elif not warmup:
+        if not results:
+            results = _complete_results(cfg, owner_id, domain, [])
+        await maybe_send_alert(update=None, context=context, owner_id=owner_id,
+                               domain=domain, results=results, run_id=run_id)
 
 
 async def _flush_alert_summaries_job(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -207,29 +145,47 @@ async def _flush_alert_summaries_job(context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     cfg: AppConfig = context.application.bot_data["cfg"]
-    pairs = deduper.flush_summaries(max_batch=20)
-    if not pairs:
+    if not cfg.alerts.enabled:
         return
-
-    # Send summary per key to its owner's chat
-    for key, text in pairs:
-        try:
-            chat_id = _resolve_alert_chat_id(context, update=None, cfg=cfg, owner_id=key.owner_id)
-            if not chat_id:
-                continue
-            await safe_send_message(
-                context.bot,
-                chat_id=chat_id,
-                text=text,
-                parse_mode=None,
-                disable_web_page_preview=True,
-            )
-            log.info(
-                "alert.summary.sent",
-                extra={"event": "alert.summary.sent", "owner_id": key.owner_id, "domain": key.domain},
-            )
-        except Exception as e:  # pragma: no cover
-            log.warning(
-                "Failed to flush alert summary for %s/%s: %s", key.owner_id, key.domain, e,
-                extra={"event": "alert.summary.error", "owner_id": key.owner_id, "domain": key.domain},
-            )
+    # Job invocations and ordinary alerts must not deliver the same pending count twice.
+    flush_lock = context.application.bot_data.setdefault("summary_flush_lock", asyncio.Lock())
+    async with flush_lock:
+        keys = deduper.pending_summaries()
+        for key in keys:
+            locks = context.application.bot_data.setdefault("alert_locks", {})
+            lock = locks.setdefault((key.owner_id, key.domain), asyncio.Lock())
+            async with lock:
+                try:
+                    if not storage.domain_exists(key.owner_id, key.domain):
+                        deduper.discard(key)
+                        continue
+                    if not storage.is_user_alerts_enabled(key.owner_id):
+                        continue
+                    chat_id = _resolve_alert_chat_id(context, update=None, cfg=cfg,
+                                                     owner_id=key.owner_id)
+                    if not chat_id:
+                        continue
+                    # An ordinary alert may have consumed these counts while waiting for its lock.
+                    summary = deduper.pending_summary(key)
+                    if summary is None:
+                        continue
+                    text, count = summary
+                    await safe_send_message(
+                        context.bot,
+                        chat_id=chat_id,
+                        text=text,
+                        parse_mode=None,
+                        disable_web_page_preview=True,
+                    )
+                    deduper.acknowledge_summary(key, count)
+                    log.info(
+                        "alert.summary.sent",
+                        extra={"event": "alert.summary.sent", "owner_id": key.owner_id,
+                               "domain": key.domain},
+                    )
+                except Exception as e:
+                    log.warning(
+                        "Failed to flush alert summary for %s/%s: %s", key.owner_id, key.domain, e,
+                        extra={"event": "alert.summary.error", "owner_id": key.owner_id,
+                               "domain": key.domain},
+                    )

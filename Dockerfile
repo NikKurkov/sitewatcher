@@ -6,11 +6,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     XDG_CACHE_HOME=/data/cache
 
 WORKDIR /app
-COPY . .
-RUN pip install --no-cache-dir '.[web]' \
+COPY pyproject.toml README.md LICENSE ./
+COPY sitewatcher ./sitewatcher
+RUN pip install --no-cache-dir . \
     && useradd --uid 10001 --create-home --shell /usr/sbin/nologin sitewatcher \
     && mkdir -p /data \
     && chown sitewatcher:sitewatcher /data
 
 USER sitewatcher
-CMD ["sitewatcher", "bot"]
+CMD ["sitewatcher", "web"]

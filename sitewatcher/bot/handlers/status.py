@@ -3,15 +3,23 @@ from __future__ import annotations
 
 import html
 import logging
-from datetime import datetime, timezone
-from typing import Any, Iterable, List, Optional, Set, Tuple
+from sqlite3 import Row
+from typing import Iterable, List, Set, Tuple
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from ... import storage
-from ..utils import safe_reply_html, _strip_cached_suffix
-from ..alerts import _status_bullet, _status_emoji, _status_weight, _enabled_checks_for
+from ..utils import safe_reply_html
+from ..formatting import _fmt_ts
+from ...utils.results import (
+    overall_from_statuses,
+    status_bullet as _status_bullet,
+    status_emoji as _status_emoji,
+    status_weight as _status_weight,
+    strip_cached_suffix as _strip_cached_suffix,
+)
+from ..alerts import _enabled_checks_for
 from ..validators import DOMAIN_RE
 
 log = logging.getLogger(__name__)
@@ -21,74 +29,6 @@ FILTER_TOKENS = {"crit", "warn", "ok", "unknown", "problems"}
 
 
 # ---------------------------- small helpers ----------------------------
-
-def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
-    """Parse ISO timestamp (supports '...Z') or SQLite 'YYYY-MM-DD HH:MM:SS' to aware UTC datetime."""
-    if not ts:
-        return None
-    s = str(ts)
-    try:
-        if s.endswith("Z"):
-            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        else:
-            dt = datetime.fromisoformat(s)
-    except Exception:
-        # SQLite DATETIME('now') style
-        try:
-            dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-        except Exception:
-            return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
-
-
-def _fmt_ts(ts: Optional[str]) -> str:
-    """Format timestamp to '[DD.MM HH:MM UTC]' or placeholder if missing."""
-    dt = _parse_iso(ts)
-    if not dt:
-        return "[--.-- --:-- UTC]"
-    return "[" + dt.strftime("%d.%m %H:%M UTC") + "]"
-
-
-def _get(row: Any, key: str, default: Any = None) -> Any:
-    """Duck-typed access for dict/sqlite3.Row/objects."""
-    try:
-        if hasattr(row, "keys") and key in row.keys():  # sqlite3.Row supports keys() and __getitem__
-            return row[key]
-    except Exception:
-        pass
-    if isinstance(row, dict):
-        return row.get(key, default)
-    return getattr(row, key, default)
-
-
-def _row_status(row: Any) -> str:
-    val = _get(row, "status", "UNKNOWN")
-    return str(getattr(val, "value", val)).upper()
-
-
-def _row_check(row: Any) -> str:
-    val = _get(row, "check_name", None)
-    if not val:
-        val = _get(row, "check", "")
-    return str(val or "")
-
-
-def _row_message(row: Any) -> str:
-    return str(_get(row, "message", "") or "")
-
-
-def _row_created_at(row: Any) -> Optional[str]:
-    return _get(row, "created_at", None)
-
-
-def _overall_from_rows(rows: Iterable[Any]) -> str:
-    worst = 0
-    for r in rows:
-        worst = max(worst, _status_weight(_row_status(r)))
-    return {2: "CRIT", 1: "WARN", 0: "OK"}[worst]
-
 
 def _parse_filters(args: Iterable[str], *, default_problems: bool) -> Set[str]:
     """Return desired status set: {'CRIT','WARN','OK','UNKNOWN'}."""
@@ -150,7 +90,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     for name in names:
         checks = _enabled_checks_for(cfg, owner_id, name)
-        rows: List[Any] = []
+        rows: List[Row] = []
         for chk in checks:
             row = storage.last_history_for_check(owner_id, name, chk)
             if row:
@@ -165,14 +105,14 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             continue
 
         # Compute overall from latest rows
-        overall = _overall_from_rows(rows)
+        overall = overall_from_statuses((r["status"] for r in rows), empty="OK")
         if overall not in wanted:
             continue
 
         # Take the newest timestamp among rows for display
         newest_ts = None
         try:
-            newest_ts = max((_row_created_at(r) or "" for r in rows))
+            newest_ts = max((r["created_at"] or "" for r in rows))
         except Exception:
             newest_ts = None
 
@@ -182,17 +122,17 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         reason = ""
         if overall in {"CRIT", "WARN"}:
             try:
-                worst_weight = max(_status_weight(_row_status(r)) for r in rows)
-                candidates = [r for r in rows if _status_weight(_row_status(r)) == worst_weight]
-                best = max(candidates, key=lambda r: _row_created_at(r) or "") if candidates else None
+                worst_weight = max(_status_weight(r["status"].upper()) for r in rows)
+                candidates = [r for r in rows if _status_weight(r["status"].upper()) == worst_weight]
+                best = max(candidates, key=lambda r: r["created_at"] or "") if candidates else None
             except Exception:
                 best = None
             if best is not None:
-                chk = html.escape(_row_check(best))
-                msg = html.escape(_strip_cached_suffix(_row_message(best)))
+                chk = html.escape((best["check_name"] or ""))
+                msg = _strip_cached_suffix(best["message"] or "")
                 if len(msg) > 100:
                     msg = msg[:97] + "…"
-                reason = f" ({chk}: {msg})"
+                reason = f" ({chk}: {html.escape(msg)})"
 
         line = f"{_status_emoji(overall)} {ts} <b>{html.escape(name)}</b> — {overall}{reason}"
         pairs.append((-_status_weight(overall), name, line))
@@ -238,7 +178,7 @@ async def cmd_status_one(
     cfg = context.application.bot_data["cfg"]
 
     checks = _enabled_checks_for(cfg, owner_id, name)
-    rows: List[Tuple[str, Any]] = []
+    rows: List[Tuple[str, Row]] = []
     for chk in checks:
         row = storage.last_history_for_check(owner_id, name, chk)
         if row:
@@ -249,7 +189,7 @@ async def cmd_status_one(
         return
 
     # Header: overall
-    overall = _overall_from_rows((r for _, r in rows))
+    overall = overall_from_statuses((r["status"] for _, r in rows), empty="OK")
     head = f"{_status_emoji(overall)} <b>{html.escape(name)}</b> — {overall}"
 
     # Default: show all for single-domain detailed view, unless filters were provided
@@ -258,13 +198,13 @@ async def cmd_status_one(
     # Sort checks by severity DESC then by check name
     items: List[Tuple[int, str, str]] = []  # (neg_sev, check, line)
     for chk, row in rows:
-        st = _row_status(row)
+        st = row["status"].upper()
         if st not in wanted and not (("CRIT" in wanted or "WARN" in wanted or "UNKNOWN" in wanted) and st in {"CRIT", "WARN", "UNKNOWN"}):
             # simple membership check; above condition is redundant but explicit for clarity
             continue
-        ts = _fmt_ts(_row_created_at(row))
+        ts = _fmt_ts(row["created_at"])
         bullet = _status_bullet(st)
-        msg_text = html.escape(_strip_cached_suffix(_row_message(row)))
+        msg_text = html.escape(_strip_cached_suffix((row["message"] or "")))
         line = f"{bullet} {ts} <code>{html.escape(chk)}</code> — <b>{st}</b> — {msg_text}"
         items.append((-_status_weight(st), chk, line))
 

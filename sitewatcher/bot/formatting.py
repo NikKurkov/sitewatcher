@@ -3,63 +3,44 @@ from __future__ import annotations
 
 import html
 import logging
-import re
-from typing import Iterable, List, Any
+from datetime import datetime, timezone
+from typing import Iterable
 
 from .. import storage
 from ..checks.base import CheckOutcome
+from ..utils.results import (
+    overall_from_results as _overall_from_results,
+    status_text as _status_text,
+    status_weight as _status_weight,
+    status_emoji as _status_emoji,
+    status_bullet as _status_bullet,
+    strip_cached_suffix as _strip_cached_suffix,
+)
 
 log = logging.getLogger(__name__)
 
 
 # ----------------------------- small helpers -----------------------------
 
-def _strip_cached_suffix(msg: str) -> str:
-    """
-    Remove trailing '[cached Xm]' markers from a message.
-    We keep the original message for user output but strip it before persisting.
-    """
-    return re.sub(r"(?:\s*\[cached\s+\d+m\])+$", "", msg or "", flags=re.I)
+def _fmt_ts(timestamp: str | None) -> str:
+    """Render stored ISO/SQLite timestamps in UTC, or a placeholder if invalid."""
+    if not timestamp:
+        return "[--.-- --:-- UTC]"
+    try:
+        dt = datetime.fromisoformat(timestamp)
+    except ValueError:
+        return "[--.-- --:-- UTC]"
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).strftime("[%d.%m %H:%M UTC]")
 
 
-def _status_text(s: Any) -> str:
-    """Normalize status (enum or str) to UPPER string."""
-    return getattr(s, "value", str(s)).upper()
-
-
-def _status_weight(s: str) -> int:
-    """Numeric weight for severity comparisons."""
-    s = s.upper()
-    if s == "CRIT":
-        return 2
-    if s in ("WARN", "UNKNOWN"):
-        return 1
-    return 0
-
-
-def _status_emoji(s: str) -> str:
-    """Traffic light emoji for overall header."""
-    s = (s or "").upper()
-    return {"CRIT": "🔴", "WARN": "🟡", "OK": "🟢", "UNKNOWN": "⚪"}.get(s, "⚪")
-
-
-def _status_bullet(s: str) -> str:
-    """Compact bullet for per-check lines."""
-    s = (s or "").upper()
-    if s == "CRIT":
-        return "🔺"
-    if s == "WARN":
-        return "🔸"
-    return "•"
-
-
-def _overall_from_results(results: Iterable) -> str:
-    """Compute overall status from individual check results."""
-    worst = -1
-    for r in results:
-        st = _status_text(getattr(r, "status", "UNKNOWN"))
-        worst = max(worst, _status_weight(st))
-    return {2: "CRIT", 1: "WARN", 0: "OK", -1: "UNKNOWN"}[worst]
+def _format_check(result: CheckOutcome) -> str:
+    status = _status_text(result.status)
+    return (
+        f"{_status_bullet(status)} <code>{html.escape(str(result.check))}</code>"
+        f" — <b>{html.escape(status)}</b> — {html.escape(result.message)}"
+    )
 
 
 def _persist_results(owner_id: int, domain: str, results: Iterable, persist: bool) -> None:
@@ -70,7 +51,7 @@ def _persist_results(owner_id: int, domain: str, results: Iterable, persist: boo
         CheckOutcome(r.check, r.status, _strip_cached_suffix(r.message), r.metrics, r.cached)
         for r in results
     ]
-    storage.save_histories(owner_id, domain, cleaned)
+    storage.save_histories(owner_id, domain, cleaned, create_missing=False, source="manual")
 
 
 # ------------------------------- public API -------------------------------
@@ -89,19 +70,7 @@ async def _format_results(owner_id: int, domain: str, results: Iterable, persist
     overall = _overall_from_results(results)
     head = f"{_status_emoji(overall)} <b>{html.escape(domain)}</b> — {overall}"
 
-    lines = [head]
-    for r in results:
-        st = _status_text(getattr(r, "status", "UNKNOWN"))
-        bullet = _status_bullet(st)
-        lines.append(
-            "{bullet} <code>{check}</code> — <b>{status}</b> — {msg}".format(
-                bullet=bullet,
-                check=html.escape(str(getattr(r, "check", ""))),
-                status=html.escape(st),
-                msg=html.escape(str(getattr(r, "message", "") or "")),
-            )
-        )
-    return "\n".join(lines)
+    return "\n".join([head] + [_format_check(result) for result in results])
 
 
 async def _format_results_summary(owner_id: int, domain: str, results: Iterable, persist: bool = True) -> str:
@@ -116,25 +85,8 @@ async def _format_results_summary(owner_id: int, domain: str, results: Iterable,
     overall = _overall_from_results(results)
     head = f"{_status_emoji(overall)} <b>{html.escape(domain)}</b> — {overall}"
 
-    lines: List[str] = [head]
-    if overall in ("WARN", "CRIT"):
-        # Collect problematic checks
-        bad: List[tuple[int, str, str, Any]] = []
-        for r in results:
-            st = _status_text(getattr(r, "status", "UNKNOWN"))
-            if st in ("WARN", "CRIT", "UNKNOWN"):
-                bad.append((-_status_weight(st), str(getattr(r, "check", "")), st, r))
-        bad.sort()
-
-        for _, _, st, r in bad:
-            bullet = _status_bullet(st)
-            lines.append(
-                "{bullet} <code>{check}</code> — <b>{status}</b> — {msg}".format(
-                    bullet=bullet,
-                    check=html.escape(str(getattr(r, "check", ""))),
-                    status=html.escape(st),
-                    msg=html.escape(str(getattr(r, "message", "") or "")),
-                )
-            )
-
-    return "\n".join(lines)
+    bad = sorted(
+        (result for result in results if _status_text(result.status) in {"CRIT", "WARN", "UNKNOWN"}),
+        key=lambda result: (-_status_weight(result.status), result.check),
+    )
+    return "\n".join([head] + [_format_check(result) for result in bad])

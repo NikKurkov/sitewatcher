@@ -4,10 +4,12 @@ from __future__ import annotations
 import logging
 import os
 import asyncio
+from contextlib import nullcontext
 
 from telegram.ext import Application
 from telegram.request import HTTPXRequest
 
+from .. import scheduler_lock, storage
 from ..config import AppConfig, get_bot_token_from_env
 from .alerts import AlertDeduper
 from .router import register_handlers
@@ -21,7 +23,15 @@ log = logging.getLogger(__name__)
 def run_bot(cfg: AppConfig) -> None:
     token = get_bot_token_from_env()
     if not token:
-        raise RuntimeError("TELEGRAM_TOKEN is not set in environment (.env)")
+        raise RuntimeError("Telegram is not configured; connect a bot in workspace Settings or set TELEGRAM_TOKEN")
+
+    ownership = scheduler_lock.acquire(storage.DEFAULT_DB) if cfg.scheduler.enabled else nullcontext()
+    with ownership:
+        _run_polling(cfg, token)
+
+
+def _run_polling(cfg: AppConfig, token: str) -> None:
+    allowed_ids = _parse_allowed_user_ids()
 
     request = HTTPXRequest(
         http_version="1.1",
@@ -36,8 +46,10 @@ def run_bot(cfg: AppConfig) -> None:
     app = (
         Application.builder()
         .token(token)
+        .get_updates_proxy(os.getenv("TELEGRAM_PROXY"))
         .request(request)
-        .concurrent_updates(True)
+        # ConversationHandler requires ordered updates.
+        .concurrent_updates(False)
         .build()
     )
     app.bot_data["cfg"] = cfg
@@ -47,7 +59,6 @@ def run_bot(cfg: AppConfig) -> None:
     app.bot_data[BUSY_USERS_LOCK_KEY] = asyncio.Lock()
 
     # Access control
-    allowed_ids = _parse_allowed_user_ids()
     if allowed_ids:
         log.info(
             "bot.access.restricted",
@@ -61,55 +72,31 @@ def run_bot(cfg: AppConfig) -> None:
     app.bot_data["allowed_user_ids"] = allowed_ids
 
     # Alerts deduper instance in bot_data (no globals)
-    cooldown = int((getattr(cfg.alerts, "cooldown_sec", None)
-                        or getattr(cfg.alerts, "debounce_sec", None)
-                        or 0))
+    cooldown = cfg.alerts.effective_cooldown
     app.bot_data["alert_deduper"] = AlertDeduper(cooldown_sec=cooldown)
 
     # Handlers & jobs
     register_handlers(app)
     register_jobs(app, cooldown=cooldown)
 
-    # ---- Maintenance: daily history cleanup ----
-    from datetime import time as dtime, datetime
-    from .. import storage  # local import to avoid cycles at module import time
+    # Only the scheduler owner runs maintenance; command-only polling can coexist with a worker.
+    if cfg.scheduler.enabled:
+        # ---- Maintenance: daily history cleanup ----
+        from ..maintenance import cleanup_history, cleanup_time
 
-    def _parse_hhmm(s: str) -> dtime:
-        """Best-effort HH:MM parser with sane fallback."""
-        try:
-            hh, mm = [int(x) for x in str(s or "03:30").split(":", 1)]
-            if 0 <= hh <= 23 and 0 <= mm <= 59:
-                return dtime(hour=hh, minute=mm)
-        except Exception:
-            pass
-        return dtime(hour=3, minute=30)
+        async def _job_cleanup_history(context):
+            await cleanup_history(cfg)
 
-    async def _job_cleanup_history(context):
-        """APScheduler job: purge old history and optionally VACUUM on Sundays."""
+        scheduled_cleanup = cleanup_time(cfg)
         try:
-            retention = int(getattr(getattr(cfg, "history", object()), "retention_days", 30) or 30)
-            vacuum_weekly = bool(getattr(getattr(cfg, "history", object()), "vacuum_weekly", True))
-            deleted = storage.cleanup_history(retention)
-            # Sunday = 6
-            if vacuum_weekly and datetime.now().weekday() == 6:
-                storage.vacuum_and_optimize()
-            log.info(
-                "maintenance.cleanup_history.done",
-                extra={"event": "maintenance.cleanup_history.done", "deleted": int(deleted), "retention_days": retention},
+            app.job_queue.run_daily(
+                _job_cleanup_history,
+                time=scheduled_cleanup,
+                name="maintenance.cleanup_history",
             )
+            log.info("maintenance.cleanup_history.scheduled", extra={"event": "maintenance.cleanup_history.scheduled", "time": str(scheduled_cleanup)})
         except Exception as e:
-            log.exception("maintenance.cleanup_history.failed", extra={"event": "maintenance.cleanup_history.failed", "etype": e.__class__.__name__})
-
-    cleanup_time = _parse_hhmm(getattr(getattr(cfg, "history", object()), "cleanup_time", "03:30"))
-    try:
-        app.job_queue.run_daily(
-            _job_cleanup_history,
-            time=cleanup_time,
-            name="maintenance.cleanup_history",
-        )
-        log.info("maintenance.cleanup_history.scheduled", extra={"event": "maintenance.cleanup_history.scheduled", "time": str(cleanup_time)})
-    except Exception as e:
-        log.warning("maintenance.cleanup_history.schedule_failed", extra={"event": "maintenance.cleanup_history.schedule_failed", "etype": e.__class__.__name__})
+            log.warning("maintenance.cleanup_history.schedule_failed", extra={"event": "maintenance.cleanup_history.schedule_failed", "etype": e.__class__.__name__})
 
     log.info(
         "bot.start",

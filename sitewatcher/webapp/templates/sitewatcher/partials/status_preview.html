@@ -1,0 +1,33 @@
+{% load i18n %}
+{% if row.state == 'crit' or row.state == 'warn' %}
+    <div class="status-preview" data-status-preview>
+        <span class="badge {{ row.state }}"
+            tabindex="0"
+            data-status-trigger
+            aria-describedby="status-tooltip-{{ forloop.counter }}"
+        ><span aria-hidden="true">⚠</span>{{ row.label }}</span>
+        <div class="status-tooltip" id="status-tooltip-{{ forloop.counter }}" role="tooltip" tabindex="0" hidden>
+            <strong class="status-tooltip-heading">{{ row.label }}</strong>
+            {% if row.error %}
+                <p>{% translate row.error %}</p>
+                <div class="muted">
+                    {% translate 'Last checked' %}:
+                    {% include 'sitewatcher/partials/time.html' with stamp=row.observed %}
+                </div>
+            {% else %}
+                <ul>
+                    {% for check in row.problems %}
+                        <li>
+                            <strong>{{ check.label }}</strong>
+                            <span class="status-tooltip-severity {{ check.status|lower }}">{{ check.status_label }}{% if check.stale %} {% translate '· Overdue' %}{% endif %}</span>
+                            <p>{% if check.missing %}{% translate 'Not checked yet' %}{% else %}{{ check.message }}{% endif %}</p>
+                            <div class="muted">{% include 'sitewatcher/partials/time.html' with stamp=check.observed %}</div>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        </div>
+    </div>
+{% else %}
+    <span class="badge {{ row.state }}"><span class="status-dot" aria-hidden="true"></span>{{ row.label }}</span>
+{% endif %}

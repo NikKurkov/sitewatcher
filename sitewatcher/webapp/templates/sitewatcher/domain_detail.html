@@ -1,0 +1,179 @@
+{% extends 'sitewatcher/base.html' %}
+{% load i18n %}
+{% block title %}{{ report.domain }} {% translate '· SiteWatcher' %}{% endblock %}
+{% block content %}
+    <a class="back-link" href="/">{% translate '← All domains' %}</a>
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">{% translate 'Domain history' %}</p>
+            <h1 class="domain-title">{{ report.domain }}</h1>
+            <div class="detail-status">
+                <span class="badge {{ row.state }}">{% if row.state == "crit" or row.state == "warn" %}<span aria-hidden="true">⚠</span>{% else %}<span class="status-dot" aria-hidden="true"></span>{% endif %}{{ row.label }}</span>
+                <span class="muted">{% translate 'Last checked' %} {% include 'sitewatcher/partials/time.html' with stamp=row.observed %}</span>
+            </div>
+        </div>
+        {% if not read_only %}
+            <div class="domain-actions">
+                <a class="button icon-button"
+                    href="/domains/edit?domain={{ report.domain|urlencode }}"
+                    title="{% translate 'Edit domain' %}"
+                    aria-label="{% translate 'Edit domain' %}"
+                ><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m16 3 5 5-12 12-6 1 1-6Z M14 5l5 5"/></svg></a>
+                <form method="post" action="/domains/check">
+                    {% csrf_token %}
+                    <input type="hidden" name="domain" value="{{ report.domain }}">
+                    <button type="submit"
+                        class="icon-button"
+                        title="{% translate 'Check now' %}"
+                        aria-label="{% translate 'Check now' %}"
+                    ><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 7a9 9 0 1 0 1 8 M20 3v5h-5"/></svg></button>
+                </form>
+                <form method="post" action="{% if row.paused %}/domains/resume{% else %}/domains/pause{% endif %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="domain" value="{{ report.domain }}">
+                    <button type="submit"
+                        class="icon-button"
+                        title="{% if row.paused %}{% translate 'Resume monitoring' %}{% else %}{% translate 'Pause monitoring' %}{% endif %}"
+                        aria-label="{% if row.paused %}{% translate 'Resume monitoring' %}{% else %}{% translate 'Pause monitoring' %}{% endif %}"
+                    ><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">{% if row.paused %}<path d="m8 4 12 8-12 8Z"/>{% else %}<path d="M8 5v14 M16 5v14"/>{% endif %}</svg></button>
+                </form>
+                <a class="button icon-button icon-danger"
+                    href="/domains/delete?domain={{ report.domain|urlencode }}"
+                    title="{% translate 'Remove domain' %}"
+                    aria-label="{% translate 'Remove domain' %}"
+                ><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6h18 M9 6V3h6v3 M5 6l1 15h12l1-15 M10 10v7 M14 10v7"/></svg></a>
+            </div>
+        {% endif %}
+    </div>
+    {% if row.error %}
+        <div class="notice error-notice" role="alert">
+            <strong>{{ row.error }}</strong>
+            <p>{% translate 'Monitoring settings need attention. Saved settings and history are unchanged.' %}</p>
+            {% if not read_only %}
+                <a href="/domains/edit?domain={{ report.domain|urlencode }}">{% translate 'Recover domain settings' %}</a>
+            {% endif %}
+        </div>
+    {% endif %}
+    <div class="section-toolbar">
+        <h2>{% translate 'HTTP observations' %}</h2>
+        {% include 'sitewatcher/partials/periods.html' %}
+    </div>
+    <section class="panel history-panel">
+        <div class="metrics">
+            <div>
+                <span class="eyebrow">{% translate 'Successful checks' %}</span>
+                <strong>{% if report.totals.success_percent != None %}{{ report.totals.success_percent|floatformat:1 }}%{% else %}{% translate 'No data' %}{% endif %}</strong>
+                <span class="muted">{% blocktranslate with successful=report.totals.successful failed=report.totals.failed %}{{ successful }} successful · {{ failed }} failed{% endblocktranslate %} · {% if report.totals.failure_percent != None %}{% blocktranslate with percent=report.totals.failure_percent|floatformat:1 %}{{ percent }}% failed{% endblocktranslate %}{% else %}{% translate 'No data' %}{% endif %}</span>
+            </div>
+            <div>
+                <span class="eyebrow">{% translate 'Recorded checks' %}</span>
+                <strong>{{ report.totals.sample_count }}</strong>
+                <span class="muted">{% blocktranslate with count=report.totals.unknown %}{{ count }} unknown{% endblocktranslate %}</span>
+            </div>
+            <div>
+                <span class="eyebrow">{% translate 'Latest HTTP observation' %}</span>
+                {% include 'sitewatcher/partials/time.html' with stamp=report.observed %}
+            </div>
+        </div>
+        {% if report.totals.sample_count %}
+            {% include 'sitewatcher/partials/strip.html' with item=report %}
+            <div class="chart-axis">
+                <span>{{ report.start.label }}</span>
+                <span>{{ report.end.label }}</span>
+            </div>
+        {% else %}
+            <p class="no-data">{% translate 'No HTTP observations in this period. New results appear after an HTTP check runs.' %}</p>
+        {% endif %}
+        <p class="source-note">{% blocktranslate with scheduled=report.totals.sources.scheduled manual=report.totals.sources.manual legacy=report.totals.sources.legacy %}{{ scheduled }} scheduled · {{ manual }} manual · {{ legacy }} legacy observations{% endblocktranslate %}</p>
+    </section>
+    <section class="panel chart-panel">
+        {% include 'sitewatcher/partials/chart.html' %}
+        {% include 'sitewatcher/partials/chart_data.html' %}
+    </section>
+    <details class="panel latest-checks" {% if row.overall != 'OK' %}open{% endif %}>
+        <summary>{% translate 'Latest monitoring checks' %}</summary>
+        <ul class="check-list">
+            {% for check in row.checks %}
+                <li>
+                    <span>{{ check.label }}<span class="row-note">{{ check.message }}</span></span>
+                    <span>{% if check.status == 'CRIT' or check.status == 'WARN' %}<span class="badge {{ check.status|lower }}"><span aria-hidden="true">⚠</span>{{ check.status_label }}</span>{% else %}{{ check.status_label }}{% endif %}{% if check.stale %} {% translate '· Overdue' %}{% endif %}</span>
+                    <span>{% include 'sitewatcher/partials/time.html' with stamp=check.observed %}</span>
+                </li>
+            {% empty %}
+                <li>
+                    {% if row.error %}
+                        {% translate 'Checks unavailable until settings are recovered.' %}
+                    {% else %}
+                        {% translate 'No checks enabled.' %}
+                    {% endif %}
+                </li>
+            {% endfor %}
+        </ul>
+    </details>
+    <details id="recent-history"
+        class="panel latest-checks recent-history"
+        {% if history_filtered or history_form.errors %}open{% endif %}
+    >
+        <summary>{% translate 'Recent check history' %}</summary>
+        <form method="get" action="/domains/history#recent-history" class="history-filters">
+            <input type="hidden" name="domain" value="{{ report.domain }}">
+            <input type="hidden" name="days" value="{{ report.days }}">
+            {% if history_form.non_field_errors %}
+                <div class="field-error" role="alert">{{ history_form.non_field_errors }}</div>
+            {% endif %}
+            {% for field in history_form %}
+                <div class="field">
+                    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    {% if field.errors %}
+                        <div class="field-error">{{ field.errors }}</div>
+                    {% endif %}
+                </div>
+            {% endfor %}
+            <div class="history-filter-actions">
+                <button type="submit">{% translate 'Filter' %}</button>
+                <a href="?domain={{ report.domain|urlencode }}&amp;days={{ report.days }}#recent-history">{% translate 'Reset filters' %}</a>
+            </div>
+            <p class="field-help">{% blocktranslate with timezone=report.timezone %}Dates use {{ timezone }}. Up to 100 matching results are shown.{% endblocktranslate %}</p>
+        </form>
+        <div class="table-scroll">
+            <table>
+                <caption>{% blocktranslate with timezone=report.timezone %}Latest 100 saved check results · {{ timezone }}{% endblocktranslate %}</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">{% translate 'Checked' %}</th>
+                        <th scope="col">{% translate 'Check' %}</th>
+                        <th scope="col">{% translate 'State' %}</th>
+                        <th scope="col">{% translate 'Result' %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in history %}
+                        <tr>
+                            <td>{% include 'sitewatcher/partials/time.html' with stamp=item.observed %}</td>
+                            <th scope="row">{{ item.check_label }}</th>
+                            <td>
+                                {% if item.status == 'CRIT' or item.status == 'WARN' %}
+                                    <span class="badge {{ item.status|lower }}"><span aria-hidden="true">⚠</span>{{ item.status_label }}</span>
+                                {% else %}
+                                    {{ item.status_label }}
+                                {% endif %}
+                            </td>
+                            <td>{{ item.message }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="4">
+                                {% if history_filtered %}
+                                    {% translate 'No results match these filters.' %}
+                                {% else %}
+                                    {% translate 'No saved check results.' %}
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </details>
+{% endblock %}

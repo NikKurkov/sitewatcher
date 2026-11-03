@@ -1,10 +1,9 @@
 # sitewatcher/bot/handlers/backup_csv.py
 from __future__ import annotations
 
-import asyncio
 import io
+import html
 import logging
-from typing import Tuple
 
 from telegram import Update, InputFile
 from telegram.ext import Application, ContextTypes, CommandHandler, MessageHandler, filters
@@ -53,10 +52,11 @@ async def cmd_export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     owner_id = user.id
 
     try:
-        csv_bytes, count = await _export_owner_to_csv(owner_id)
+        csv_bytes = csvutil.export_domains_csv(owner_id)
+        count = len(storage.list_domains(owner_id))
     except Exception as e:
         log.exception("export_csv.failed user=%s: %s", owner_id, e, extra={"event": "export_csv.failed", "owner": owner_id})
-        await safe_reply_html(update.effective_message, f"❌ Export failed: <code>{e}</code>")
+        await safe_reply_html(update.effective_message, f"❌ Export failed: <code>{html.escape(str(e))}</code>")
         return
 
     if not csv_bytes:
@@ -75,20 +75,7 @@ async def cmd_export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
     except Exception as e:
         log.exception("export_csv.send.failed user=%s: %s", owner_id, e, extra={"event": "export_csv.send.failed", "owner": owner_id})
-        await safe_reply_html(update.effective_message, f"❌ Failed to send file: <code>{e}</code>")
-
-
-async def _export_owner_to_csv(owner_id: int) -> Tuple[bytes, int]:
-    """
-    Export via utils.domains_csv.export_domains_csv -> bytes (UTF-8-SIG).
-    Returns (csv_bytes, domains_count).
-    """
-    if not hasattr(csvutil, "export_domains_csv"):
-        raise RuntimeError("utils.domains_csv.export_domains_csv not found")
-
-    data: bytes = csvutil.export_domains_csv(owner_id)  # UTF-8-SIG bytes for Excel compatibility
-    count = len(storage.list_domains(owner_id))
-    return data, count
+        await safe_reply_html(update.effective_message, f"❌ Failed to send file: <code>{html.escape(str(e))}</code>")
 
 
 # -----------------------------
@@ -158,7 +145,7 @@ async def _process_import_document(update: Update, context: ContextTypes.DEFAULT
         data = bytes(blob)  # pass bytes to the importer
     except Exception as e:
         log.exception("import_csv.download.failed user=%s: %s", owner_id, e, extra={"event": "import_csv.download.failed", "owner": owner_id})
-        await safe_reply_html(msg, f"❌ Failed to download file: <code>{e}</code>")
+        await safe_reply_html(msg, f"❌ Failed to download file: <code>{html.escape(str(e))}</code>")
         return
     finally:
         # Reset FSM regardless of outcome to avoid being stuck in busy state
@@ -167,10 +154,10 @@ async def _process_import_document(update: Update, context: ContextTypes.DEFAULT
 
     # Import via utility
     try:
-        report = await _import_csv_bytes(owner_id, data, replace=(mode == "replace"))
+        report = csvutil.import_domains_csv(owner_id, data, mode=mode, cfg=context.application.bot_data["cfg"])
     except Exception as e:
         log.exception("import_csv.failed user=%s: %s", owner_id, e, extra={"event": "import_csv.failed", "owner": owner_id})
-        await safe_reply_html(msg, f"❌ Import failed: <code>{e}</code>")
+        await safe_reply_html(msg, f"❌ Import failed: <code>{html.escape(str(e))}</code>")
         return
 
     # Summarize result
@@ -187,29 +174,6 @@ async def _process_import_document(update: Update, context: ContextTypes.DEFAULT
     ]
     if errors:
         lines.append("\n<b>Errors (first 5):</b>")
-        lines.extend(f"• {e}" for e in errors[:5])
+        lines.extend(f"• {html.escape(str(e))}" for e in errors[:5])
 
     await safe_reply_html(msg, "\n".join(lines))
-
-
-async def _import_csv_bytes(owner_id: int, data: bytes, *, replace: bool) -> object:
-    """
-    Call utils.domains_csv.import_domains_csv(owner_id, data, mode='merge'|'replace').
-    Returns an ImportReport-like object with attributes: added, updated, skipped, errors (list[str]).
-    """
-    if not hasattr(csvutil, "import_domains_csv"):
-        raise RuntimeError("utils.domains_csv.import_domains_csv not found")
-
-    mode = "replace" if replace else "merge"
-    report = csvutil.import_domains_csv(owner_id, data, mode=mode)
-    return report
-
-
-# -----------------------------
-# Small helpers
-# -----------------------------
-async def _maybe_await(obj):
-    """Await coroutine values, pass-through otherwise."""
-    if asyncio.iscoroutine(obj):
-        return await obj
-    return obj

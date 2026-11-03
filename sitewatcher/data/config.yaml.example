@@ -12,7 +12,8 @@ defaults:
     ip_change: true
     keywords: false
     deface: false
-    rkn_block: false
+    rkn_domain: false             # domain/parent-domain listing -> CRIT
+    rkn_ip: false                 # IPv4 listing (possibly shared hosting) -> WARN
     ip_blacklist: false
     ports: false
     malware: false
@@ -30,6 +31,8 @@ schedules:
   tls_cert: { interval_minutes: 1440, cache_ttl_minutes: 1440 }
   ping: { interval_minutes: 5, cache_ttl_minutes: 0 }
   whois: { interval_minutes: 1440, cache_ttl_minutes: 1440 }
+  rkn_domain: { interval_minutes: 1440, cache_ttl_minutes: 1440 }
+  rkn_ip: { interval_minutes: 1440, cache_ttl_minutes: 1440 }
 
 alerts:
   enabled: true
@@ -39,9 +42,13 @@ alerts:
 # Other settings retain their defaults. Set one only when needed.
 # http:
 #   proxy: http://proxy.example:3128
+#   max_response_bytes: 8388608     # cumulative wire/decoded page limit, including redirects
 # malware:
 #   vt_api_key: "your-key"
 # rkn:
+#   source: antifilter             # primary; bol-van is the automatic fallback
+#   cache_ttl_hours: 12
+#   max_source_age_hours: 168       # reject declared source dates older than 7 days
 #   index_db_path: /var/lib/sitewatcher/z_i_index.db
 # domains:
 #   - name: example.com

@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import uuid
 from functools import lru_cache
 from typing import Iterable, List, Optional, Tuple
@@ -12,6 +11,8 @@ from typing import Iterable, List, Optional, Tuple
 import httpx
 
 from . import storage
+from .utils.http_body import DEFAULT_MAX_RESPONSE_BYTES
+from .utils.results import overall_from_results, status_text, strip_cached_suffix
 from .checks.base import CheckOutcome, Status
 from .checks.deface import DefaceCheck
 from .checks.http_basic import HttpBasicCheck
@@ -24,7 +25,7 @@ from .checks.tls_cert import TlsCertCheck
 from .checks.whois_info import WhoisInfoCheck
 from .checks.malware_scan import MalwareScanCheck, _VTConfig
 from .utils.rate_limit import MultiWindowRateLimiter, Window
-from .config import AppConfig, ResolvedSettings, resolve_settings
+from .config import AppConfig, ResolvedSettings, resolve_settings, _validate_proxy
 
 
 log = logging.getLogger(__name__)
@@ -47,10 +48,11 @@ def _new_run_id() -> str:
 
 # Optional RKN plugin (kept soft to avoid import-time failures)
 try:  # pragma: no cover
-    from .checks.rkn_block_sqlite import RknBlockCheck  # type: ignore
+    from .checks.rkn_block_sqlite import RknBlockCheck, RknIpCheck  # type: ignore
     log.debug("RKN plugin loaded: rkn_block_sqlite")
 except Exception as e:  # pragma: no cover
     RknBlockCheck = None  # type: ignore
+    RknIpCheck = None  # type: ignore
     # We deliberately do not fail at import time to keep core functionality running.
     log.warning("RKN plugin unavailable: %s", e.__class__.__name__, extra={"event": "rkn.import_failed"})
 
@@ -70,6 +72,8 @@ class Dispatcher:
     def __init__(self, cfg: AppConfig, max_concurrency: int = 10) -> None:
         self.cfg = cfg
         self._client: Optional[httpx.AsyncClient] = None
+        self._proxy_clients: dict[str, httpx.AsyncClient] = {}
+        self._http_client_kwargs: dict = {}
         self._default_per_domain_concurrency = max(1, int(max_concurrency))
         # Shared VT rate limiter (process-local for this Dispatcher lifetime)
         self._vt_limiter: Optional[MultiWindowRateLimiter] = None  # NEW
@@ -107,12 +111,14 @@ class Dispatcher:
             trust_env=True,
             headers={"User-Agent": "sitewatcher/0.2 (+https://github.com/NikKurkov/sitewatcher)"},
         )
+        self._http_client_kwargs = {"http2": True, **client_kwargs}
         if proxies:
             if isinstance(proxies, str):
                 client_kwargs["proxy"] = proxies
             else:
                 client_kwargs["mounts"] = {
-                    scheme: httpx.AsyncHTTPTransport(proxy=url) for scheme, url in proxies.items()
+                    scheme: httpx.AsyncHTTPTransport(proxy=url, http2=True, limits=limits)
+                    for scheme, url in proxies.items()
                 }
 
         self._client = httpx.AsyncClient(http2=True, **client_kwargs)
@@ -123,9 +129,12 @@ class Dispatcher:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
-        if self._client:
-            await self._client.aclose()
-            self._client = None
+        clients = list(self._proxy_clients.values())
+        if self._client is not None:
+            clients.append(self._client)
+        self._proxy_clients.clear()
+        self._client = None
+        await asyncio.gather(*(client.aclose() for client in clients))
 
     # ---------- public API ----------
 
@@ -148,7 +157,7 @@ class Dispatcher:
 
         settings = resolve_settings(self.cfg, domain) if ephemeral else self._resolve(owner_id, domain)
         use_cache = use_cache and not ephemeral
-        all_checks = self._build_checks(settings)
+        all_checks = self._build_checks(settings, owner_id=0 if ephemeral else owner_id)
         checks = self._filter_checks(all_checks, only_checks)
 
         if not checks:
@@ -294,26 +303,8 @@ class Dispatcher:
         results: List[CheckOutcome] = [r for r in results_ordered if r is not None]
 
         # Log summary
-        def _status_str(x: object) -> str:
-            return getattr(x, "value", str(x))
-
-        def _overall_from(res: Iterable[CheckOutcome]) -> str:
-            def weight(st: str) -> int:
-                st = (st or "").upper()
-                if st == "CRIT":
-                    return 2
-                if st in ("WARN", "UNKNOWN"):
-                    return 1
-                return 0
-
-            worst = 0
-            for rr in res:
-                st = _status_str(getattr(rr, "status", "UNKNOWN")).upper()
-                worst = max(worst, weight(st))
-            return {2: "CRIT", 1: "WARN", 0: "OK"}[worst]
-
-        overall = _overall_from(results)
-        checks_summary = {r.check: _status_str(r.status) for r in results}
+        overall = overall_from_results(results)
+        checks_summary = {r.check: status_text(r.status) for r in results}
 
         log.info(
             "dispatcher.done",
@@ -347,13 +338,25 @@ class Dispatcher:
                     "error_type": e.__class__.__name__,
                 },
             )
-            patch = {}
+            raise
 
         return resolve_settings(self.cfg, domain, patch)
 
-    def _build_checks(self, settings: ResolvedSettings) -> List:
+    def _build_checks(self, settings: ResolvedSettings, *, owner_id: int | None = None) -> List:
         """Instantiate enabled checks based on resolved settings."""
         assert self._client is not None
+
+        target_client = self._client
+        max_response_bytes = getattr(self.cfg.http, "max_response_bytes", DEFAULT_MAX_RESPONSE_BYTES)
+        proxy = _validate_proxy(settings.proxy)
+        if proxy and any(
+            getattr(settings.checks, name, False) for name in ("http_basic", "keywords", "deface")
+        ):
+            if proxy not in self._proxy_clients:
+                self._proxy_clients[proxy] = httpx.AsyncClient(
+                    proxy=proxy, **self._http_client_kwargs,
+                )
+            target_client = self._proxy_clients[proxy]
 
         out: List = []
 
@@ -361,11 +364,12 @@ class Dispatcher:
             out.append(
                 HttpBasicCheck(
                     settings.name,
-                    client=self._client,
+                    client=target_client,
+                    max_response_bytes=max_response_bytes,
                     timeout_s=settings.http_timeout_s,
                     latency_warn_ms=settings.latency_warn_ms,
                     latency_crit_ms=settings.latency_crit_ms,
-                    proxy=settings.proxy,
+                    proxy=None,
                 )
             )
 
@@ -376,7 +380,8 @@ class Dispatcher:
             out.append(
                 KeywordsCheck(
                     settings.name,
-                    client=self._client,
+                    client=target_client,
+                    max_response_bytes=max_response_bytes,
                     timeout_s=settings.http_timeout_s,
                     keywords=settings.keywords,
                 )
@@ -400,7 +405,8 @@ class Dispatcher:
             else:
                 log.debug("DefaceCheck: no phrases_path configured; using built-in defaults")
 
-            out.append(DefaceCheck(settings.name, client=self._client, timeout_s=timeout_s, markers=markers))
+            out.append(DefaceCheck(settings.name, client=target_client, timeout_s=timeout_s,
+                                  markers=markers, max_response_bytes=max_response_bytes))
         else:
             log.debug("DefaceCheck: disabled for %s", settings.name)
 
@@ -410,12 +416,14 @@ class Dispatcher:
         if getattr(settings.checks, "ping", False):
             out.append(PingCheck(settings.name))
 
-        if getattr(settings.checks, "rkn_block", False) and RknBlockCheck is not None:
+        if settings.checks.rkn_domain and RknBlockCheck is not None:
             out.append(RknBlockCheck(settings.name, client=self._client, rkn_cfg=self.cfg.rkn))
+        if settings.checks.rkn_ip and RknIpCheck is not None:
+            out.append(RknIpCheck(settings.name, client=self._client, rkn_cfg=self.cfg.rkn))
 
         if getattr(settings.checks, "ports", False):
-            targets = getattr(settings, "ports", None) or self.cfg.ports.targets
-            out.append(PortsCheck(settings.name, targets=targets if targets else self.cfg.ports.targets, defaults=self.cfg.ports))
+            targets = settings.ports if settings.ports is not None else self.cfg.ports.targets
+            out.append(PortsCheck(settings.name, targets=targets, defaults=self.cfg.ports))
 
         if getattr(settings.checks, "whois", False):
             out.append(WhoisInfoCheck(settings.name, client=self._client, cfg=self.cfg.whois))
@@ -433,7 +441,7 @@ class Dispatcher:
             )
 
         if getattr(settings.checks, "ip_change", False):
-            out.append(IpChangeCheck(settings.name, cfg=self.cfg.ipchange))
+            out.append(IpChangeCheck(settings.name, cfg=self.cfg.ipchange, owner_id=owner_id))
 
         # Malware reputation check (VirusTotal passive lookup) — now with strict rate limiting
         if getattr(settings.checks, "malware", False):
@@ -483,10 +491,6 @@ class Dispatcher:
         val = getattr(sched, name, None)
         return val if isinstance(val, (int, float)) and val > 0 else default
 
-    @staticmethod
-    def _strip_cached_suffix(msg: str) -> str:
-        return re.sub(r"(?:\s*\[cached\s+\d+m\])+$", "", msg or "", flags=re.I)
-
     def _maybe_cached_result(
         self,
         owner_id: int,
@@ -497,9 +501,8 @@ class Dispatcher:
         """
         Return cached CheckOutcome if fresh enough, otherwise None. (owner-aware)
 
-        Special rule: for 'whois' we *do not* serve cached UNKNOWN by default,
-        to avoid sticking on "no expiry info". Can be overridden via
-        schedules.whois.cache_unknown: true
+        For WHOIS and RKN we do not serve cached UNKNOWN by default,
+        to allow recovery from missing evidence. Override per check with cache_unknown: true.
         """
         ttl = ttl_fn(check_name)
         if ttl <= 0:
@@ -509,13 +512,13 @@ class Dispatcher:
         if not row:
             return None
 
-        # For whois: skip caching UNKNOWN unless explicitly allowed by config
-        if check_name == "whois":
+        # WHOIS/RKN failures are cached only when explicitly allowed by configuration.
+        if check_name in {'whois', 'rkn_domain', 'rkn_ip'}:
             try:
                 status_str = str(row["status"]).upper()
             except Exception:
                 status_str = "UNKNOWN"
-            sc = getattr(self.cfg.schedules, "whois", None)
+            sc = getattr(self.cfg.schedules, check_name, None)
             cache_unknown = bool(getattr(sc, "cache_unknown", False)) if sc is not None else False
             if status_str == "UNKNOWN" and not cache_unknown:
                 log.info(
@@ -525,7 +528,7 @@ class Dispatcher:
                         "owner_id": owner_id,
                         "domain": domain,
                         "check": check_name,
-                        "reason": "unknown_whois",
+                        "reason": "unknown_result",
                     },
                 )
                 return None
@@ -539,7 +542,12 @@ class Dispatcher:
         except Exception:
             metrics = {}
 
-        base_msg = self._strip_cached_suffix(row["message"] or "")
+        from .utils.results import current_rkn_result
+        if not current_rkn_result(check_name, metrics, self.cfg.rkn.max_source_age_hours,
+                                  status=row['status']):
+            return None
+
+        base_msg = strip_cached_suffix(row["message"] or "")
         return CheckOutcome(
             check=check_name,
             status=row["status"],
@@ -553,4 +561,6 @@ class Dispatcher:
         if not only_checks:
             return checks
         allowed = {str(x) for x in only_checks}
+        if 'rkn_block' in allowed:
+            allowed.update(('rkn_domain', 'rkn_ip'))
         return [c for c in checks if getattr(c, "name", "") in allowed]

@@ -1,0 +1,47 @@
+{% load i18n %}
+<details class="chart-data">
+    <summary>{% translate 'View chart data' %}</summary>
+    <div class="table-scroll">
+        <table>
+            <caption>{% blocktranslate with timezone=report.timezone %}HTTP observations · {{ timezone }}. Missing intervals have no observations.{% endblocktranslate %}</caption>
+            <thead>
+                <tr>
+                    <th scope="col">{% translate 'Period starting' %}</th>
+                    <th scope="col">{% translate 'Successful' %}</th>
+                    <th scope="col">{% translate 'Failed' %}</th>
+                    <th scope="col">{% translate 'Unknown' %}</th>
+                    <th scope="col">{% translate 'Successful checks' %}</th>
+                    <th scope="col">{% translate 'Response time' %}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for bucket in report.buckets %}
+                    <tr>
+                        <th scope="row">{{ bucket.label }}</th>
+                        <td>{{ bucket.successful }}</td>
+                        <td>{{ bucket.failed }}</td>
+                        <td>{{ bucket.unknown }}</td>
+                        <td>
+                            {% if bucket.success_percent != None %}
+                                {{ bucket.success_percent|floatformat:1 }}%
+                            {% else %}
+                                {% translate 'No data' %}
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if bucket.latency_ms != None %}
+                                {% blocktranslate with latency=bucket.latency_ms|floatformat:0 %}{{ latency }} ms{% endblocktranslate %}
+                            {% else %}
+                                {% translate 'No data' %}
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6">{% translate 'No observations recorded.' %}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</details>

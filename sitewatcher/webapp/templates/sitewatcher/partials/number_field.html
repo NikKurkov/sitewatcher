@@ -1,0 +1,8 @@
+{% load i18n %}
+<div class="field">
+    <label for="{{ field.name }}">{{ field.label }}</label>
+    <input type="number" id="{{ field.name }}" name="{{ field.name }}" value="{{ field.value }}" min="{{ field.minimum }}" step="1" {% if field.error %}aria-invalid="true" aria-describedby="{{ field.name }}-error"{% endif %} {% if field.default != None %}placeholder="{% blocktranslate with default=field.default %}Default ({{ default }}){% endblocktranslate %}"{% endif %}>
+    {% if field.error %}
+        <p class="field-error" id="{{ field.name }}-error">{{ field.error }}</p>
+    {% endif %}
+</div>

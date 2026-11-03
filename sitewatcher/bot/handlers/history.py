@@ -5,91 +5,21 @@ import html
 import logging
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable, List, Optional, Set, Tuple
+from sqlite3 import Row
+from typing import Iterable, List, Optional, Set, Tuple
 
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from ... import storage
-from ..utils import safe_reply_html, _strip_cached_suffix
-from ..alerts import _status_emoji
+from ..utils import safe_reply_html
+from ..formatting import _fmt_ts
+from ...utils.results import status_emoji as _status_emoji, strip_cached_suffix as _strip_cached_suffix
 from ..validators import DOMAIN_RE
 
 log = logging.getLogger(__name__)
 
-# Telegram hard limit is 4096; keep a safety margin for HTML entities, etc.
-_MAX_CHARS = 3800
-
-
 # ---------------------------- small helpers ----------------------------
-
-def _fmt_ts(ts: str | None) -> str:
-    """Format various ISO/SQLite timestamps → [DD.MM HH:MM UTC]."""
-    if not ts:
-        return "[--.-- --:-- UTC]"
-    s = str(ts)
-    try:
-        # Support '...Z' form (ISO-8601 UTC)
-        if s.endswith("Z"):
-            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        else:
-            dt = datetime.fromisoformat(s)
-    except Exception:
-        # Legacy SQLite DATETIME('now'): 'YYYY-MM-DD HH:MM:SS'
-        try:
-            dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-        except Exception:
-            return "[--.-- --:-- UTC]"
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    dt = dt.astimezone(timezone.utc)
-    return "[" + dt.strftime("%d.%m %H:%M UTC") + "]"
-
-
-def _get(row: Any, key: str, default: Any = None) -> Any:
-    """Duck-typed access for dict/sqlite3.Row/objects."""
-    # Mapping-like (dict, sqlite3.Row)
-    try:
-        if hasattr(row, "keys") and key in row.keys():  # sqlite3.Row supports keys() and __getitem__
-            return row[key]
-    except Exception:
-        pass
-    if isinstance(row, dict):
-        return row.get(key, default)
-    # Fallback to attribute
-    return getattr(row, key, default)
-
-
-def _row_status(row: Any) -> str:
-    """Return normalized status from storage row."""
-    val = _get(row, "status", "UNKNOWN")
-    return str(getattr(val, "value", val)).upper()
-
-
-def _row_domain(row: Any) -> str:
-    return str(_get(row, "domain", "") or "")
-
-
-def _row_check(row: Any) -> str:
-    # History table uses 'check_name'
-    val = _get(row, "check_name", None)
-    if not val:
-        val = _get(row, "check", "")
-    return str(val or "")
-
-
-def _row_message(row: Any) -> str:
-    return str(_get(row, "message", "") or "")
-
-
-def _row_created_at(row: Any) -> Optional[str]:
-    return _get(row, "created_at", None)
-
-
-def _row_key(row: Any) -> Tuple[str, str]:
-    """Unique key for (domain, check) grouping."""
-    return (_row_domain(row), _row_check(row))
-
 
 def _parse_check(tokens: Iterable[str]) -> Optional[str]:
     """Extract check name from tokens like 'check.http_basic'."""
@@ -215,13 +145,13 @@ async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         },
     )
 
-    # Fetch raw rows (DESC by created_at)
+    # Fetch all statuses when detecting transitions, including intervening recoveries.
     rows = list(
         storage.iter_history(
             owner_id=owner_id,
             domain=domain,
             check=check,
-            statuses=statuses,
+            statuses=None if only_changes else statuses,
             since=since,
             limit=max(limit * 5, limit + 50) if only_changes else limit,  # wider window for 'changes'
         )
@@ -235,27 +165,23 @@ async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # Post-process for 'changes' mode (keep only status transitions)
     if only_changes and rows:
         # Group by (domain, check) and scan ASC to detect changes
-        by_pair: dict[Tuple[str, str], List[Any]] = {}
+        by_pair: dict[Tuple[str, str], List[Row]] = {}
         for r in rows:
-            by_pair.setdefault(_row_key(r), []).append(r)
+            by_pair.setdefault((r["domain"], r["check"]), []).append(r)
 
-        selected: List[Any] = []
-        for _, grp in by_pair.items():
-            try:
-                grp_sorted = sorted(grp, key=lambda r: _row_created_at(r) or "")
-            except Exception:
-                grp_sorted = grp  # fallback
+        selected: List[Row] = []
+        for grp in by_pair.values():
             prev: Optional[str] = None
-            for r in grp_sorted:
-                st = _row_status(r)
+            for r in sorted(grp, key=lambda r: (r["created_at"] or "", r["id"])):
+                st = r["status"].upper()
                 if prev is not None and st != prev:
                     selected.append(r)
                 prev = st
 
-        try:
-            rows = sorted(selected, key=lambda r: _row_created_at(r) or "", reverse=True)[:limit]
-        except Exception:
-            rows = selected[:limit]
+        rows = sorted(
+            (r for r in selected if r["status"].upper() in statuses),
+            key=lambda r: (r["created_at"] or "", r["id"]), reverse=True,
+        )[:limit]
 
         log.debug(
             "history.changes.selected",
@@ -270,32 +196,14 @@ async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # Render lines
     lines: List[str] = []
     for r in rows[:limit]:
-        st = _row_status(r)
-        ts = _fmt_ts(_row_created_at(r))
-        dom = html.escape(_row_domain(r))
-        chk = html.escape(_row_check(r))
-        msg = html.escape(_strip_cached_suffix(_row_message(r)))
+        st = r["status"].upper()
+        ts = _fmt_ts(r["created_at"])
+        dom = html.escape((r["domain"] or ""))
+        chk = html.escape((r["check"] or ""))
+        msg = html.escape(_strip_cached_suffix((r["message"] or "")))
         lines.append(f"{_status_emoji(st)} {ts} <b>{dom}</b> — <code>{chk}</code> — <b>{st}</b> — {msg}")
 
     text = "\n".join(lines)
 
-    # Chunked send if necessary
-    if len(text) <= _MAX_CHARS:
-        await safe_reply_html(update.effective_message, text)
-        log.info("history.done", extra={"event": "history.done", "owner_id": owner_id, "rows": len(rows[:limit])})
-        return
-
-    start = 0
-    sent_chunks = 0
-    while start < len(text):
-        end = text.rfind("\n", start, start + _MAX_CHARS)
-        if end == -1 or end <= start:
-            end = min(len(text), start + _MAX_CHARS)
-        await safe_reply_html(update.effective_message, text[start:end])
-        sent_chunks += 1
-        start = end + 1
-
-    log.info(
-        "history.done",
-        extra={"event": "history.done", "owner_id": owner_id, "rows": len(rows[:limit]), "chunks": sent_chunks},
-    )
+    await safe_reply_html(update.effective_message, text)
+    log.info("history.done", extra={"event": "history.done", "owner_id": owner_id, "rows": len(rows[:limit])})

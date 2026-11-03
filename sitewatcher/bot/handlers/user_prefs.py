@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import ContextTypes
 
 from ... import storage
 from ..utils import requires_auth, safe_reply_html
@@ -68,14 +68,3 @@ async def cmd_start_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     await safe_reply_html(msg, "Alerts have been enabled. You will receive notifications here.")
-
-
-def register_handlers(app: Application) -> None:
-    """Register user-preferences commands on the application/router."""
-    app.add_handler(CommandHandler("start_alerts", cmd_start_alerts, block=False), group=0)
-    app.add_handler(CommandHandler("stop_alerts", cmd_stop_alerts, block=False), group=0)
-
-
-def register_user_prefs_handlers(app: Application) -> None:
-    """Backward-compatible alias expected by some routers."""
-    register_handlers(app)

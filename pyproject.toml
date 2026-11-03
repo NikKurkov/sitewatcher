@@ -1,7 +1,7 @@
 [project]
 name = "sitewatcher"
-version = "0.2.0"
-description = "Lightweight async website monitoring bot (Telegram)"
+version = "0.3.0"
+description = "Private website monitoring workspace with optional Telegram alerts"
 authors = [{ name = "Nikolay Kurkov", email = "nikkurkov@gmail.com" }]
 requires-python = ">=3.12"
 
@@ -11,11 +11,14 @@ dependencies = [
   "httpx[http2,socks]>=0.28.1,<0.29",
   "pydantic>=2.11.7,<3",
   "PyYAML>=6.0.2,<7",
-  "python-telegram-bot[job-queue]>=22.3,<23",
+  "python-telegram-bot[job-queue]>=22.4,<23",
   "icmplib>=3,<4; platform_system != 'Windows'",
   "python-dotenv>=1.1.1,<2",
   "dnspython>=2.7.0,<3",
   "tldextract>=5.3.0,<6",
+  "Django>=5.2.8,<5.3",
+  "django-axes>=8.3.1,<9",
+  "uvicorn>=0.35,<1",
 ]
 
 # Project metadata (helps on PyPI and tooling)
@@ -33,16 +36,10 @@ Issues = "https://github.com/NikKurkov/sitewatcher/issues"
 # Developer tools
 [project.optional-dependencies]
 rich = ["rich>=14,<16"]
-web = [
-  "fastapi>=0.115,<1",
-  "uvicorn>=0.30,<1",
-  "jinja2>=3.1,<4",
-  "python-multipart>=0.0.9,<1",
-  "itsdangerous>=2.2,<3",
-]
 dev = [
   "ruff>=0.16,<1",
   "pytest>=8,<10",
+  "pytest-django>=4.11,<5",
 ]
 
 [tool.setuptools.packages.find]
@@ -51,7 +48,8 @@ include = ["sitewatcher*"]
 
 [tool.setuptools.package-data]
 sitewatcher = ["data/deface_markers.txt", "data/config.yaml.example"]
-"sitewatcher.web" = ["templates/*.html", "static/*.css", "static/*.js"]
+
+"sitewatcher.webapp" = ["templates/sitewatcher/*.html", "templates/sitewatcher/partials/*.html", "static/sitewatcher/*", "locale/*/LC_MESSAGES/*.po", "locale/*/LC_MESSAGES/*.mo"]
 
 [tool.ruff]
 line-length = 100
@@ -62,6 +60,7 @@ ignore = []
 
 [tool.pytest.ini_options]
 addopts = "-q"
+DJANGO_SETTINGS_MODULE = "sitewatcher.webapp.settings"
 testpaths = ["tests"]
 
 [build-system]

@@ -5,9 +5,23 @@
 __pycache__
 .pytest_cache
 .ruff_cache
+*.scheduler.lock
+**/*.scheduler.lock
 *.db
 *.db-shm
 *.db-wal
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.sqlite
+**/*.sqlite-shm
+**/*.sqlite-wal
+**/*.yaml
+**/*.yml
+**/*.gz
+**/*.zip
+**/.env
+**/.env.*
 *.egg-info
 .env
 .env.*
@@ -15,3 +29,13 @@ build
 dist
 docs
 tests
+
+# Runtime credentials must never enter the build context.
+*.web-secret
+**/*.web-secret
+.web-secret-*
+**/.web-secret-*
+*.telegram-token
+**/*.telegram-token
+.telegram-token-*
+**/.telegram-token-*

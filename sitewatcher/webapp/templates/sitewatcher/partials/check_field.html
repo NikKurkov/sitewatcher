@@ -1,0 +1,12 @@
+{% load i18n %}
+<div class="field">
+    <label for="{{ field.name }}">{{ field.label }}</label>
+    <select id="{{ field.name }}" name="{{ field.name }}">
+        <option value="" {% if not field.value %}selected{% endif %}>{% blocktranslate with default=field.default %}Default ({{ default }}){% endblocktranslate %}</option>
+        <option value="on" {% if field.value == 'on' %}selected{% endif %}>{% translate 'On' %}</option>
+        <option value="off" {% if field.value == 'off' %}selected{% endif %}>{% translate 'Off' %}</option>
+    </select>
+    {% if field.help %}
+        <p class="field-help">{{ field.help }}</p>
+    {% endif %}
+</div>

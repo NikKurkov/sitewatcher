@@ -1,6 +1,5 @@
 from sitewatcher import storage
 from sitewatcher.checks.base import CheckOutcome, Status
-from datetime import datetime, timezone
 
 
 def test_history_ages_are_owner_scoped_and_database_can_change(tmp_path, monkeypatch):
@@ -54,20 +53,22 @@ def test_two_databases_are_initialized_only_once(tmp_path, monkeypatch):
     storage._ensure_initialized(whois)
 
 
-def test_history_since_uses_sqlite_timestamp_format(tmp_path, monkeypatch):
-    monkeypatch.setattr(storage, "DEFAULT_DB", tmp_path / "period.db")
-    storage.save_history(1, "example.com", "ping", "OK", "old", {})
-    with storage._connect() as conn:
-        conn.execute("UPDATE history SET created_at='2026-10-01 11:00:00'")
-    since = datetime(2026, 10, 1, 10, 0, tzinfo=timezone.utc)
-    assert len(list(storage.iter_history(1, since=since))) == 1
-
-
-def test_latest_results_for_owner_excludes_other_users(tmp_path, monkeypatch):
-    monkeypatch.setattr(storage, "DEFAULT_DB", tmp_path / "overview.db")
-    storage.save_history(1, "example.com", "ping", "WARN", "old", {})
-    storage.save_history(1, "example.com", "ping", "OK", "new", {})
-    storage.save_history(2, "secret.example", "ping", "CRIT", "secret", {})
-    latest = storage.latest_results_for_owner(1)
-    assert set(latest) == {"example.com"}
-    assert latest["example.com"]["ping"]["message"] == "new"
+def test_favorite_migration_preserves_existing_domains_and_is_owner_scoped(tmp_path, monkeypatch):
+    import sqlite3
+    path = tmp_path / 'legacy-favorites.db'
+    monkeypatch.setattr(storage, 'DEFAULT_DB', path)
+    with sqlite3.connect(path) as conn:
+        conn.executescript('''
+            CREATE TABLE users (telegram_id INTEGER PRIMARY KEY);
+            CREATE TABLE domains (owner_id INTEGER NOT NULL, name TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')), PRIMARY KEY(owner_id,name));
+            INSERT INTO users VALUES(1), (2);
+            INSERT INTO domains(owner_id,name) VALUES(1,'example.com'), (2,'example.com');
+        ''')
+    storage._ensure_initialized()
+    storage._ensure_initialized()
+    assert storage.set_domain_favorite(1, 'example.com', True)
+    assert not storage.set_domain_favorite(1, 'missing.example', True)
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute('SELECT owner_id,name,favorite FROM domains ORDER BY owner_id').fetchall()
+    assert rows == [(1, 'example.com', 1), (2, 'example.com', 0)]

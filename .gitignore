@@ -10,14 +10,20 @@ venv/
 sitewatcher/pyvenv.cfg
 
 # Secrets & local env
+*.telegram-token
+.telegram-token-*
+*.web-secret
+.web-secret-*
 .env
 .env.*.local
 sitewatcher/data/config.yaml
 sitewatcher/data/*.yaml
 
 # Databases & local caches
+*.scheduler.lock
 *.db
 *.db-shm
+*.db-wal
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm

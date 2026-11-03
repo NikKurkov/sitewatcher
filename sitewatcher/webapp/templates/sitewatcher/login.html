@@ -1,0 +1,19 @@
+{% extends 'sitewatcher/base.html' %}
+{% load i18n %}
+{% block title %}{% translate 'Sign in · SiteWatcher' %}{% endblock %}
+{% block main_class %}auth-page{% endblock %}
+{% block content %}
+    <section class="panel auth-panel">
+        <div class="auth-mark" aria-hidden="true">◉</div>
+        <p class="eyebrow">{% translate 'Your monitoring workspace' %}</p>
+        <h1>{% translate 'Welcome back' %}</h1>
+        <p class="subtitle">{% translate 'Sign in to SiteWatcher.' %}</p>
+        <form method="post">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <input type="hidden" name="next" value="{{ next }}">
+            <button class="primary" type="submit">{% translate 'Sign in' %}</button>
+        </form>
+        <p class="field-help recovery">{% translate 'Forgot your password? Contact the person who manages this installation.' %}</p>
+    </section>
+{% endblock %}

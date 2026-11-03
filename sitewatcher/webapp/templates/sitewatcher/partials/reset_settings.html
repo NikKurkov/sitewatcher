@@ -1,0 +1,11 @@
+{% load i18n %}
+<details class="panel reset-settings">
+    <summary>{% translate 'Reset domain settings' %}</summary>
+    <p>{% translate 'Remove every override for this domain, including its proxy. All settings will use workspace defaults. Saved check history is kept.' %}</p>
+    <form method="post" action="/domains/reset">
+        {% csrf_token %}
+        <input type="hidden" name="domain" value="{{ domain }}">
+        <input type="hidden" name="revision" value="{{ reset_revision }}">
+        <button type="submit">{% translate 'Reset all overrides' %}</button>
+    </form>
+</details>

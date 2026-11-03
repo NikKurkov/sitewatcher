@@ -9,6 +9,7 @@ import httpx
 
 from .base import BaseCheck, CheckOutcome, Status
 from ..utils.http_retry import get_with_retries
+from ..utils.http_body import BodyReadError, DEFAULT_MAX_RESPONSE_BYTES
 
 # Module-level logger for structured events
 log = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ class DefaceCheck(BaseCheck):
         client: httpx.AsyncClient,
         timeout_s: int = 5,
         markers: Optional[List[str]] = None,
+        max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
     ) -> None:
         """
         Args:
@@ -36,6 +38,7 @@ class DefaceCheck(BaseCheck):
         """
         super().__init__(domain)
         self.client = client
+        self.max_response_bytes = max_response_bytes
         self.timeout_s = int(timeout_s)
         # Normalize markers: keep a lowercased list for O(n) substring matches
         provided = markers if markers else self._default_markers()
@@ -70,6 +73,7 @@ class DefaceCheck(BaseCheck):
                     self.client,
                     url,
                     timeout_s=self.timeout_s,
+                    max_response_bytes=self.max_response_bytes,
                     retries=2,
                     backoff_s=0.25,
                     follow_redirects=True,
@@ -123,7 +127,14 @@ class DefaceCheck(BaseCheck):
                             },
                         )
 
-                # No markers found on this scheme: return OK immediately
+                if not 200 <= code < 300:
+                    return CheckOutcome(
+                        self.name, Status.UNKNOWN, f"unable to inspect main page: HTTP {code}",
+                        {"url": str(r.url), "status_code": code, "redirects": redirects,
+                         "latency_ms": elapsed_ms, "markers_checked": len(self.markers)},
+                    )
+
+                # No markers found in a successful response.
                 return CheckOutcome(
                     self.name,
                     Status.OK,
@@ -137,6 +148,11 @@ class DefaceCheck(BaseCheck):
                     },
                 )
 
+            except BodyReadError as e:
+                return CheckOutcome(
+                    self.name, Status.UNKNOWN, str(e),
+                    {"status_code": e.status_code, "max_response_bytes": self.max_response_bytes},
+                )
             except httpx.RequestError as e:
                 # Try next scheme (HTTP) if HTTPS request failed to connect.
                 log.info(

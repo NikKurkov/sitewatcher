@@ -9,6 +9,7 @@ import httpx
 
 from .base import BaseCheck, CheckOutcome, Status
 from ..utils.http_retry import get_with_retries
+from ..utils.http_body import BodyReadError, DEFAULT_MAX_RESPONSE_BYTES
 
 # Module-level logger for structured events
 log = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ class HttpBasicCheck(BaseCheck):
       2) If 3xx with Location, follow redirects once (letting httpx handle the full chain)
          to obtain final URL/code and add the extra time.
       3) Status:
-         - CRIT: initial HTTP >= 400, or initial latency >= latency_crit_ms, or request error.
+         - CRIT: initial/final HTTP >= 400, critical initial latency, or request error.
          - WARN: initial HTTP is 3xx, or initial latency >= latency_warn_ms.
          - OK: otherwise.
     """
@@ -37,9 +38,11 @@ class HttpBasicCheck(BaseCheck):
         latency_warn_ms: int = 1000,
         latency_crit_ms: int = 3000,
         proxy: Optional[str] = None,
+        max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
     ) -> None:
         super().__init__(domain)
         self.client = client
+        self.max_response_bytes = max_response_bytes
         self.timeout_s = timeout_s
         self.latency_warn_ms = latency_warn_ms
         self.latency_crit_ms = latency_crit_ms
@@ -73,10 +76,17 @@ class HttpBasicCheck(BaseCheck):
                 client,
                 origin_url,
                 timeout_s=self.timeout_s,
+                max_response_bytes=self.max_response_bytes,
                 retries=2,
                 backoff_s=0.3,
                 follow_redirects=False,
                 headers={"User-Agent": "sitewatcher/0.2 (+https://github.com/NikKurkov/sitewatcher)"},
+            )
+        except BodyReadError as e:
+            return CheckOutcome(
+                self.name, Status.CRIT if e.status_code >= 400 else Status.UNKNOWN, str(e),
+                {"status_code": e.status_code, "max_response_bytes": self.max_response_bytes,
+                 "availability": "unavailable" if e.status_code >= 400 else "unknown"},
             )
         except httpx.RequestError as e:
             elapsed_ms = int((time.perf_counter() - start1) * 1000)
@@ -95,7 +105,8 @@ class HttpBasicCheck(BaseCheck):
                 check=self.name,
                 status=Status.CRIT,
                 message=f"request error: {e.__class__.__name__}",
-                metrics={"latency_ms_initial": elapsed_ms, "url": origin_url},
+                metrics={"latency_ms_initial": elapsed_ms, "url": origin_url,
+                         "availability": "unavailable"},
             )
 
         elapsed1_ms = int((time.perf_counter() - start1) * 1000)
@@ -117,6 +128,7 @@ class HttpBasicCheck(BaseCheck):
         final_url = str(r1.url)
         final_code = code1
         redirects = 0
+        redirect_error: Optional[str] = None
         total_ms = elapsed1_ms
 
         # --- 2) Follow redirects (if any) to report the final target & total latency ---
@@ -131,6 +143,8 @@ class HttpBasicCheck(BaseCheck):
                     client,
                     target,
                     timeout_s=self.timeout_s,
+                    max_response_bytes=self.max_response_bytes,
+                    prior_body_bytes=r1.extensions.get("body_bytes", (0, 0)),
                     retries=2,
                     backoff_s=0.3,
                     follow_redirects=True,
@@ -155,7 +169,14 @@ class HttpBasicCheck(BaseCheck):
                         "latency_ms_initial": elapsed1_ms,
                     },
                 )
+            except BodyReadError as e:
+                return CheckOutcome(
+                    self.name, Status.CRIT if e.status_code >= 400 else Status.UNKNOWN, str(e),
+                    {"status_code": e.status_code, "max_response_bytes": self.max_response_bytes,
+                     "availability": "unavailable" if e.status_code >= 400 else "unknown"},
+                )
             except httpx.RequestError as e:
+                redirect_error = e.__class__.__name__
                 # Keep initial hop data; log that following redirects failed
                 log.warning(
                     "http_basic.redirect_follow_error",
@@ -169,6 +190,8 @@ class HttpBasicCheck(BaseCheck):
 
         # --- 3) Derive status from initial code and initial latency thresholds ---
         status = self._status_from_initial(code1, elapsed1_ms)
+        if final_code >= 400 or redirect_error:
+            status = Status.CRIT
 
         # --- 4) Compose a compact message & metrics ---
         if redirects:
@@ -178,6 +201,9 @@ class HttpBasicCheck(BaseCheck):
             )
         else:
             msg = f"HTTP {code1}, latency {elapsed1_ms} ms"
+
+        if redirect_error:
+            msg += f"; redirect request error: {redirect_error}"
 
         # Final event (compact, with derived status)
         log.info(
@@ -207,19 +233,23 @@ class HttpBasicCheck(BaseCheck):
                 "final_code": final_code,
                 "latency_ms_total": total_ms,
                 "origin_url": origin_url,
+                "redirect_error": redirect_error,
+                "availability": (
+                    "unavailable" if final_code >= 400 or redirect_error else "available"
+                ),
+                **({"response_latency_ms": total_ms}
+                   if final_code < 400 and not redirect_error else {}),
             },
         )
 
     # ---- helpers ----
     def _status_from_initial(self, code1: int, elapsed1_ms: int) -> Status:
         """Map the first response code and latency to a status."""
-        if code1 >= 400:
+        if code1 >= 400 or elapsed1_ms >= self.latency_crit_ms:
             return Status.CRIT
         if 300 <= code1 < 400:
             return Status.WARN
         # 2xx:
-        if elapsed1_ms >= self.latency_crit_ms:
-            return Status.CRIT
         if elapsed1_ms >= self.latency_warn_ms:
             return Status.WARN
         return Status.OK

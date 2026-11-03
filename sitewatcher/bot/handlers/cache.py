@@ -1,12 +1,13 @@
 # sitewatcher/bot/handlers/cache.py
 from __future__ import annotations
 
+import html
 import logging
 import sqlite3
 from pathlib import Path
 
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import ContextTypes
 
 from ... import storage
 from ...config import AppConfig
@@ -31,7 +32,9 @@ async def cmd_clear_cache(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # ---- WHOIS cache (in storage) ----
     try:
-        whois_deleted = storage.clear_whois_cache()
+        whois_deleted = storage.clear_whois_cache(
+            Path(cfg.whois.db_path) if cfg.whois.db_path else storage.DEFAULT_DB
+        )
     except Exception:
         whois_deleted = -1
         log.exception(
@@ -40,9 +43,12 @@ async def cmd_clear_cache(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
 
     # ---- RKN index (SQLite file) ----
-    rkn_db_path = rkn_index_path(cfg.rkn)
+    try:
+        rkn_db_path = rkn_index_path(cfg.rkn)
+    except (OSError, ValueError):
+        rkn_db_path = None
 
-    existed_before = rkn_db_path.exists()
+    existed_before = rkn_db_path is not None and rkn_db_path.exists()
     rkn_removed = False
     rkn_fallback_clear = False
     rkn_error: str | None = None
@@ -62,8 +68,8 @@ async def cmd_clear_cache(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     except Exception:
                         # Non-fatal; keep going
                         pass
-        except Exception as e:
-            rkn_error = f"unlink failed: {e}"
+        except Exception:
+            rkn_error = "index could not be removed"
             # Fallback: clear tables in-place if the file is locked by another process
             try:
                 with sqlite3.connect(rkn_db_path) as conn:
@@ -71,8 +77,8 @@ async def cmd_clear_cache(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     conn.execute("DELETE FROM ips")
                     conn.execute("DELETE FROM meta")
                 rkn_fallback_clear = True
-            except Exception as e2:
-                rkn_error += f"; fallback failed: {e2}"
+            except Exception:
+                rkn_error += "; fallback clear failed"
                 log.exception(
                     "cache.clear.rkn.error",
                     extra={"event": "cache.clear.rkn.error", "owner_id": owner_id},
@@ -83,7 +89,9 @@ async def cmd_clear_cache(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     parts.append(
         f"whois: {whois_deleted} row(s) deleted" if whois_deleted >= 0 else "whois: error"
     )
-    if existed_before:
+    if rkn_db_path is None:
+        parts.append("rkn index path rejected; index kept")
+    elif existed_before:
         if rkn_removed:
             msg_rkn = f"rkn index removed ({rkn_db_path.name})"
             if removed_extra:
@@ -113,16 +121,4 @@ async def cmd_clear_cache(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 
     if msg:
-        await safe_reply_html(msg, "✅ Cache cleared: " + summary)
-
-
-# ------------------------------ registry --------------------------------
-
-def register_handlers(app: Application) -> None:
-    """Register cache-related handlers."""
-    app.add_handler(CommandHandler("clear_cache", cmd_clear_cache, block=False), group=0)
-
-
-def register_cache_handlers(app: Application) -> None:
-    """Backward-compatible alias expected by router.py (if used)."""
-    register_handlers(app)
+        await safe_reply_html(msg, "Cache maintenance: " + html.escape(summary))

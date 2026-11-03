@@ -4,10 +4,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import json
+import sqlite3
 import uuid
-import getpass
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -16,17 +17,27 @@ load_dotenv(Path.cwd() / ".env")
 
 from . import storage
 from .bot import run_bot
-from .config import AppConfig, ChecksModel, load_config, validate_config
+from .config import AppConfig, ChecksModel, load_config, validate_config, validation_message
 from .dispatcher import Dispatcher
 from .logging_setup import setup_logging
 from .bot.validators import DOMAIN_RE, normalize_domain
+from .utils.results import (
+    overall_from_results as _overall_from,
+    status_text as _status_str,
+    status_emoji as _status_emoji,
+)
 
 # ---------- CLI parsing ----------
 
 def _parse_args() -> argparse.Namespace:
-    """Parse CLI arguments for bot/one-shot checks."""
+    """Parse monitoring, diagnostics and local dashboard arguments."""
     p = argparse.ArgumentParser(description="sitewatcher CLI")
-    p.add_argument("mode", choices=["bot", "check_all", "check_domain", "scan", "hash-password"], help="Run mode")
+    p.add_argument("mode", choices=["bot", "worker", "check_all", "check_domain", "scan", "doctor", "web", "setup", "password"], help="Run mode")
+    p.add_argument("--json", action="store_true", help="Print doctor diagnostics as JSON")
+    p.add_argument("--no-scheduler", action="store_true",
+                   help="Bot commands only; use alongside a separate worker")
+    p.add_argument("--read-only", action="store_true", help="Disable owner mutations; sign-in is still required")
+    p.add_argument("--port", type=int, default=8080, help="Web port (loopback by default)")
     p.add_argument("name", nargs="?", help="Domain for 'check_domain' or 'scan'")
     p.add_argument("--config", default=None, help="Path to config.yaml")
     p.add_argument("--force", action="store_true", help="Ignore cache and run all checks live")
@@ -39,7 +50,7 @@ def _parse_args() -> argparse.Namespace:
         "--owner",
         type=int,
         default=None,
-        help="Telegram user id to act on (required for check_domain; optional for check_all).",
+        help="Owner ID (required for check_domain; optional mapping assertion for web).",
     )
     return p.parse_args()
 
@@ -49,33 +60,6 @@ def _parse_args() -> argparse.Namespace:
 def _new_run_id() -> str:
     """Create a short correlation id for this CLI invocation."""
     return uuid.uuid4().hex
-
-
-def _status_str(x: object) -> str:
-    """Get human string from Status enum or string."""
-    return getattr(x, "value", str(x))
-
-
-def _status_emoji(s: str) -> str:
-    """Simple traffic light for CLI output."""
-    s = (s or "").upper()
-    return {"CRIT": "🔴", "WARN": "🟡", "OK": "🟢", "UNKNOWN": "⚪"}.get(s, "⚪")
-
-
-def _overall_from(results: Iterable[object]) -> str:
-    """Compute overall status from individual results."""
-    def weight(st: str) -> int:
-        if st == "CRIT":
-            return 2
-        if st in ("WARN", "UNKNOWN"):
-            return 1
-        return 0
-
-    worst = -1
-    for r in results:
-        st = _status_str(getattr(r, "status", "UNKNOWN")).upper()
-        worst = max(worst, weight(st))
-    return {2: "CRIT", 1: "WARN", 0: "OK", -1: "UNKNOWN"}[worst]
 
 
 async def _run_and_persist(
@@ -96,7 +80,7 @@ async def _run_and_persist(
             use_cache=use_cache,
             run_id=run_id,
         )
-    storage.save_histories(owner_id, domain, results)
+    storage.save_histories(owner_id, domain, results, source="manual")
     return results
 
 
@@ -105,6 +89,8 @@ def _parse_only(arg: Optional[str]) -> Optional[list[str]]:
     if not arg:
         return None
     checks = [x.strip() for x in arg.split(",") if x.strip()]
+    checks = [name for check in checks for name in (
+        ('rkn_domain', 'rkn_ip') if check == 'rkn_block' else (check,))]
     unknown = set(checks) - ChecksModel.model_fields.keys()
     if unknown:
         raise SystemExit(f"Unknown check: {', '.join(sorted(unknown))}")
@@ -112,6 +98,19 @@ def _parse_only(arg: Optional[str]) -> Optional[list[str]]:
 
 
 # ---------- Commands ----------
+
+async def _cmd_worker(cfg: AppConfig) -> None:
+    """Turn service-manager termination into ordinary async resource cleanup."""
+    import signal
+    from .worker import run_worker
+
+    loop = asyncio.get_running_loop()
+    loop.add_signal_handler(signal.SIGTERM, asyncio.current_task().cancel)
+    try:
+        await run_worker(cfg)
+    finally:
+        loop.remove_signal_handler(signal.SIGTERM)
+
 
 async def _cmd_check_all(
     cfg: AppConfig,
@@ -194,30 +193,59 @@ async def _cmd_check_one(
 def main() -> None:
     """Entrypoint for `python -m sitewatcher.main`."""
     args = _parse_args()
-    if args.mode == "hash-password":
-        from .web.auth import hash_password
+    if args.no_scheduler and args.mode != "bot":
+        raise SystemExit("--no-scheduler is supported by bot")
+    if args.read_only and args.mode != "web":
+        raise SystemExit("--read-only is supported by web")
+    if args.mode == "doctor":
+        from .diagnostics import diagnose, format_diagnostics
 
-        password = getpass.getpass("Web password: ")
-        if len(password) < 12 or password != getpass.getpass("Repeat web password: "):
-            raise SystemExit("Password must be at least 12 characters and both entries must match")
-        print(f"WEB_PASSWORD_HASH={hash_password(password)}")
-        return
+        report = diagnose(args.config)
+        print(json.dumps(report, ensure_ascii=False) if args.json else format_diagnostics(report))
+        raise SystemExit(0 if report["ok"] else 1)
+    if args.json:
+        raise SystemExit("--json is supported by doctor")
     if args.name:
         args.name = normalize_domain(args.name)
         if not args.name or not DOMAIN_RE.fullmatch(args.name):
             raise SystemExit("Invalid domain")
-    cfg = load_config(args.config)
-
-    # Initialize logging ASAP so validation and later steps are captured
-    setup_logging(getattr(cfg, "logging", None))
-
-    # validate config early (fail-fast with clear summary)
     try:
+        cfg = load_config(args.config)
         validate_config(cfg)
-    except ValueError as e:
-        # Use logging to emit the failure as well
-        logging.getLogger("sitewatcher.main").error("config.invalid: %s", e, extra={"event": "config.invalid"})
-        raise SystemExit(str(e)) from e
+    except (OSError, ValueError) as error:
+        raise SystemExit(validation_message(error)) from None
+    if args.mode in {"setup", "password"}:
+        from django.db import DatabaseError
+        from .webapp.bootstrap import configure_web, migrate_web_database
+        try:
+            configure_web(cfg)
+            migrate_web_database()
+            from .webapp.accounts import reset_password, setup_owner
+            if args.mode == "setup":
+                setup_owner(owner_id=args.owner)
+            else:
+                if args.owner is not None:
+                    raise ValueError("password does not accept --owner")
+                reset_password()
+        except (DatabaseError, OSError, sqlite3.Error):
+            raise SystemExit("Cannot update local account; check database permissions and setup") from None
+        except (ValueError, EOFError) as error:
+            raise SystemExit(str(error) or "Account input was cancelled") from None
+        return
+    if args.mode == "web":
+        from .web import run_web
+        from django.db import DatabaseError
+
+        try:
+            run_web(cfg, args.owner, port=args.port, read_only=args.read_only)
+        except ValueError as error:
+            if str(error) == "Web owner does not match a configured workspace; run sitewatcher setup":
+                raise SystemExit(str(error)) from None
+            raise SystemExit("Cannot start local dashboard; check database permissions and --port") from None
+        except (DatabaseError, OSError, sqlite3.Error):
+            raise SystemExit("Cannot start local dashboard; check database permissions and --port") from None
+        return
+    setup_logging(cfg.logging)
 
     log = logging.getLogger("sitewatcher.main")
     log.info(
@@ -235,8 +263,17 @@ def main() -> None:
     run_id = _new_run_id()
 
     if args.mode == "bot":
+        if args.no_scheduler:
+            cfg.scheduler.enabled = False
         log.info("cli.bot.start", extra={"event": "cli.bot.start", "run_id": run_id})
         run_bot(cfg)
+        return
+
+    if args.mode == "worker":
+        try:
+            asyncio.run(_cmd_worker(cfg))
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            pass
         return
 
     if args.mode == "check_all":

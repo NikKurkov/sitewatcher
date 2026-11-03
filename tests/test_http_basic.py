@@ -21,18 +21,12 @@ def test_global_proxy_can_create_dispatcher_client():
 def test_domain_proxy_can_run_http_check(monkeypatch):
     created = []
 
-    class ProxyClient:
+    class ProxyClient(httpx.AsyncClient):
         def __init__(self, *, proxy, **kwargs):
             created.append(proxy)
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_):
-            pass
-
-        async def get(self, url, **kwargs):
-            return httpx.Response(200, request=httpx.Request("GET", url))
+            super().__init__(transport=httpx.MockTransport(
+                lambda request: httpx.Response(200),
+            ), **kwargs)
 
     monkeypatch.setattr("sitewatcher.checks.http_basic.httpx.AsyncClient", ProxyClient)
     check = HttpBasicCheck("example.com", client=None, proxy="http://127.0.0.1:12345")

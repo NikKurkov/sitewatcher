@@ -1,0 +1,21 @@
+{% extends 'sitewatcher/base.html' %}
+{% load i18n %}
+{% block title %}{% translate 'Recover settings · SiteWatcher' %}{% endblock %}
+{% block main_class %}form-page{% endblock %}
+{% block content %}
+    <a class="back-link" href="/domains/history?domain={{ domain|urlencode }}">{% translate '← Domain history' %}</a>
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">{% translate 'Monitoring' %}</p>
+            <h1>{% translate 'Recover domain settings' %}</h1>
+            <p class="subtitle domain-title">{{ domain }}</p>
+        </div>
+    </div>
+    <div class="notice error-notice" role="alert">
+        <strong>{% translate 'Invalid domain settings' %}</strong>
+        <p>{% translate 'Saved settings cannot be used. They have been kept unchanged. Reset the overrides to use workspace defaults, then edit the domain again.' %}</p>
+    </div>
+    {% if not read_only %}
+        {% include 'sitewatcher/partials/reset_settings.html' %}
+    {% endif %}
+{% endblock %}

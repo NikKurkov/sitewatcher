@@ -10,6 +10,10 @@ import os
 import re
 import time
 from typing import Any, Awaitable, Callable, Optional, Set, TypeVar
+from datetime import timedelta
+
+from .. import storage
+from .html import split_html
 
 from telegram.error import NetworkError, RetryAfter, TimedOut, BadRequest
 from telegram.ext import ContextTypes
@@ -69,14 +73,6 @@ def _format_preview_dict(d: Any) -> str:
         return repr(d)
 
 
-def _strip_cached_suffix(msg: str) -> str:
-    """
-    Remove trailing '[cached Xm]' markers from a message.
-    Used before persisting to storage to keep messages clean.
-    """
-    return re.sub(r"(?:\s*\[cached\s+\d+m\])+$", "", msg or "", flags=re.I)
-
-
 # -----------------------------------------------------------------------------
 # Access control and busy-guard
 # -----------------------------------------------------------------------------
@@ -89,15 +85,18 @@ def _parse_allowed_user_ids() -> Set[int]:
     raw = os.getenv("TELEGRAM_ALLOWED_USER_IDS", "").strip()
     if not raw:
         return set()
-    out: Set[int] = set()
-    for part in re.split(r"[,\s]+", raw):
-        if not part:
-            continue
-        try:
-            out.add(int(part))
-        except Exception:
-            continue
-    return out
+    parts = [part for part in re.split(r"[,\s]+", raw) if part]
+    error = "TELEGRAM_ALLOWED_USER_IDS must contain positive numeric user IDs"
+    if not parts or any(not re.fullmatch(r"[0-9]+", part) for part in parts):
+        raise ValueError(error)
+    try:
+        allowed = {int(part) for part in parts}
+    except ValueError:
+        raise ValueError(error) from None
+    if any(user_id <= 0 for user_id in allowed):
+        raise ValueError(error)
+    return allowed
+
 
 
 def _parse_command_from_update(update) -> str:
@@ -135,6 +134,10 @@ def requires_auth(
       - Emits structured logs for denials and busy rejections.
     """
     def _decorator(func: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
+        # Router registration must preserve a handler's explicit busy opt-out.
+        if getattr(func, "_requires_auth", False):
+            return func
+
         @functools.wraps(func)
         async def wrapper(update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
             user = getattr(update, "effective_user", None)
@@ -154,6 +157,14 @@ def requires_auth(
                 if msg:
                     await safe_reply_html(msg, "You are not allowed to use this bot.")
                 return
+
+            storage.ensure_user(
+                user_id,
+                username=getattr(user, "username", None),
+                first_name=getattr(user, "first_name", None),
+                last_name=getattr(user, "last_name", None),
+                alert_chat_id=getattr(getattr(update, "effective_chat", None), "id", None),
+            )
 
             # Busy-guard
             if not allow_while_busy:
@@ -198,6 +209,7 @@ def requires_auth(
                         # Do not fail the handler because of cleanup
                         pass
 
+        wrapper._requires_auth = True
         return wrapper
 
     # Support:
@@ -219,36 +231,33 @@ async def safe_reply_html(
     retries: int = 3,
 ) -> None:
     """Send HTML message with small retry/backoff. Avoids retrying on BadRequest (non-transient)."""
-    delay = 1.0
-    for attempt in range(1, retries + 1):
-        try:
-            await message.reply_html(text, disable_web_page_preview=disable_web_page_preview)
-            if attempt > 1:
-                log.debug("reply_html.ok_after_retry", extra={"event": "reply_html.ok", "attempt": attempt})
+    for chunk in split_html(text):
+        delay = 1.0
+        for attempt in range(1, retries + 1):
+            try:
+                await message.reply_html(chunk, disable_web_page_preview=disable_web_page_preview)
+                break
+            except RetryAfter as e:
+                retry_after = e.retry_after
+                if isinstance(retry_after, timedelta):
+                    retry_after = retry_after.total_seconds()
+                delay = max(delay, float(retry_after))
+            except BadRequest as e:
+                # BadRequest inherits NetworkError, but retrying invalid HTML cannot help.
+                log.warning("reply_html.bad_request", extra={"event": "reply_html.bad_request",
+                                                            "error": str(e)})
+                return
+            except (TimedOut, NetworkError):
+                delay = max(delay, float(attempt))
+            except Exception as e:
+                log.warning("reply_html.unexpected", extra={"event": "reply_html.unexpected",
+                                                           "etype": e.__class__.__name__})
+                return
+            if attempt < retries:
+                await asyncio.sleep(delay)
+        else:
+            log.error("reply_html.failed", extra={"event": "reply_html.failed", "retries": retries})
             return
-        except RetryAfter as e:
-            delay = max(delay, float(getattr(e, "retry_after", delay)))
-            log.debug("reply_html.retry_after", extra={"event": "reply_html.retry_after", "attempt": attempt, "delay_s": delay})
-        except (TimedOut, NetworkError) as e:
-            delay = max(delay, float(attempt))
-            log.debug("reply_html.net_retry", extra={"event": "reply_html.net_retry", "attempt": attempt, "delay_s": delay, "etype": e.__class__.__name__})
-        except BadRequest as e:
-            # Non-retriable: invalid HTML/entities, message too long, etc.
-            log.warning("reply_html.bad_request", extra={"event": "reply_html.bad_request", "error": str(e)})
-            return
-        except Exception as e:
-            # Unknown error: don't spin retries indefinitely
-            log.warning("reply_html.unexpected", extra={"event": "reply_html.unexpected", "etype": e.__class__.__name__, "attempt": attempt})
-            return
-
-        try:
-            await asyncio.sleep(delay)
-        except Exception:
-            # Ignore sleep interruptions
-            pass
-
-    # All retries exhausted
-    log.error("reply_html.failed", extra={"event": "reply_html.failed", "retries": retries})
 
 
 # -----------------------------------------------------------------------------

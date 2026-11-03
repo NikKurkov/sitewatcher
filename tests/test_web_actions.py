@@ -1,198 +1,269 @@
-from __future__ import annotations
-
-import re
+import sqlite3
 
 import pytest
-from fastapi.testclient import TestClient
 
-from sitewatcher import storage
-from sitewatcher.checks.base import CheckOutcome, Status
-from sitewatcher.web.auth import WebSettings, hash_password
-from sitewatcher.web.app import create_app
+from sitewatcher import storage, web_actions
+from sitewatcher.config import AppConfig, resolve_settings
 
 
-@pytest.fixture
-def panel(tmp_path, monkeypatch):
-    monkeypatch.setattr(storage, "DEFAULT_DB", tmp_path / "sitewatcher.db")
-    storage._INITIALIZED_PATHS.clear()
-    settings = WebSettings(101, hash_password("correct horse battery staple"), "s" * 64)
-    with TestClient(create_app(settings)) as client:
-        yield client, settings
+def edit(cfg, owner_id, form):
+    revision = web_actions.settings_context(cfg, owner_id, form['domain'])['revision']
+    return web_actions.save_domain(cfg, owner_id, {**form, 'revision': revision})
 
 
-def csrf(html: str) -> str:
-    return re.search(r'name="csrf" value="([^"]+)"', html).group(1)
+OWNER = 11
+DOMAIN = 'example.com'
 
 
-def login(client: TestClient) -> str:
-    token = csrf(client.get("/login").text)
-    response = client.post("/login", data={"password": "correct horse battery staple", "csrf": token})
-    assert response.status_code == 200
-    return csrf(response.text)
+def test_new_context_and_create_normalizes_full_form():
+    cfg = AppConfig()
+    context = web_actions.settings_context(cfg, OWNER)
+    assert context['domain'] == ''
+    assert context['values']['proxy'] == ''
+    assert context['values']['check.ping'] == ''
+    domain = web_actions.save_domain(cfg, OWNER, {
+        'domain': 'HTTPS://Example.COM/path', 'interval_minutes': '0',
+        'keywords': '[]', 'ports': '[80, {"port": 443}]', 'check.ping': 'off',
+        'tls_warn_days': '0',
+    }, create=True)
+    assert domain == DOMAIN
+    override = storage.get_domain_override(OWNER, DOMAIN)
+    assert override == {
+        'interval_minutes': 0, 'keywords': [], 'ports': [80, {'port': 443}],
+        'checks': {'ping': False}, 'tls_warn_days': 0,
+    }
+    context = web_actions.settings_context(cfg, OWNER, DOMAIN)
+    assert context['values']['interval_minutes'] == '0'
+    assert context['values']['ports'] == '80, 443'
+    assert context['values']['check.ping'] == 'off'
 
 
-def test_private_pages_and_owner_isolation(panel):
-    client, _ = panel
-    storage.add_domain(101, "mine.example")
-    storage.add_domain(202, "secret.example")
-    assert client.get("/domains", follow_redirects=False).status_code == 303
-    login(client)
-    page = client.get("/domains").text
-    assert "mine.example" in page
-    assert "secret.example" not in page
-    assert client.get("/domains/secret.example").status_code == 404
+def test_duplicate_preserves_existing_settings_and_invalid_create_writes_nothing():
+    cfg = AppConfig()
+    storage.add_domain(OWNER, DOMAIN)
+    storage.set_domain_override(OWNER, DOMAIN, {'interval_minutes': 9})
+    with pytest.raises(ValueError):
+        web_actions.save_domain(cfg, OWNER, {'domain': DOMAIN}, create=True)
+    assert storage.get_domain_override(OWNER, DOMAIN) == {'interval_minutes': 9}
+    with pytest.raises(ValueError):
+        web_actions.save_domain(cfg, OWNER, {'domain': 'new.example', 'http_timeout_s': '0'},
+                                create=True)
+    assert not storage.domain_exists(OWNER, 'new.example')
 
 
-def test_csrf_and_domain_actions(panel):
-    client, _ = panel
-    token = login(client)
-    assert client.post("/domains", data={"name": "example.com"}).status_code == 403
-    assert client.post("/domains", data={"name": "bad host", "csrf": token}).status_code == 400
-    assert client.post("/domains", data={"name": "example.com", "csrf": token}).status_code == 200
-    assert storage.domain_exists(101, "example.com")
-    assert client.post("/domains/example.com/delete", data={"csrf": "bad"}).status_code == 403
-    assert client.post("/domains/example.com/delete", data={"csrf": token}).status_code == 200
-    assert not storage.domain_exists(101, "example.com")
-
-
-def test_manual_run_persists_only_owned_domain(panel, monkeypatch):
-    client, _ = panel
-    token = login(client)
-    storage.add_domain(101, "example.com")
-
-    class FakeDispatcher:
-        def __init__(self, config):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def run_for(self, owner_id, domain, **kwargs):
-            assert (owner_id, domain) == (101, "example.com")
-            return [CheckOutcome("http_basic", Status.OK, "reachable", {"latency_ms": 18})]
-
-    monkeypatch.setattr("sitewatcher.web.app.Dispatcher", FakeDispatcher)
-    assert client.post("/domains/other.example/check", data={"csrf": token}).status_code == 404
-    response = client.post("/domains/example.com/check", data={"csrf": token})
-    assert response.status_code == 200
-    assert storage.last_results(101, "example.com")[0]["check_name"] == "http_basic"
-
-
-def test_settings_and_export(panel):
-    client, _ = panel
-    token = login(client)
-    storage.add_domain(101, "example.com")
-    response = client.post(
-        "/domains/example.com/settings",
-        data={"csrf": token, "checks.http_basic": "on", "interval_minutes": "15", "keywords": "hello, world"},
-    )
-    assert response.status_code == 200
-    override = storage.get_domain_override(101, "example.com")
-    assert override["interval_minutes"] == 15
-    assert override["keywords"] == ["hello", "world"]
-    assert client.get("/export").headers["content-type"].startswith("text/csv")
-    assert "example.com" in client.get("/export").text
-
-
-def test_settings_preserve_inherited_values_and_rich_port_targets(panel):
-    client, _ = panel
-    token = login(client)
-    storage.add_domain(101, "example.com")
-    storage.set_domain_override(101, "example.com", {
-        "ports": [{"port": 443, "host": "special.example", "tls": True}],
+def test_edit_replaces_fields_and_preserves_proxy_until_explicit_change():
+    cfg = AppConfig.model_validate({'defaults': {'keywords': ['inherited']}})
+    storage.add_domain(OWNER, DOMAIN)
+    secret = 'http://user:private-password@proxy.example:8080'
+    storage.set_domain_override(OWNER, DOMAIN, {
+        'proxy': secret, 'interval_minutes': 0, 'checks': {'ping': False},
     })
-    response = client.post("/domains/example.com/settings", data={
-        "csrf": token, "checks.http_basic": "on", "latency_warn_ms": "500",
-        "ports": "443", "keywords": "", "proxy": "",
-    })
-    assert response.status_code == 200
-    override = storage.get_domain_override(101, "example.com")
-    assert override["ports"] == [{"port": 443, "host": "special.example", "tls": True}]
-    assert "keywords" not in override
-    assert "proxy" not in override
-
-    detail = client.get("/domains/example.com").text
-    assert "special.example" in detail
-    response = client.post("/domains/example.com/settings", data={
-        "csrf": token, "checks.http_basic": "on",
-        "ports": '[{"port":443,"tls":true,"host":"other.example"}]',
-    })
-    assert response.status_code == 200
-    assert storage.get_domain_override(101, "example.com")["ports"] == [
-        {"port": 443, "host": "other.example", "tls": True}
+    context = web_actions.settings_context(cfg, OWNER, DOMAIN)
+    assert secret not in str(context) and 'private-password' not in str(context)
+    assert context['proxy_present'] is True
+    assert context['effective']['proxy'] == '[configured]'
+    assert context['values']['proxy'] == ''
+    edit(cfg, OWNER, {'domain': DOMAIN, 'proxy_mode': 'keep'})
+    assert storage.get_domain_override(OWNER, DOMAIN) == {'proxy': secret}
+    assert resolve_settings(cfg, DOMAIN, storage.get_domain_override(OWNER, DOMAIN)).keywords == [
+        'inherited',
     ]
+    edit(cfg, OWNER, {'domain': DOMAIN, 'proxy_mode': 'clear'})
+    assert storage.get_domain_override(OWNER, DOMAIN) == {'proxy': None}
+    edit(cfg, OWNER, {'domain': DOMAIN})
+    assert storage.get_domain_override(OWNER, DOMAIN) == {'proxy': None}
+    edit(cfg, OWNER, {'domain': DOMAIN, 'proxy_mode': 'inherit'})
+    assert storage.get_domain_override(OWNER, DOMAIN) == {}
+    edit(cfg, OWNER, {
+        'domain': DOMAIN, 'proxy_mode': 'set', 'proxy': secret,
+    })
+    assert storage.get_domain_override(OWNER, DOMAIN) == {'proxy': secret}
 
 
-def test_history_can_reach_results_after_page_twenty(panel):
-    client, _ = panel
-    login(client)
-    storage.add_domain(101, "example.com")
-    for number in range(1001):
-        storage.save_history(101, "example.com", "http_basic", "OK", f"sample-{number}", {})
-    page = client.get("/history?page=21&period=30d")
-    assert page.status_code == 200
-    assert "Page 21" in page.text
-    assert "sample-0" in page.text
+@pytest.mark.parametrize('form', [
+    {'keywords': '{}'}, {'ports': 'not json'}, {'check.ping': 'bad'},
+    {'interval_minutes': '-1'}, {'http_timeout_s': '1.5'},
+    {'latency_warn_ms': '3000'}, {'proxy_mode': 'bad'},
+    {'proxy_mode': 'set', 'proxy': 'bad://user:private-password@example.com'},
+    {'proxy_mode': 'set', 'proxy': ''},
+])
+def test_invalid_edits_are_sanitized_and_preserve_settings(form):
+    cfg = AppConfig()
+    storage.add_domain(OWNER, DOMAIN)
+    storage.set_domain_override(OWNER, DOMAIN, {'interval_minutes': 9})
+    with pytest.raises(ValueError) as error:
+        edit(cfg, OWNER, {'domain': DOMAIN, **form})
+    assert 'private-password' not in str(error.value)
+    assert storage.get_domain_override(OWNER, DOMAIN) == {'interval_minutes': 9}
 
 
-def test_alert_toggle_and_logout(panel):
-    client, _ = panel
-    token = login(client)
-    assert client.post("/settings/alerts", data={"csrf": token, "enabled": "false"}).status_code == 200
-    assert not storage.is_user_alerts_enabled(101)
-    assert client.post("/logout", data={"csrf": token}).status_code == 200
-    assert client.get("/", follow_redirects=False).status_code == 303
+def test_actions_pause_resume_reset_delete():
+    cfg = AppConfig()
+    storage.add_domain(OWNER, DOMAIN)
+    web_actions.act_on_domain(cfg, OWNER, 'pause', DOMAIN)
+    assert storage.get_domain_override(OWNER, DOMAIN) == {'interval_minutes': 0}
+    web_actions.act_on_domain(cfg, OWNER, 'resume', DOMAIN)
+    assert resolve_settings(cfg, DOMAIN, storage.get_domain_override(OWNER, DOMAIN)).interval_minutes is None
+    web_actions.act_on_domain(cfg, OWNER, 'reset', DOMAIN)
+    assert storage.get_domain_override(OWNER, DOMAIN) is None
+    web_actions.act_on_domain(cfg, OWNER, 'delete', DOMAIN)
+    assert not storage.domain_exists(OWNER, DOMAIN)
 
 
-def test_export_import_roundtrip_stays_with_owner(panel):
-    client, _ = panel
-    token = login(client)
-    storage.add_domain(101, "example.com")
-    storage.set_domain_override(101, "example.com", {"latency_warn_ms": 350})
-    payload = client.get("/export").content
-    storage.remove_domain(101, "example.com")
-    result = client.post("/import", data={"csrf": token, "mode": "replace"},
-                         files={"file": ("domains.csv", payload, "text/csv")})
-    assert result.status_code == 200
-    assert "1 added" in result.text
-    assert storage.domain_exists(101, "example.com")
-    assert storage.get_domain_override(101, "example.com")["latency_warn_ms"] == 350
-    assert not storage.domain_exists(202, "example.com")
+def test_resume_overrides_inherited_yaml_pause_with_positive_interval():
+    cfg = AppConfig.model_validate({'domains': [{'name': DOMAIN, 'interval_minutes': 0}]})
+    storage.add_domain(OWNER, DOMAIN)
+    web_actions.act_on_domain(cfg, OWNER, 'resume', DOMAIN)
+    assert resolve_settings(cfg, DOMAIN, storage.get_domain_override(OWNER, DOMAIN)).interval_minutes > 0
 
 
-def test_scan_untracked_domain_does_not_persist(panel, monkeypatch):
-    client, _ = panel
-    token = login(client)
-
-    class FakeDispatcher:
-        def __init__(self, config):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return None
-
-        async def run_for(self, owner_id, domain, **kwargs):
-            assert kwargs["ephemeral"] is True
-            return [CheckOutcome("http_basic", Status.OK, "reachable", {})]
-
-    monkeypatch.setattr("sitewatcher.web.app.Dispatcher", FakeDispatcher)
-    result = client.post("/scan", data={"csrf": token, "name": "untracked.example"})
-    assert result.status_code == 200
-    assert "reachable" in result.text
-    assert not storage.domain_exists(101, "untracked.example")
+def test_reset_repairs_corrupt_storage_without_reading_override():
+    cfg = AppConfig()
+    storage.add_domain(OWNER, DOMAIN)
+    storage.set_domain_override(OWNER, DOMAIN, {'interval_minutes': 1})
+    with sqlite3.connect(storage.DEFAULT_DB) as conn:
+        conn.execute('UPDATE domain_overrides SET data_json=?', ('{private-password',))
+    with pytest.raises(ValueError) as error:
+        web_actions.settings_context(cfg, OWNER, DOMAIN)
+    assert 'private-password' not in str(error.value)
+    web_actions.act_on_domain(cfg, OWNER, 'reset', DOMAIN)
+    assert storage.get_domain_override(OWNER, DOMAIN) is None
 
 
-def test_delete_all_requires_explicit_phrase(panel):
-    client, _ = panel
-    token = login(client)
-    storage.add_domain(101, "one.example")
-    assert client.post("/domains/delete-all", data={"csrf": token, "confirm": "no"}).status_code == 400
-    assert storage.domain_exists(101, "one.example")
-    assert client.post("/domains/delete-all", data={"csrf": token, "confirm": "DELETE ALL"}).status_code == 200
-    assert storage.list_domains(101) == []
+def test_every_existing_domain_operation_is_owner_scoped():
+    cfg = AppConfig()
+    storage.add_domain(OWNER, DOMAIN)
+    storage.set_domain_override(OWNER, DOMAIN, {'interval_minutes': 9})
+    for action in ['pause', 'resume', 'reset', 'delete', 'unknown']:
+        with pytest.raises(ValueError):
+            web_actions.act_on_domain(cfg, OWNER + 1, action, DOMAIN)
+    with pytest.raises(ValueError):
+        web_actions.settings_context(cfg, OWNER + 1, DOMAIN)
+    with pytest.raises(ValueError):
+        web_actions.save_domain(cfg, OWNER + 1, {'domain': DOMAIN})
+    with pytest.raises(ValueError):
+        web_actions.history_context(OWNER + 1, DOMAIN)
+    assert storage.get_domain_override(OWNER, DOMAIN) == {'interval_minutes': 9}
+
+
+def test_history_is_bounded_domain_scoped_and_excludes_metrics():
+    storage.add_domain(OWNER, DOMAIN)
+    storage.save_history(OWNER, DOMAIN, 'ping', 'OK', 'one', {'private': 'hidden'})
+    storage.save_history(OWNER, DOMAIN, 'ping', 'WARN', 'two', {})
+    storage.save_history(OWNER + 1, DOMAIN, 'ping', 'OK', 'other-owner', {})
+    storage.save_history(OWNER, 'other.example', 'ping', 'OK', 'other-domain', {})
+    rows = web_actions.history_context(OWNER, DOMAIN, limit=1)
+    assert len(rows) == 1 and rows[0]['message'] == 'two'
+    assert 'metrics_json' not in rows[0]
+    assert rows[0]['check_name'] == 'ping'
+
+
+def test_atomic_creation_rejects_duplicate_without_replacing_data():
+    storage.set_domain_override(OWNER, DOMAIN, {'interval_minutes': 8}, create_missing=True)
+    with pytest.raises(ValueError):
+        storage.set_domain_override(OWNER, DOMAIN, {'interval_minutes': 1},
+                                    replace=True, create_missing=True, create_only=True)
+    assert storage.get_domain_override(OWNER, DOMAIN) == {'interval_minutes': 8}
+
+
+def test_stale_or_missing_edit_revision_rejects_write():
+    cfg = AppConfig()
+    storage.add_domain(OWNER, DOMAIN)
+    context = web_actions.settings_context(cfg, OWNER, DOMAIN)
+    storage.set_domain_override(OWNER, DOMAIN, {'interval_minutes': 8})
+    for form in [{'domain': DOMAIN}, {'domain': DOMAIN, 'revision': context['revision']}]:
+        with pytest.raises(ValueError, match='reload'):
+            web_actions.save_domain(cfg, OWNER, form)
+    assert storage.get_domain_override(OWNER, DOMAIN) == {'interval_minutes': 8}
+    with pytest.raises(ValueError):
+        storage.set_domain_override(OWNER, DOMAIN, {}, replace=True,
+                                    expected_revision=context['revision'])
+    assert storage.get_domain_override(OWNER, DOMAIN) == {'interval_minutes': 8}
+
+
+def test_revision_canonicalizes_key_order_and_empty_override():
+    assert storage.domain_override_revision(None) == storage.domain_override_revision({})
+    assert storage.domain_override_revision({'checks': {'ping': False}, 'ports': [80]}) == (
+        storage.domain_override_revision({'ports': [80], 'checks': {'ping': False}})
+    )
+
+
+def test_resume_does_not_replace_an_existing_positive_interval():
+    cfg = AppConfig()
+    storage.add_domain(OWNER, DOMAIN)
+    storage.set_domain_override(OWNER, DOMAIN, {'interval_minutes': 37})
+    web_actions.act_on_domain(cfg, OWNER, 'resume', DOMAIN)
+    assert storage.get_domain_override(OWNER, DOMAIN) == {'interval_minutes': 37}
+
+
+def test_new_settings_preview_does_not_inherit_an_unrelated_yaml_domain():
+    cfg = AppConfig.model_validate({'domains': [{'name': DOMAIN, 'interval_minutes': 0}]})
+    assert web_actions.settings_context(cfg, OWNER)['effective']['interval_minutes'] is None
+
+
+def test_plain_lists_and_port_ranges_round_trip_without_losing_port_options():
+    cfg = AppConfig()
+    web_actions.save_domain(cfg, OWNER, {
+        'domain': DOMAIN, 'keywords': '"welcome", "Hello, world"',
+        'ports': '1-1024, 2205',
+    }, create=True)
+    override = storage.get_domain_override(OWNER, DOMAIN)
+    assert override['keywords'] == ['welcome', 'Hello, world']
+    assert override['ports'] == [*range(1, 1025), 2205]
+    storage.set_domain_override(OWNER, DOMAIN, {
+        'ports': [80, {'port': 443, 'tls': True, 'timeout_s': 2}],
+    })
+    form = web_actions.settings_context(cfg, OWNER, DOMAIN)['values']
+    assert form['ports'] == '80, 443'
+    assert '[' not in form['keywords']
+    edit(cfg, OWNER, form)
+    override = storage.get_domain_override(OWNER, DOMAIN)
+    assert override['keywords'] == ['welcome', 'Hello, world']
+    assert override['ports'] == [80, {'port': 443, 'tls': True, 'timeout_s': 2}]
+
+
+@pytest.mark.parametrize('ports', ['0', '65536', '1024-1', '1-65536', '80,,443', '80-no'])
+def test_invalid_plain_port_lists_do_not_create_a_domain(ports):
+    with pytest.raises(ValueError, match='ports'):
+        web_actions.save_domain(AppConfig(), OWNER, {'domain': DOMAIN, 'ports': ports},
+                                create=True)
+    assert not storage.domain_exists(OWNER, DOMAIN)
+
+
+def test_overlapping_port_ranges_save_each_port_once():
+    web_actions.save_domain(AppConfig(), OWNER, {
+        'domain': DOMAIN, 'ports': '80-82, 81-83, 443, 80-82',
+    }, create=True)
+    assert storage.get_domain_override(OWNER, DOMAIN)['ports'] == [80, 81, 82, 83, 443]
+
+
+def test_plain_list_clear_and_inherit_are_distinct():
+    cfg = AppConfig.model_validate({'defaults': {'keywords': ['welcome']}})
+    web_actions.save_domain(cfg, OWNER, {'domain': DOMAIN, 'keywords': '-', 'ports': '-'},
+                            create=True)
+    assert storage.get_domain_override(OWNER, DOMAIN) == {'keywords': [], 'ports': []}
+    form = web_actions.settings_context(cfg, OWNER, DOMAIN)['values']
+    assert form['keywords'] == form['ports'] == '-'
+    edit(cfg, OWNER, {**form, 'keywords': '', 'ports': ''})
+    assert storage.get_domain_override(OWNER, DOMAIN) == {}
+
+
+@pytest.mark.parametrize('keyword', ['-', '[bracket', '{brace', ' leading', 'trailing ',
+                                     'a\nb', 'quote"test', ''])
+def test_keyword_list_edit_preserves_literal_punctuation_and_whitespace(keyword):
+    cfg = AppConfig()
+    storage.add_domain(OWNER, DOMAIN)
+    storage.set_domain_override(OWNER, DOMAIN, {'keywords': [keyword]})
+    form = web_actions.settings_context(cfg, OWNER, DOMAIN)['values']
+    edit(cfg, OWNER, form)
+    assert storage.get_domain_override(OWNER, DOMAIN)['keywords'] == [keyword]
+
+
+def test_unchanged_port_list_preserves_multiple_probes_for_one_port():
+    cfg = AppConfig()
+    ports = [{'port': 443, 'host': 'one.example', 'tls': True},
+             {'port': 443, 'host': 'two.example', 'tls': True}]
+    storage.add_domain(OWNER, DOMAIN)
+    storage.set_domain_override(OWNER, DOMAIN, {'ports': ports})
+    edit(cfg, OWNER, web_actions.settings_context(cfg, OWNER, DOMAIN)['values'])
+    assert storage.get_domain_override(OWNER, DOMAIN)['ports'] == ports

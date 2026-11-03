@@ -20,7 +20,7 @@ def test_owner_override_does_not_change_defaults(monkeypatch):
 def test_empty_check_selection_returns_empty_result(monkeypatch):
     dispatcher = Dispatcher(AppConfig())
     dispatcher._client = object()
-    monkeypatch.setattr(dispatcher, "_build_checks", lambda settings: [])
+    monkeypatch.setattr(dispatcher, "_build_checks", lambda settings, **kwargs: [])
 
     assert asyncio.run(dispatcher.run_for(1, "example.com", run_id="run-42")) == []
 
@@ -30,7 +30,7 @@ def test_ephemeral_run_does_not_create_database(tmp_path, monkeypatch):
     monkeypatch.setattr(storage, "DEFAULT_DB", db)
     dispatcher = Dispatcher(AppConfig())
     dispatcher._client = object()
-    monkeypatch.setattr(dispatcher, "_build_checks", lambda settings: [])
+    monkeypatch.setattr(dispatcher, "_build_checks", lambda settings, **kwargs: [])
 
     assert asyncio.run(dispatcher.run_for(0, "example.com", ephemeral=True)) == []
     assert not db.exists()
@@ -54,8 +54,29 @@ def test_cli_check_domain_runs_and_saves(monkeypatch, capsys):
             return [CheckOutcome("http_basic", Status.OK, "healthy", {})]
 
     monkeypatch.setattr("sitewatcher.main.Dispatcher", FakeDispatcher)
-    monkeypatch.setattr(storage, "save_histories", lambda *args: None)
     asyncio.run(_cmd_check_one(AppConfig(), 42, "example.com", only=None, use_cache=True, run_id="run-42"))
 
+    assert storage.last_results(42, "example.com")[0]["source"] == "manual"
     assert "example.com" in capsys.readouterr().out
     assert seen == [{"only_checks": None, "use_cache": True, "run_id": "run-42"}]
+
+
+def test_storage_read_failure_cannot_run_checks_with_inherited_defaults(monkeypatch):
+    import sqlite3
+    import pytest
+    from sitewatcher import storage
+
+    def unreadable(*args):
+        raise sqlite3.OperationalError('synthetic storage failure')
+
+    def probes_must_not_start(*args, **kwargs):
+        pytest.fail('Checks must not run without the owner-specific settings')
+
+    monkeypatch.setattr(storage, 'get_domain_override', unreadable)
+    monkeypatch.setattr(Dispatcher, '_build_checks', probes_must_not_start)
+
+    async def scenario():
+        async with Dispatcher(AppConfig()) as dispatcher:
+            with pytest.raises(sqlite3.OperationalError):
+                await dispatcher.run_for(1, 'example.test')
+    asyncio.run(scenario())

@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.12', '3.13']
+        python-version: ['3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v7
@@ -21,7 +21,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: pyproject.toml
-      - run: python -m pip install -e '.[dev,web]'
+      - run: python -m pip install -e '.[dev]'
       - run: ruff check sitewatcher tests
       - run: pytest
       - run: python -m sitewatcher.main --help
@@ -30,23 +30,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - run: cp .env.example .env
       - run: docker compose config --quiet
-      - run: docker compose build sitewatcher
-      - run: docker compose run --rm sitewatcher sitewatcher check_all
-      - name: Smoke test web container
+      - name: Seed synthetic build-context canaries
         run: |
-          echo 'WEB_OWNER_ID=123456789' >> .env
-          echo 'WEB_SESSION_SECRET=ci-only-secret-with-sufficient-length-123456789' >> .env
-          WEB_HASH=$(docker compose run --rm --no-deps --entrypoint python sitewatcher -c 'from sitewatcher.web.auth import hash_password; print(hash_password("ci-only-password"))')
-          echo "WEB_PASSWORD_HASH=$WEB_HASH" >> .env
-          docker compose --profile web config --quiet
-          docker compose --profile web up -d --build web
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent --output /dev/null http://127.0.0.1:8000/login; then
-              exit 0
-            fi
-            sleep 1
-          done
-          docker compose --profile web logs web
-          exit 1
+          touch sitewatcher/data/docker-probe.yaml sitewatcher/data/docker-probe.sqlite
+          touch sitewatcher/data/docker-probe.db-wal sitewatcher/data/.env.docker-probe
+          touch sitewatcher/data/docker-probe.web-secret sitewatcher/data/docker-probe.telegram-token
+      - run: docker compose build web
+      - run: docker compose run --rm web sitewatcher check_all
+      - run: docker compose run --rm web sitewatcher doctor --json
+      - name: Verify installed authenticated workspace and partials
+        run: >-
+          docker compose run --rm --workdir /tmp web python -c
+          "import os; from pathlib import Path;
+          assert os.getuid() != 0;
+          assert not any('docker-probe' in str(path) for path in Path('/app').rglob('*'));
+          assert not Path('/app/.env').exists();
+          from sitewatcher.webapp.bootstrap import configure_web, migrate_web_database;
+          from sitewatcher.config import AppConfig;
+          configure_web(AppConfig()); migrate_web_database();
+          from django.test import Client;
+          from django.template.loader import render_to_string;
+          assert 'No data' in render_to_string('sitewatcher/partials/chart.html');
+          c=Client(); assert c.get('/', HTTP_HOST='localhost').status_code == 302;
+          assert c.get('/assets/workspace.css', HTTP_HOST='localhost').status_code == 200;
+          assert c.get('/healthz', HTTP_HOST='localhost').status_code == 200"

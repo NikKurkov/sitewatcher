@@ -10,29 +10,10 @@ from dataclasses import dataclass
 from typing import Any, List, Optional, Mapping
 
 from .base import BaseCheck, CheckOutcome, Status
+from ..config import PortSpec
 
 # Module-level logger for structured events
 log = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class PortSpec:
-    """Desired port probe specification.
-
-    Attributes:
-        port: TCP port number.
-        host: Optional override host; defaults to the check's domain.
-        tls: If True, wrap the TCP connection with TLS.
-        send: Optional preamble to send after connect (e.g., "HEAD / HTTP/1.0\r\n\r\n").
-        expect: Optional regex to check in the received banner.
-        timeout_s: Optional per-probe connect timeout (seconds). If None, use defaults.
-    """
-    port: int
-    host: Optional[str] = None
-    tls: bool = False
-    send: Optional[str] = None
-    expect: Optional[str] = None
-    timeout_s: Optional[float] = None
 
 
 @dataclass
@@ -84,12 +65,10 @@ class PortsCheck(BaseCheck):
 
         for it in items:
             try:
-                if hasattr(it, "model_dump"):
-                    it = it.model_dump(exclude_none=True)
                 if isinstance(it, PortSpec):
                     out.append(it)
                     continue
-                if isinstance(it, int):
+                if isinstance(it, int) or (isinstance(it, str) and it.isdigit()):
                     out.append(PortSpec(port=int(it)))
                     continue
                 if isinstance(it, Mapping):
@@ -100,19 +79,13 @@ class PortsCheck(BaseCheck):
                     out.append(
                         PortSpec(
                             port=int(it.get("port")),
-                            host=str(it.get("host")) if it.get("host") is not None else None,
                             tls=bool(it.get("tls", False)),
-                            send=str(it.get("send")) if it.get("send") is not None else None,
-                            expect=str(it.get("expect")) if it.get("expect") is not None else None,
                             timeout_s=float(it.get("timeout_s")) if it.get("timeout_s") is not None else None,
+                            read_bytes=int(it["read_bytes"]) if it.get("read_bytes") is not None else None,
+                            **{key: str(it[key]) for key in ("host", "send", "expect") if it.get(key) is not None},
                         )
                     )
                     continue
-                # Unknown shape — try to coerce simple strings like "443"
-                if isinstance(it, str) and it.isdigit():
-                    out.append(PortSpec(port=int(it)))
-                    continue
-
                 log.warning("ports.target_ignored", extra={"event": "ports.target_ignored", "reason": "unsupported_type", "item": repr(it)})
             except Exception as e:
                 log.warning("ports.target_ignored", extra={"event": "ports.target_ignored", "reason": e.__class__.__name__})
@@ -137,6 +110,8 @@ class PortsCheck(BaseCheck):
         flat: List[_PortResult] = []
         for spec, res in zip(self.targets, results, strict=True):
             host = spec.host or self.domain
+            if isinstance(res, asyncio.CancelledError):
+                raise res
             if isinstance(res, Exception):
                 # Defensive default on unexpected crash per probe
                 flat.append(
@@ -161,7 +136,9 @@ class PortsCheck(BaseCheck):
         opens = sum(1 for pr in flat if pr.port != -1 and pr.ok)
         closed = failures
 
-        if failures > 0:
+        if total == 0:
+            status = Status.UNKNOWN
+        elif failures > 0:
             status = Status.CRIT
         elif mismatches > 0:
             status = Status.WARN
@@ -174,7 +151,7 @@ class PortsCheck(BaseCheck):
             parts.append(f"mismatch {mismatches}")
         if failures:
             parts.append(f"fail {failures}")
-        message = ", ".join(parts)
+        message = ", ".join(parts) if total else "no port targets configured"
 
         # Metrics (compact per-probe list)
         metrics = {
@@ -224,7 +201,10 @@ class PortsCheck(BaseCheck):
         tls = bool(spec.tls)
         connect_timeout = float(getattr(spec, "timeout_s", None) or getattr(self.defaults, "connect_timeout_s", 2.0))
         read_timeout = float(getattr(self.defaults, "read_timeout_s", 1.0))
-        read_bytes = int(getattr(self.defaults, "read_bytes", 512))
+        read_bytes = int(
+            spec.read_bytes if spec.read_bytes is not None
+            else getattr(self.defaults, "read_bytes", 512)
+        )
 
         # Attempt-start event
         log.debug(

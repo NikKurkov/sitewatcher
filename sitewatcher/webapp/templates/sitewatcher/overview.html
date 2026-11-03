@@ -1,0 +1,145 @@
+{% extends 'sitewatcher/base.html' %}
+{% load i18n %}
+{% block title %}{% translate 'Overview · SiteWatcher' %}{% endblock %}
+{% block content %}
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">{% translate 'Your workspace' %}</p>
+            <h1>{% translate 'Overview' %}</h1>
+            <p class="subtitle">{% translate 'Keep an eye on the sites that matter.' %}</p>
+        </div>
+        {% if not read_only %}
+            <div class="overview-actions">
+                <a class="button primary" href="/domains/new"><span aria-hidden="true">＋</span> {% translate 'Add domain' %}</a>
+                {% if total %}
+                    <form method="post" action="/domains/check">
+                        {% csrf_token %}
+                        <input type="hidden" name="domain" value="*">
+                        <button type="submit"
+                            title="{% translate 'Run fresh checks for every domain and save the results. This can take a while.' %}"
+                        >{% translate 'Check all domains now' %}</button>
+                    </form>
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+    <div class="refresh-controls" data-auto-refresh>
+        <a class="button" href="">{% translate 'Refresh now' %}</a>
+        <label hidden data-refresh-option><input type="checkbox" checked data-refresh-enabled> {% translate 'Refresh every minute' %}</label>
+    </div>
+    {% if notice %}
+        <p class="notice" role="status">{{ notice }}</p>
+    {% endif %}
+    {% if total %}
+        <section class="status-overview {% if attention %}needs-attention{% endif %}"
+            aria-label="{% translate 'Monitoring summary' %}"
+        >
+            <span class="status-symbol" aria-hidden="true">{% if attention %}!{% else %}✓{% endif %}</span>
+            <div>
+                <h2>{% if attention %}{% blocktranslate count count=attention %}{{ count }} domain needs attention{% plural %}{{ count }} domains need attention{% endblocktranslate %}{% elif summary.unknown == total %}{% translate 'Waiting for first results' %}{% elif summary.paused == total %}{% translate 'Monitoring is paused' %}{% else %}{% translate 'No active warnings' %}{% endif %}</h2>
+                <p>{% blocktranslate count count=total %}{{ count }} domain{% plural %}{{ count }} domains{% endblocktranslate %} <span aria-hidden="true">·</span> {% blocktranslate with count=healthy %}{{ count }} healthy{% endblocktranslate %}{% if summary.paused %} <span aria-hidden="true">·</span> {% blocktranslate with count=summary.paused %}{{ count }} paused{% endblocktranslate %}{% endif %}{% if summary.unknown %} <span aria-hidden="true">·</span> {% blocktranslate with count=summary.unknown %}{{ count }} without current results{% endblocktranslate %}{% endif %}</p>
+            </div>
+            <div class="summary-time">
+                <span class="eyebrow">{% translate 'Last checked' %}</span>
+                {% include 'sitewatcher/partials/time.html' with stamp=observed %}
+            </div>
+        </section>
+        <div class="list-toolbar">
+            <form method="get" class="filter-form" role="search">
+                <label class="sr-only" for="q">{% translate 'Find a domain' %}</label>
+                <input type="search" name="q" id="q" value="{{ query }}" placeholder="{% translate 'Find a domain…' %}">
+                <label class="sr-only" for="status">{% translate 'Filter domains' %}</label>
+                <select id="status" name="status">
+                    {% for value,label in filters %}
+                        <option value="{{ value }}" {% if value == status %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+                <input type="hidden" name="days" value="{{ report.days }}">
+                <button type="submit">{% translate 'Filter' %}</button>
+            </form>
+            {% include 'sitewatcher/partials/periods.html' %}
+        </div>
+        <section class="panel domain-list" aria-label="{% translate 'Domains' %}">
+            <table class="domains-table">
+                <caption class="sr-only">{% translate 'Domains, with favorites first. Historical percentages describe HTTP checks in the selected period.' %}</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">{% translate 'Domain' %}</th>
+                        <th scope="col">{% translate 'Status' %}</th>
+                        <th scope="col">{% translate 'HTTP history' %}</th>
+                        <th scope="col">{% translate 'Successful checks' %}</th>
+                        <th scope="col">{% translate 'Last checked' %}</th>
+                        <th scope="col">
+                            <span class="sr-only">{% translate 'Actions' %}</span>
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                        <tr>
+                            <th scope="row" data-label="{% translate 'Domain' %}">
+                                <div class="domain-heading">
+                                    {% include 'sitewatcher/partials/favorite.html' %}
+                                    <div class="domain-heading-name">
+                                        <a class="domain-name" href="/domains/history?domain={{ row.name|urlencode }}&amp;days={{ report.days }}">{{ row.name }}</a>
+                                        {% if row.error %}
+                                            <span class="row-note">{{ row.error }}</span>
+                                        {% endif %}
+                                        {% if row.stale and row.observed and not row.paused %}
+                                            <span class="row-note">{% translate 'Some checks are overdue' %}</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </th>
+                            <td data-label="{% translate 'Status' %}">{% include 'sitewatcher/partials/status_preview.html' %}</td>
+                            <td class="history-cell" data-label="{% translate 'HTTP history' %}">
+                                {% if row.report %}
+                                    {% include 'sitewatcher/partials/strip.html' with item=row.report %}
+                                {% else %}
+                                    <span class="muted">{% translate 'No data' %}</span>
+                                {% endif %}
+                            </td>
+                            <td class="numeric" data-label="{% translate 'Successful checks' %}">
+                                {% if row.report.totals.success_percent != None %}
+                                    {{ row.report.totals.success_percent|floatformat:1 }}%
+                                {% else %}
+                                    <span class="muted">{% translate 'No data' %}</span>
+                                {% endif %}
+                                <span class="row-note">{% if row.report.totals.latency_ms != None %}{% blocktranslate with latency=row.report.totals.latency_ms|floatformat:0 %}Average response: {{ latency }} ms{% endblocktranslate %}{% else %}{% translate 'No latency data' %}{% endif %}</span>
+                            </td>
+                            <td class="time-cell" data-label="{% translate 'Last checked' %}">{% include 'sitewatcher/partials/time.html' with stamp=row.observed %}</td>
+                            <td class="row-action">
+                                {% if not read_only %}
+                                    <a href="/domains/edit?domain={{ row.name|urlencode }}"
+                                        aria-label="{% blocktranslate with domain=row.name %}Edit {{ domain }}{% endblocktranslate %}"
+                                    >{% translate 'Edit' %}</a>
+                                {% else %}
+                                    <a href="/domains/history?domain={{ row.name|urlencode }}">{% translate 'History' %}</a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="6" class="empty-filter">
+                                {% translate 'No domains match this filter.' %}
+                                <a href="/?days={{ report.days }}">{% translate 'Show all domains' %}</a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+        <div class="list-footnote">
+            <span class="legend"><span class="legend-item"><i class="key successful"></i>{% translate 'Successful' %}</span><span class="legend-item"><i class="key failed"></i>{% translate 'Failed' %}</span><span class="legend-item"><i class="key unknown"></i>{% translate 'Unknown / no observations' %}</span></span>
+            <span>{% blocktranslate count count=report.days %}HTTP observations · {{ count }} day{% plural %}HTTP observations · {{ count }} days{% endblocktranslate %}</span>
+        </div>
+        <p class="fine-print">{% translate 'Successful checks is the share of recorded HTTP checks that succeeded. Gaps are not counted as success.' %}</p>
+    {% else %}
+        <section class="panel empty-state">
+            <div class="empty-symbol" aria-hidden="true">◎</div>
+            <h2>{% translate 'Add your first domain' %}</h2>
+            <p>{% translate 'See availability, response times, and recent check results in one place.' %}</p>
+            <p class="muted">{% translate 'Use Add domain to start with a hostname such as example.com.' %}</p>
+        </section>
+    {% endif %}
+{% endblock %}

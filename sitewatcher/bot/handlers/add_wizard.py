@@ -9,28 +9,12 @@ from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 
 from ... import storage
+from ...config import resolve_settings, validate_domain_override
 from ..constants import ADD_WAIT_INTERVAL, ADD_WAIT_KEYWORDS, ALLOWED_INTERVALS
 from ..utils import requires_auth, safe_reply_html
 from ..validators import parse_domains
 
 log = logging.getLogger(__name__)
-
-
-def _default_checks(keywords_enabled: bool) -> dict:
-    """Default checks map for quick add wizard."""
-    return {
-        "http_basic": True,
-        "tls_cert": True,
-        "ping": True,
-        "rkn_block": True,
-        "whois": True,
-        "ip_blacklist": False,
-        "ip_change": False,
-        "keywords": bool(keywords_enabled),
-        "malware": False,
-        "ports": False,
-        "deface": True,
-    }
 
 
 @requires_auth(allow_while_busy=True)
@@ -88,7 +72,8 @@ async def cmd_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg,
             "Step 1/2 — <b>Keywords</b>\n"
             "Enter keywords to require on the home page (space-separated), e.g.:  <code>gtag metrika analytics</code>\n"
-            "Or send <code>/none</code> if keyword check is not required."
+            "Or send <code>/none</code> if keyword check is not required.\n"
+            "Other checks follow your existing domain and application settings."
         )
     return ADD_WAIT_KEYWORDS
 
@@ -220,42 +205,30 @@ async def _finalize_add(update: Update, context: ContextTypes.DEFAULT_TYPE, st: 
     kw_enabled: bool = bool(st["keywords_enabled"])
     interval: int = int(st["interval_minutes"]) if st["interval_minutes"] is not None else 0
     owner_id = update.effective_user.id
-    checks_map = _default_checks(keywords_enabled=kw_enabled)
+    cfg = context.application.bot_data["cfg"]
+    patch = {"checks": {"keywords": kw_enabled}, "interval_minutes": interval}
+    if kw_enabled:
+        patch["keywords"] = keywords
 
     added: List[str] = []
+    enabled_checks: dict[str, list[str]] = {}
     for d in domains:
         try:
-            storage.add_domain(owner_id, d)
-        except Exception as e:
+            current = storage.get_domain_override(owner_id, d)
+            validate_domain_override(cfg, d, patch, current)
+            saved = storage.set_domain_override(owner_id, d, patch, create_missing=True)
+            settings = resolve_settings(cfg, d, saved)
+            enabled_checks[d] = [name for name, enabled in settings.checks.model_dump().items()
+                                 if enabled]
+        except Exception:
             log.exception(
-                "add_wizard.add_domain.failed",
-                extra={"event": "add_wizard.add_domain.failed", "owner_id": owner_id, "domain": d},
+                "add_wizard.save.failed",
+                extra={"event": "add_wizard.save.failed", "owner_id": owner_id, "domain": d},
             )
             if msg:
-                await safe_reply_html(msg, f"❌ Failed to add <b>{html.escape(d)}</b>: <code>{html.escape(str(e))}</code>")
-            # Continue to next domain
+                await safe_reply_html(msg, f"❌ Failed to save <b>{html.escape(d)}</b>. "
+                                      "Domain settings were not changed.")
             continue
-
-        patch = {
-            "checks": checks_map,
-            "interval_minutes": interval,
-        }
-        if kw_enabled:
-            patch["keywords"] = keywords
-
-        try:
-            storage.set_domain_override(owner_id, d, patch)
-        except Exception as e:
-            log.exception(
-                "add_wizard.override.failed",
-                extra={"event": "add_wizard.override.failed", "owner_id": owner_id, "domain": d},
-            )
-            if msg:
-                await safe_reply_html(
-                    msg,
-                    f"⚠️ Domain <b>{html.escape(d)}</b> added, but failed to save overrides: "
-                    f"<code>{html.escape(str(e))}</code>"
-                )
         added.append(d)
 
     # Cleanup state
@@ -268,6 +241,8 @@ async def _finalize_add(update: Update, context: ContextTypes.DEFAULT_TYPE, st: 
 
     kw_str = "(disabled)" if not kw_enabled else (" ".join(keywords) or "(none)")
     interval_str = "disabled" if interval <= 0 else f"{interval} min"
+    if interval > 0 and not cfg.scheduler.enabled:
+        interval_str += " (global scheduler disabled)"
 
     log.info(
         "add_wizard.commit",
@@ -281,16 +256,18 @@ async def _finalize_add(update: Update, context: ContextTypes.DEFAULT_TYPE, st: 
     )
 
     if msg:
-        checks_txt = (
-            "<code>http_basic</code>, <code>tls_cert</code>, <code>ping</code>, "
-            "<code>rkn_block</code>, <code>whois</code>, <code>ip_blacklist</code>, <code>ip_change</code>"
-            f"{', <code>keywords</code>' if kw_enabled else ''}"
+        checks_txt = "\n".join(
+            f"• <b>{html.escape(d)}</b>: " + (
+                ", ".join(f"<code>{html.escape(name)}</code>" for name in enabled_checks[d])
+                or "(none enabled)"
+            )
+            for d in added
         )
         await safe_reply_html(
             msg,
             (
                 "✅ Added domain(s): <b>{doms}</b>\n"
-                "Checks: {checks}\n"
+                "Checks by domain:\n{checks}\n"
                 "Keywords: {kw_str}\n"
                 "Auto-check interval: <b>{interval_str}</b>\n\n"
                 "Use <code>/check &lt;name&gt;</code> to run a manual check now."

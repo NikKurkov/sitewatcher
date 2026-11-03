@@ -2,32 +2,75 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+import logging
+import re
+from copy import deepcopy
+from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Literal, Union
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from urllib.parse import urlsplit
+
+from .utils.domains import normalize_domain
 
 
 # -------------------------- Checks & Schedules --------------------------
 
-class ChecksModel(BaseModel):
+class ConfigModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True, allow_inf_nan=False)
+
+
+class ConfigurationError(ValueError):
+    """Actionable configuration errors containing only application-defined messages."""
+
+
+def _validate_proxy(value: str | None) -> str | None:
+    if value is None:
+        return value
+    try:
+        parsed = urlsplit(value)
+        if (parsed.scheme not in {"http", "https", "socks5", "socks5h"}
+                or not parsed.hostname or any(char.isspace() for char in value)):
+            raise ValueError
+        if parsed.port is not None and not 1 <= parsed.port <= 65535:
+            raise ValueError
+    except ValueError:
+        raise ValueError("proxy must be a supported URL with a host") from None
+    return value
+
+
+def _split_legacy_rkn(value):
+    """Accept the former combined RKN flag/schedule without overriding explicit new keys."""
+    if isinstance(value, dict) and 'rkn_block' in value:
+        value = value.copy()
+        legacy = value.pop('rkn_block')
+        value.setdefault('rkn_domain', legacy)
+        value.setdefault('rkn_ip', legacy)
+    return value
+
+
+class ChecksModel(ConfigModel):
+    model_config = ConfigDict(strict=True)
     """Feature flags for individual checks."""
     http_basic: bool = True
     tls_cert: bool = True
     keywords: bool = False
     deface: bool = False
     ping: bool = True
-    rkn_block: bool = False
+    rkn_domain: bool = False
+    rkn_ip: bool = False
     ports: bool = False
     whois: bool = True
     ip_blacklist: bool = False
     ip_change: bool = True
     malware: bool = False
 
+    _legacy_rkn = model_validator(mode='before')(_split_legacy_rkn)
 
-class CheckSchedule(BaseModel):
+
+class CheckSchedule(ConfigModel):
     """
     Scheduler policy for a single check.
 
@@ -40,14 +83,15 @@ class CheckSchedule(BaseModel):
     cache_unknown: bool = False
 
 
-class SchedulesConfig(BaseModel):
+class SchedulesConfig(ConfigModel):
     # Default intervals (tweak in YAML if needed)
     http_basic:   CheckSchedule = CheckSchedule(interval_minutes=5,   cache_ttl_minutes=2)
     tls_cert:     CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
     keywords:     CheckSchedule = CheckSchedule(interval_minutes=10,  cache_ttl_minutes=5)
     deface:       CheckSchedule = CheckSchedule(interval_minutes=15,  cache_ttl_minutes=5)
     ping:         CheckSchedule = CheckSchedule(interval_minutes=5,   cache_ttl_minutes=0)
-    rkn_block:    CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
+    rkn_domain:   CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
+    rkn_ip:       CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
     ports:        CheckSchedule = CheckSchedule(interval_minutes=60,  cache_ttl_minutes=0)
     # For whois we explicitly keep cache_unknown=False to avoid sticking on "no expiry info"
     whois:        CheckSchedule = CheckSchedule(interval_minutes=1440, cache_ttl_minutes=1440, cache_unknown=False)
@@ -55,8 +99,10 @@ class SchedulesConfig(BaseModel):
     ip_change:    CheckSchedule = CheckSchedule(interval_minutes=120,  cache_ttl_minutes=120)
     malware:      CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
 
+    _legacy_rkn = model_validator(mode='before')(_split_legacy_rkn)
 
-class SchedulerConfig(BaseModel):
+
+class SchedulerConfig(ConfigModel):
     """
     Global scheduler settings.
     - domains_concurrency: max in-flight domains for background runs
@@ -72,7 +118,7 @@ class SchedulerConfig(BaseModel):
     domain_timeout_s: float | None = None
 
 
-class AlertsConfig(BaseModel):
+class AlertsConfig(ConfigModel):
     """Alerting policy and routing."""
     enabled: bool = True
     policy: Literal["overall_change", "worsen_only", "all"] = "overall_change"
@@ -82,25 +128,42 @@ class AlertsConfig(BaseModel):
     chat_id: Optional[int] = None
 
 
-class IpChangeConfig(BaseModel):
+    @property
+    def effective_cooldown(self) -> int:
+        """Explicit cooldown (including zero) takes precedence over the legacy name."""
+        value = self.cooldown_sec if self.cooldown_sec is not None else self.debounce_sec
+        return value if value is not None else 0
+
+
+class IpChangeConfig(ConfigModel):
     """IP change tracking options used by checks/ip_change.py."""
-    refresh_hours: int = 24          # how long to keep last IPs before considering change
+    refresh_hours: int = Field(24, gt=0)          # how long to keep last IPs before considering change
     include_ipv6: bool = False       # also track IPv6 addresses
     db_path: Optional[str] = None    # optional custom sqlite path (default inside check)
 
 
-class PortSpec(BaseModel):
+class PortSpec(ConfigModel):
     """A single TCP port target entry."""
-    port: int
+    port: int = Field(ge=1, le=65535)
     host: Optional[str] = None
     tls: bool = False
     send: Optional[str] = None
     expect: Optional[str] = None
-    timeout_s: Optional[float] = None
-    read_bytes: Optional[int] = None
+    timeout_s: Optional[float] = Field(None, gt=0)
+    read_bytes: Optional[int] = Field(None, gt=0)
+
+    @field_validator("expect")
+    @classmethod
+    def valid_expectation(cls, value):
+        if value:
+            try:
+                re.compile(value, flags=re.IGNORECASE | re.MULTILINE)
+            except re.error:
+                raise ValueError("expect must be a valid regular expression") from None
+        return value
 
 
-class PortsConfig(BaseModel):
+class PortsConfig(ConfigModel):
     """TCP ports probing defaults and targets."""
     connect_timeout_s: float = 3.0
     read_timeout_s: float = 2.0
@@ -115,20 +178,26 @@ class PortsConfig(BaseModel):
     )
 
 
-class RknConfig(BaseModel):
-    """RKN (zapret-info) source configuration."""
-    source: Literal["z-i"] = "z-i"
-    # Local SQLite index path; if None -> <package data>/z_i_index.db
+class RknConfig(ConfigModel):
+    """Complete Antifilter bundles with bol-van/rulist as fallback."""
+    source: Literal['antifilter', 'bol-van'] = 'antifilter'
+    # Local SQLite index path; default: beside monitoring DB, retaining z_i_index.db name.
     index_db_path: Optional[str] = None
-    # Upstream dump URL (csv or csv.gz)
-    z_i_url: str = "https://raw.githubusercontent.com/zapret-info/z-i/master/dump.csv.gz"
+    # Accepted only for old config files; frozen z-i is never downloaded.
+    z_i_url: Optional[str] = Field(None, exclude=True)
     # Refresh policy
-    cache_ttl_hours: int = 12
+    cache_ttl_hours: int = Field(12, gt=0)
+    max_source_age_hours: int = Field(168, gt=0)
     match_subdomains: bool = True
     check_ip: bool = True
 
+    @field_validator('source', mode='before')
+    @classmethod
+    def migrate_source(cls, value):
+        return 'antifilter' if value == 'z-i' else value
 
-class WhoisConfig(BaseModel):
+
+class WhoisConfig(ConfigModel):
     """WHOIS/RDAP configuration."""
     rdap_endpoint: str = "https://rdap.org/domain/{domain}"
     timeout_s: float = 30.0
@@ -146,8 +215,9 @@ class WhoisConfig(BaseModel):
     fallback_whois_if_missing_expiry: bool = True
 
 
-class HttpClientConfig(BaseModel):
+class HttpClientConfig(ConfigModel):
     """Optional HTTP client tuning for httpx.AsyncClient."""
+    max_response_bytes: int = Field(8 * 1024 * 1024, gt=0)
     connect_timeout: float = 5.0
     read_timeout: float = 10.0
     write_timeout: float = 10.0
@@ -158,31 +228,73 @@ class HttpClientConfig(BaseModel):
     # optional mapping support; Dispatcher умеет работать с `proxies` как mounts
     proxies: Optional[Dict[str, str]] = None
 
+    _proxy = field_validator("proxy")(_validate_proxy)
 
-class Defaults(BaseModel):
+    @field_validator("proxies")
+    @classmethod
+    def validate_proxy_mapping(cls, value):
+        for scheme, proxy in (value or {}).items():
+            if scheme.removesuffix("://") not in {"http", "https", "all"}:
+                raise ValueError("proxy mappings must use http, https or all schemes")
+            _validate_proxy(proxy)
+        return value
+
+
+class Defaults(ConfigModel):
     """Global defaults for checks."""
-    http_timeout_s: int = 10
-    latency_warn_ms: int = 800
-    latency_crit_ms: int = 2000
-    tls_warn_days: int = 30
+    http_timeout_s: int = Field(10, gt=0)
+    latency_warn_ms: int = Field(800, ge=0)
+    latency_crit_ms: int = Field(2000, ge=0)
+    tls_warn_days: int = Field(30, ge=0)
     proxy: Optional[str] = None
     keywords: List[str] = Field(default_factory=list)
     checks: ChecksModel = ChecksModel()
 
 
-class DomainConfig(BaseModel):
-    """Per-domain overrides."""
-    name: str
-    latency_warn_ms: Optional[int] = None
-    latency_crit_ms: Optional[int] = None
-    tls_warn_days: Optional[int] = None
+    _proxy = field_validator("proxy")(_validate_proxy)
+
+    @model_validator(mode="after")
+    def check_latency_thresholds(self):
+        if self.latency_crit_ms < self.latency_warn_ms:
+            raise ValueError("latency_crit_ms must be >= latency_warn_ms")
+        return self
+
+
+class DomainOverride(ConfigModel):
+    """Validated partial settings; missing fields inherit their configured value."""
+    http_timeout_s: Optional[int] = Field(None, gt=0)
+    interval_minutes: Optional[int] = Field(None, ge=0)
+    latency_warn_ms: Optional[int] = Field(None, ge=0)
+    latency_crit_ms: Optional[int] = Field(None, ge=0)
+    tls_warn_days: Optional[int] = Field(None, ge=0)
     proxy: Optional[str] = None
     keywords: Optional[List[str]] = None
     checks: Optional[ChecksModel] = None
     ports: Optional[List[PortSpec]] = None
 
+    _proxy = field_validator("proxy")(_validate_proxy)
 
-class IpBlConfig(BaseModel):
+    @field_validator("ports", mode="before")
+    @classmethod
+    def normalize_ports(cls, value):
+        if isinstance(value, list):
+            return [{"port": item} if isinstance(item, (int, str)) else item for item in value]
+        return value
+
+
+class DomainConfig(DomainOverride):
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value):
+        name = normalize_domain(value)
+        if not name:
+            raise ValueError("Invalid domain")
+        return name
+
+
+class IpBlConfig(ConfigModel):
     """DNSBL/RBL config."""
     zones: List[str] = Field(default_factory=list)
     dns_servers: Optional[List[str]] = None
@@ -193,8 +305,9 @@ class IpBlConfig(BaseModel):
 
 @dataclass
 class LoggingFileConfig:
+    __pydantic_config__ = ConfigDict(extra="forbid", hide_input_in_errors=True)
     path: str = "./logs/sitewatcher.log"
-    rotate: str = "size"         # "size" | "time"
+    rotate: Literal["size", "time"] = "size"         # "size" | "time"
     max_bytes: int = 10_000_000
     backup_count: int = 5
     when: str = "midnight"       # for time-based rotation
@@ -204,6 +317,7 @@ class LoggingFileConfig:
 
 @dataclass
 class LoggingPrettyConfig:
+    __pydantic_config__ = ConfigDict(extra="forbid", hide_input_in_errors=True)
     use_rich: bool = False
     show_path: bool = False
     show_time: bool = True
@@ -211,6 +325,7 @@ class LoggingPrettyConfig:
 
 @dataclass
 class LoggingJsonConfig:
+    __pydantic_config__ = ConfigDict(extra="forbid", hide_input_in_errors=True)
     ensure_ascii: bool = False
     include_fields: List[str] = field(default_factory=lambda: [
         "timestamp", "level", "logger", "message",
@@ -221,10 +336,11 @@ class LoggingJsonConfig:
 
 @dataclass
 class LoggingConfig:
+    __pydantic_config__ = ConfigDict(extra="forbid", hide_input_in_errors=True)
     enabled: bool = True
     level: str = "INFO"             # DEBUG|INFO|WARNING|ERROR
-    destination: str = "console"    # console|file
-    format: str = "pretty"          # pretty|json
+    destination: Literal["console", "file"] = "console"    # console|file
+    format: Literal["pretty", "json"] = "pretty"          # pretty|json
     file: LoggingFileConfig = field(default_factory=LoggingFileConfig)
     pretty: LoggingPrettyConfig = field(default_factory=LoggingPrettyConfig)
     json: LoggingJsonConfig = field(default_factory=LoggingJsonConfig)
@@ -235,7 +351,7 @@ class LoggingConfig:
     })
 
 
-class VTLimits(BaseModel):
+class VTLimits(ConfigModel):
     """Rate limits for VirusTotal Free tier."""
     per_minute: int = 4
     per_day: int = 500
@@ -245,22 +361,22 @@ class VTLimits(BaseModel):
     max_wait_s: float = 2.0
 
 
-class MalwareConfig(BaseModel):
+class MalwareConfig(ConfigModel):
     """Malware reputation check (MVP: VirusTotal passive lookup)."""
     vt_api_key: Optional[str] = None  # VirusTotal API key (if unset -> provider unavailable)
-    timeout_s: float = 10.0           # per-provider timeout
+    timeout_s: float = Field(10.0, gt=0)           # per-provider timeout
     follow_redirects: bool = True     # reserved for future URL resolution step
     vt_limits: VTLimits = VTLimits()  # strict rate limits for VT Free
 
 
-class HistoryConfig(BaseModel):
+class HistoryConfig(ConfigModel):
     """Retention and cleanup policy for history tables."""
     retention_days: int = 30          # keep last N days in history
-    cleanup_time: str = "03:30"       # HH:MM (local time) for daily cleanup job
+    cleanup_time: str = "03:30"       # HH:MM UTC for daily cleanup job
     vacuum_weekly: bool = True        # run VACUUM/PRAGMA optimize weekly (Sunday)
 
 
-class AppConfig(BaseModel):
+class AppConfig(ConfigModel):
     """Top-level application configuration."""
     defaults: Defaults = Defaults()
     schedules: SchedulesConfig = SchedulesConfig()
@@ -274,12 +390,12 @@ class AppConfig(BaseModel):
     http: Optional[HttpClientConfig] = None
     deface: "DefaceConfig" = Field(default_factory=lambda: DefaceConfig())
     domains: List[DomainConfig] = Field(default_factory=list)
-    logging: LoggingConfig = field(default_factory=LoggingConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
     malware: MalwareConfig = Field(default_factory=MalwareConfig)
     history: HistoryConfig = Field(default_factory=HistoryConfig)
 
 
-class DefaceConfig(BaseModel):
+class DefaceConfig(ConfigModel):
     phrases_path: Optional[str] = None  # e.g., "sitewatcher/data/deface_markers.txt"
 
 
@@ -290,16 +406,19 @@ DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "data" / "config.yaml"
 
 def load_config(path: Optional[Union[str, os.PathLike, Path]] = None) -> AppConfig:
     """
-    Load YAML config from an explicit path, SITEWATCHER_CONFIG, or the package default.
-    An absent implicit file means built-in defaults. An explicit path must exist.
+    Load YAML config from a given path or the package default.
+    An absent default file means built-in defaults. An explicit path must exist.
     """
-    cfg_path = Path(path) if path is not None else Path(os.getenv("SITEWATCHER_CONFIG") or DEFAULT_CONFIG_PATH)
+    cfg_path = Path(path) if path is not None else DEFAULT_CONFIG_PATH
     if not cfg_path.exists() and path is None:
         return AppConfig()
     if not cfg_path.exists():
         raise FileNotFoundError(f"Config not found: {cfg_path}")
     with open(cfg_path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
+        try:
+            data = yaml.safe_load(f) or {}
+        except yaml.YAMLError:
+            raise ValueError("Invalid YAML configuration") from None
     return AppConfig.model_validate(data)
 
 
@@ -317,6 +436,7 @@ class ResolvedSettings:
     keywords: List[str]
     checks: ChecksModel
     ports: Optional[List[PortSpec]]
+    interval_minutes: int | None = None
 
 
 def resolve_settings(cfg: AppConfig, domain: str, override: Optional[dict] = None) -> ResolvedSettings:
@@ -324,37 +444,86 @@ def resolve_settings(cfg: AppConfig, domain: str, override: Optional[dict] = Non
     Merge global defaults with per-domain overrides for a given domain.
     Only the fields used by checks are resolved here.
     """
-    dom = next((d for d in cfg.domains if d.name.lower() == domain.lower()), None)
-    defaults = cfg.defaults
-    checks = defaults.checks.model_copy(deep=True)
-    if dom and dom.checks is not None:
-        for name in dom.checks.model_fields_set:
-            setattr(checks, name, getattr(dom.checks, name))
-
-    settings = ResolvedSettings(
-        name=domain,
-        http_timeout_s=defaults.http_timeout_s,
-        latency_warn_ms=dom.latency_warn_ms if dom and dom.latency_warn_ms is not None else defaults.latency_warn_ms,
-        latency_crit_ms=dom.latency_crit_ms if dom and dom.latency_crit_ms is not None else defaults.latency_crit_ms,
-        tls_warn_days=dom.tls_warn_days if dom and dom.tls_warn_days is not None else defaults.tls_warn_days,
-        proxy=(dom.proxy if dom and dom.proxy is not None else defaults.proxy),
-        keywords=(dom.keywords if dom and dom.keywords is not None else defaults.keywords),
-        checks=checks,
-        ports=(dom.ports if dom and dom.ports is not None else None),
+    normalized = normalize_domain(domain)
+    if not normalized:
+        raise ValueError("Invalid domain")
+    dom = next((d for d in cfg.domains if d.name == normalized), None)
+    values = cfg.defaults.model_dump()
+    ports = None
+    interval = None
+    if dom:
+        domain_values = dom.model_dump(exclude_unset=True, exclude={"name"})
+        domain_values = {key: value for key, value in domain_values.items() if value is not None}
+        checks = domain_values.pop("checks", {})
+        values["checks"].update(checks)
+        values.update(domain_values)
+    if override is not None:
+        validated = DomainOverride.model_validate(override).model_dump(exclude_unset=True)
+        validated = {
+            key: value for key, value in validated.items() if value is not None or key == "proxy"
+        }
+        checks = validated.pop("checks", None)
+        if checks is not None:
+            values["checks"].update(checks)
+        values.update(validated)
+    ports = values.pop("ports", ports)
+    interval = values.pop("interval_minutes", interval)
+    validated_defaults = Defaults.model_validate(values)
+    if not cfg.rkn.check_ip:
+        validated_defaults.checks.rkn_ip = False
+    return ResolvedSettings(
+        name=normalized,
+        **validated_defaults.model_dump(exclude={"checks"}),
+        checks=validated_defaults.checks,
+        ports=[PortSpec.model_validate(port) for port in ports] if ports is not None else None,
+        interval_minutes=interval,
     )
-    for key, value in (override or {}).items():
-        if key == "checks" and isinstance(value, dict):
-            for check, enabled in value.items():
-                if check in type(settings.checks).model_fields and isinstance(enabled, bool):
-                    setattr(settings.checks, check, enabled)
-        elif key in {"http_timeout_s", "latency_warn_ms", "latency_crit_ms", "tls_warn_days", "proxy", "keywords", "ports"}:
-            setattr(settings, key, value)
-    return settings
+
+
+def validate_domain_override(
+    cfg: AppConfig, domain: str, patch: dict, current: dict | None = None,
+) -> dict:
+    """Validate a merged patch while preserving its storage-compatible representation."""
+    merged = deepcopy(current) if current is not None else {}
+    if not isinstance(merged, dict) or not isinstance(patch, dict):
+        raise ValueError("Domain override must be an object")
+    for key, value in patch.items():
+        if key == "checks" and isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key].update(deepcopy(value))
+        else:
+            merged[key] = deepcopy(value)
+    resolve_settings(cfg, domain, merged)
+    return merged
+
+
+def validation_message(error: Exception) -> str:
+    """Render validation diagnostics without raw values, credentials, or unknown field names."""
+    if isinstance(error, ConfigurationError):
+        return str(error)
+    if isinstance(error, ValidationError):
+        known_fields = set()
+        for model in globals().values():
+            if isinstance(model, type) and issubclass(model, ConfigModel):
+                known_fields.update(model.model_fields)
+            elif isinstance(model, type) and is_dataclass(model):
+                known_fields.update(item.name for item in fields(model))
+        messages = []
+        for item in error.errors(include_input=False):
+            location = ".".join(
+                str(part) if isinstance(part, int) or part in known_fields else "<field>"
+                for part in item["loc"]
+            )
+            messages.append(f"{location or '<settings>'}: {item['type']}")
+        return "Invalid settings: " + "; ".join(
+            dict.fromkeys(messages)
+        )
+    return "Invalid settings"
 
 
 def get_bot_token_from_env() -> Optional[str]:
-    """Best-effort Telegram token reader (returns None if unset)."""
-    return os.getenv("TELEGRAM_TOKEN")
+    """Compatibility name: read the environment override or private connection file."""
+    from .telegram_connection import load_bot_token
+    return load_bot_token()
 
 
 # -------------------------- Validation helpers --------------------------
@@ -362,6 +531,16 @@ def get_bot_token_from_env() -> Optional[str]:
 def validate_config(cfg: AppConfig) -> None:
     """Validate runtime-critical config invariants. Raise ValueError with a summary on failure."""
     errors: list[str] = []
+
+    # Rebuilding/removing the RKN index must never destroy persistent monitoring/cache state.
+    from .checks.rkn_block_sqlite import rkn_index_path
+    try:
+        index_path = rkn_index_path(cfg.rkn).resolve()
+        if any(path and index_path == Path(path).resolve()
+               for path in (cfg.whois.db_path, cfg.ipchange.db_path)):
+            raise ValueError
+    except (OSError, ValueError):
+        errors.append("rkn.index_db_path must be separate from monitoring, WHOIS and IP-change databases")
 
     # Scheduler
     if cfg.scheduler.interval_minutes <= 0:
@@ -384,10 +563,10 @@ def validate_config(cfg: AppConfig) -> None:
     # Defaults sanity
     if cfg.defaults.http_timeout_s <= 0:
         errors.append("defaults.http_timeout_s must be > 0")
-    if cfg.defaults.latency_warn_ms <= 0:
-        errors.append("defaults.latency_warn_ms must be > 0")
-    if cfg.defaults.latency_crit_ms <= 0:
-        errors.append("defaults.latency_crit_ms must be > 0")
+    if cfg.defaults.latency_warn_ms < 0:
+        errors.append("defaults.latency_warn_ms must be >= 0")
+    if cfg.defaults.latency_crit_ms < 0:
+        errors.append("defaults.latency_crit_ms must be >= 0")
     if cfg.defaults.latency_crit_ms < cfg.defaults.latency_warn_ms:
         errors.append("defaults.latency_crit_ms must be >= defaults.latency_warn_ms")
     if cfg.defaults.tls_warn_days < 0:
@@ -486,16 +665,43 @@ def validate_config(cfg: AppConfig) -> None:
     except Exception:
         errors.append("malware.vt_limits is invalid or missing")
 
+    if cfg.ipchange.refresh_hours <= 0:
+        errors.append("ipchange.refresh_hours must be > 0")
+    if cfg.malware.timeout_s <= 0:
+        errors.append("malware.timeout_s must be > 0")
+    if cfg.logging.destination not in {"console", "file"}:
+        errors.append("logging.destination must be console or file")
+    levels = [cfg.logging.level, *cfg.logging.third_party_levels.values()]
+    if any(not isinstance(level, str) or level.strip().upper() not in logging.getLevelNamesMapping()
+           for level in levels):
+        errors.append("logging levels must be standard names such as DEBUG, INFO or WARNING")
+    if cfg.logging.file.interval <= 0:
+        errors.append("logging.file.interval must be > 0")
+    if cfg.logging.file.max_bytes < 0:
+        errors.append("logging.file.max_bytes must be >= 0")
+    if cfg.logging.file.backup_count < 0:
+        errors.append("logging.file.backup_count must be >= 0")
+    if cfg.logging.file.rotate == "time" and cfg.logging.file.when.strip().upper() not in {
+        "S", "M", "H", "D", "MIDNIGHT", *(f"W{day}" for day in range(7)),
+    }:
+        errors.append("logging.file.when must be S, M, H, D, MIDNIGHT or W0..W6")
+    if cfg.logging.destination == "file" and not cfg.logging.file.path.strip():
+        errors.append("logging.file.path must be nonempty")
+
     # Deface markers file (optional)
     if getattr(cfg.deface, "phrases_path", None):
         p = Path(cfg.deface.phrases_path)
         if not p.exists():
-            errors.append(f"deface.phrases_path does not exist: {p}")
+            errors.append("deface.phrases_path does not exist")
         elif not p.is_file():
-            errors.append(f"deface.phrases_path must be a file: {p}")
+            errors.append("deface.phrases_path must be a file")
 
     # Per-domain overrides (ports sanity)
     for i, dom in enumerate(cfg.domains):
+        try:
+            resolve_settings(cfg, dom.name)
+        except ValueError as error:
+            errors.append(f"domains[{i}]: {validation_message(error)}")
         if not dom.name or not str(dom.name).strip():
             errors.append(f"domains[{i}].name must be a non-empty string")
         if getattr(dom, "ports", None):
@@ -509,4 +715,4 @@ def validate_config(cfg: AppConfig) -> None:
 
     if errors:
         lines = "\n  - " + "\n  - ".join(errors)
-        raise ValueError(f"Invalid configuration:{lines}")
+        raise ConfigurationError(f"Invalid configuration:{lines}")

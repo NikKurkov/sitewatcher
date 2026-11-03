@@ -4,9 +4,11 @@ from __future__ import annotations
 import logging
 import logging.config
 import os
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, Mapping, Optional
+from typing import Any, Dict, Iterable, Optional
+
+from .config import LoggingConfig
 
 
 # -------- Helpers: formatters & filters --------
@@ -123,12 +125,13 @@ class StructExtraFilter(logging.Filter):
 
 # -------- Public API --------
 
-def setup_logging(logging_cfg: Any | None) -> None:
+def setup_logging(logging_cfg: LoggingConfig | None) -> None:
     """
-    Initialize logging using dictConfig based on provided config object/dict.
+    Initialize logging using the validated application logging configuration.
     Safe to call multiple times; reconfigures logging in-place.
     """
-    cfg = _normalize_cfg(logging_cfg)
+    defaults = LoggingConfig()
+    cfg = asdict(logging_cfg if logging_cfg is not None else defaults)
 
     if not cfg["enabled"]:
         # Disable all logging if explicitly turned off
@@ -145,10 +148,12 @@ def setup_logging(logging_cfg: Any | None) -> None:
     logging.config.dictConfig(dict_cfg)
 
     # Lower verbosity of noisy third-party loggers
-    for logger_name, level in cfg.get("third_party_levels", {}).items():
+    for logger_name, level in (defaults.third_party_levels | cfg["third_party_levels"]).items():
         if not logger_name:
             continue
-        logging.getLogger(logger_name).setLevel(level)
+        logging.getLogger(logger_name).setLevel(level.strip().upper())
+
+    logging.disable(logging.NOTSET)
 
     # Self-check line to confirm configuration at startup
     logging.getLogger("sitewatcher.logging").info(
@@ -166,64 +171,8 @@ def setup_logging(logging_cfg: Any | None) -> None:
 
 # -------- Internal: config building --------
 
-def _normalize_cfg(logging_cfg: Any | None) -> Dict[str, Any]:
-    """Accept dataclass, mapping or None. Fill in safe defaults."""
-    default = {
-        "enabled": True,
-        "level": "INFO",                     # DEBUG|INFO|WARNING|ERROR
-        "destination": "console",            # console|file
-        "format": "pretty",                  # pretty|json
-        "file": {
-            "path": "./logs/sitewatcher.log",
-            "rotate": "size",                # size|time
-            "max_bytes": 10_000_000,
-            "backup_count": 5,
-            "when": "midnight",
-            "interval": 1,
-            "utc": True,
-        },
-        "pretty": {
-            "use_rich": False,
-            "show_path": False,
-            "show_time": True,
-        },
-        "json": {
-            "ensure_ascii": False,
-            "include_fields": [
-                "timestamp", "level", "logger", "message",
-                "module", "line", "pid", "thread",
-                "owner", "domain", "check", "run_id", "status",
-            ],
-        },
-        "third_party_levels": {
-            "httpx": "WARNING",
-            "apscheduler": "INFO",
-            "telegram": "WARNING",
-        },
-    }
-
-    if logging_cfg is None:
-        return default
-    if is_dataclass(logging_cfg):
-        return _deep_merge(default, asdict(logging_cfg))
-    if isinstance(logging_cfg, Mapping):
-        return _deep_merge(default, dict(logging_cfg))
-    # Fallback: unexpected type
-    return default
-
-
-def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
-    out = dict(base)
-    for k, v in override.items():
-        if isinstance(v, Mapping) and isinstance(out.get(k), Mapping):
-            out[k] = _deep_merge(dict(out[k]), dict(v))
-        else:
-            out[k] = v
-    return out
-
-
 def _build_dict_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
-    level = cfg["level"].upper()
+    level = cfg["level"].strip().upper()
     destination = cfg["destination"]
     fmt = cfg["format"]
 
@@ -302,7 +251,7 @@ def _build_dict_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
                 "formatter": "json" if fmt == "json" else "pretty",
                 "filters": ["struct"],
                 "filename": filename,
-                "when": cfg["file"]["when"],
+                "when": cfg["file"]["when"].strip().upper(),
                 "interval": int(cfg["file"]["interval"]),
                 "backupCount": int(cfg["file"]["backup_count"]),
                 "utc": bool(cfg["file"]["utc"]),
