@@ -413,3 +413,17 @@ def test_settings_navigation_is_a_header_icon_and_marks_current_page(owner, clie
     assert 'title="Settings"' in button and 'aria-label="Settings"' in button
     assert 'aria-current="page"' in button
     assert '<svg ' in header
+
+
+@pytest.mark.parametrize(('zone', 'expected'), [
+    ('Europe/Moscow', '2026-11-03 15:46'), ('UTC', '2026-11-03 12:46'),
+])
+def test_compact_observation_timestamp_uses_workspace_timezone(zone, expected):
+    from django.template.loader import render_to_string
+    from sitewatcher.webapp.presentation import local_time
+    stamp = local_time('2026-11-03T12:46:00Z', zone)
+    body = render_to_string('sitewatcher/partials/time.html', {'stamp': stamp, 'compact': True})
+    assert f'>{expected}</time>' in body
+    assert 'MSK' not in body and 'UTC</time>' not in body
+    assert 'datetime="2026-11-03T12:46:00+00:00"' in body
+    assert ' · ' not in body

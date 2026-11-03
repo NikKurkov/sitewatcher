@@ -44,7 +44,8 @@ def local_time(value, zone):
     except (ValueError, TypeError, AttributeError, OverflowError):
         return None
     age = (datetime.now(timezone.utc) - stamp).total_seconds()
-    return {'iso': stamp.isoformat(), 'label': label, 'value': stamp,
+    return {'iso': stamp.isoformat(), 'label': label,
+            'compact_label': local.strftime('%Y-%m-%d %H:%M'), 'value': stamp,
             'future': age < 0, 'just_now': 0 <= age < 60}
 
 

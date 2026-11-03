@@ -545,6 +545,11 @@ tr:last-child>td,tr:last-child>th {
   font-variant-numeric: tabular-nums;
 }
 
+.last-checked time, .last-checked > .muted {
+  display: block;
+  white-space: nowrap;
+}
+
 .row-action a {
   min-height: 44px;
   min-width: 44px;

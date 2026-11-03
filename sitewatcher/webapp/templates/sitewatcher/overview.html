@@ -84,7 +84,9 @@
                                 {% endif %}
                                 <span class="row-note">{% if row.report.totals.latency_ms != None %}{% blocktranslate with latency=row.report.totals.latency_ms|floatformat:0 %}Average response: {{ latency }} ms{% endblocktranslate %}{% else %}{% translate 'No latency data' %}{% endif %}</span>
                             </td>
-                            <td class="time-cell" data-label="{% translate 'Last checked' %}">{% include 'sitewatcher/partials/time.html' with stamp=row.observed %}</td>
+                            <td class="time-cell" data-label="{% translate 'Last checked' %}">
+                                <div class="last-checked">{% include 'sitewatcher/partials/time.html' with stamp=row.observed compact=True %}</div>
+                            </td>
                             <td class="row-action">
                                 {% if not read_only %}
                                     <a href="/domains/edit?domain={{ row.name|urlencode }}"
