@@ -24,12 +24,16 @@
                 {% if user.is_authenticated and not public_view %}
                     <nav class="main-nav" aria-label="{% translate 'Main navigation' %}">
                         <a href="/" {% if request.path == '/' %}aria-current="page"{% endif %}>{% translate 'Overview' %}</a>
-                        <a href="/workspace"
-                            {% if request.path == '/workspace' or request.path == '/settings' %}aria-current="page"{% endif %}
-                        >{% translate 'Settings' %}</a>
                     </nav>
                 {% endif %}
                 {% block header_actions %}{% endblock %}
+                {% if user.is_authenticated and not public_view %}
+                    <a class="button icon-button settings-button" href="/workspace" title="{% translate 'Settings' %}" aria-label="{% translate 'Settings' %}"
+                        {% if request.path == '/workspace' or request.path == '/settings' or request.path == '/settings/public' %}aria-current="page"{% endif %}
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 3-1 3-3-1-2 4 2 2v2l-2 2 2 4 3-1 1 3h6l1-3 3 1 2-4-2-2v-2l2-2-2-4-3 1-1-3Z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </a>
+                {% endif %}
                 <form class="theme-controls" method="get" action="{% if public_view %}{% else %}/theme{% endif %}">
                     <span aria-hidden="true">☀</span>
                     {% if public_view %}

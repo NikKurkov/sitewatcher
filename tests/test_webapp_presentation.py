@@ -401,3 +401,15 @@ def test_overview_actions_are_accessible_header_icons_without_intro(owner, clien
     header = get(client, '/').content.decode().split('</header>', 1)[0]
     assert 'href="/domains/new"' not in header and 'action="/domains/check"' not in header
     assert 'data-refresh-enabled' in header and 'aria-label="Refresh now"' in header
+
+
+def test_settings_navigation_is_a_header_icon_and_marks_current_page(owner, client):
+    body = get(client, '/settings').content.decode()
+    header = body.split('<header class="topbar">', 1)[1].split('</header>', 1)[0]
+    nav = header.split('<nav class="main-nav"', 1)[1].split('</nav>', 1)[0]
+    assert '/workspace' not in nav
+    import re
+    button = re.search(r'<a class="button icon-button settings-button"[^>]*>', header).group()
+    assert 'title="Settings"' in button and 'aria-label="Settings"' in button
+    assert 'aria-current="page"' in button
+    assert '<svg ' in header

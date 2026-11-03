@@ -1810,8 +1810,16 @@ button.favorite-star:hover {
 .topbar-actions form {
   margin: 0;
 }
-.topbar-actions + .theme-controls {
+.settings-button {
+  margin-left: auto;
+}
+.topbar-actions + .settings-button, .settings-button + .theme-controls {
   margin-left: 0;
+}
+.settings-button[aria-current="page"] {
+  color: var(--green);
+  background: var(--green-soft);
+  border-color: var(--green);
 }
 .topbar-actions [hidden] {
   display: none;
@@ -1841,7 +1849,14 @@ button.favorite-star:hover {
   .topbar-inner:has(.topbar-actions) {
     gap: 0 20px;
   }
-  .topbar-actions + .theme-controls {
+  .main-nav {
+    width: auto;
+    flex: 1;
+  }
+  .settings-button {
+    order: 2;
+  }
+  .settings-button + .theme-controls {
     margin-left: auto;
   }
   .topbar-actions {
