@@ -20,11 +20,7 @@
     {% endif %}
     {% if toolbar_has_domains %}
         {% if toolbar_overview %}
-        <button class="icon-button activity-toggle" type="button" data-activity-toggle hidden
-            aria-pressed="false" aria-controls="live-checks"
-            aria-label="{% translate 'Live checks' %}" title="{% translate 'Show live checks' %}"
-            data-enabled-label="{% translate 'Hide live checks' %}" data-disabled-label="{% translate 'Show live checks' %}"
-        ><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></button>
+        {% include 'sitewatcher/partials/activity_toggle.html' %}
         {% else %}
             <a class="button icon-button activity-toggle" href="/" data-activity-navigation hidden
                 aria-label="{% translate 'Live checks' %}" title="{% translate 'Show live checks' %}"

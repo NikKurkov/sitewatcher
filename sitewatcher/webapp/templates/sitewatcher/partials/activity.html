@@ -1,6 +1,7 @@
 {% load i18n %}
 <section class="panel activity-panel" id="live-checks" data-live-activity hidden
-    aria-labelledby="live-checks-title" data-timezone="{{ request.workspace.timezone }}"
+    aria-labelledby="live-checks-title" data-timezone="{% if public_view %}{{ public_timezone }}{% else %}{{ request.workspace.timezone }}{% endif %}"
+    {% if public_view %}data-public-activity="true" data-activity-endpoint="activity"{% endif %}
     data-running="{% translate 'Waiting for a result' %}" data-milliseconds="{% translate 'ms' %}" data-interrupted="{% translate 'No completion received' %}"
     data-idle="{% translate 'Waiting for the next check' %}"
     data-waiting="{% translate 'No recent checks yet' %}"

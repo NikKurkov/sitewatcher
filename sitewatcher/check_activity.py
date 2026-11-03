@@ -84,3 +84,27 @@ def domain_roster(owner_id: int) -> list[dict]:
             'WHERE d.owner_id=? ORDER BY d.name', (owner_id,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def published_http(owner_id: int, names: list[str]) -> tuple[list[dict], list[dict]]:
+    """Read only published HTTP lifecycle rows, applying scope before the feed limit."""
+    if not names:
+        return [], []
+    placeholders = ','.join('?' for _ in names)
+    with closing(_connect('ro')) as conn:
+        domains = conn.execute(
+            "SELECT d.name, COALESCE(h.status, 'UNKNOWN') AS status FROM domains d "
+            "LEFT JOIN history h ON h.id=(SELECT MAX(id) FROM history "
+            "WHERE owner_id=d.owner_id AND domain=d.name AND check_name='http_basic') "
+            f'WHERE d.owner_id=? AND d.name IN ({placeholders}) ORDER BY d.name',
+            (owner_id, *names),
+        ).fetchall()
+        events = conn.execute(
+            'SELECT a.id, a.domain, a.check_name, a.started_at, a.finished_at, a.status, '
+            'a.elapsed_ms FROM check_activity a JOIN domains d '
+            'ON d.owner_id=a.owner_id AND d.name=a.domain '
+            f"WHERE a.owner_id=? AND a.check_name='http_basic' AND d.name IN ({placeholders}) "
+            'ORDER BY COALESCE(a.finished_at, a.started_at) DESC, a.id DESC LIMIT 100',
+            (owner_id, *names),
+        ).fetchall()
+    return [dict(row) for row in reversed(events)], [dict(row) for row in domains]

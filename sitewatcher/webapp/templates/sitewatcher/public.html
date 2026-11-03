@@ -2,6 +2,8 @@
 {% load i18n %}
 {% block title %}{% translate 'Service status · SiteWatcher' %}{% endblock %}
 {% block main_class %}public-status{% endblock %}
+{% block page_scripts %}{% if report.domains %}<link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'activity.js' %}"></script>{% endif %}{% endblock %}
+{% block header_actions %}{% if report.domains %}<div class="topbar-actions">{% include 'sitewatcher/partials/activity_toggle.html' %}</div>{% endif %}{% endblock %}
 {% block content %}
     <div class="page-heading public-heading">
         <h1>{% translate 'Service status' %}</h1>
@@ -23,6 +25,7 @@
             <div class="last-checked">{% include 'sitewatcher/partials/time.html' with stamp=observed compact=True %}</div>
         </div>
     </section>
+    {% if report.domains %}{% include 'sitewatcher/partials/activity.html' %}{% endif %}
     <div class="section-toolbar">
         <h2>{% translate 'HTTP observations' %}</h2>
         {% include 'sitewatcher/partials/periods.html' %}

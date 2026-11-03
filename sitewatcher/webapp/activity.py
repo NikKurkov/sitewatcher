@@ -13,17 +13,8 @@ from .accounts import owner_required
 from .presentation import check_label, status_label
 
 
-@never_cache
-@owner_required(api=True)
-@require_safe
-def activity(request):
-    if request.GET:
-        return JsonResponse({'error': 'Invalid query'}, status=400)
-    try:
-        events = check_activity.recent(request.workspace.owner_id)
-        domains = check_activity.domain_roster(request.workspace.owner_id)
-    except (sqlite3.Error, OSError):
-        return JsonResponse({'error': 'Activity unavailable'}, status=503)
+def present_events(events):
+    """Format lifecycle fields shared by owner and scoped public activity feeds."""
     timeout = settings.SITEWATCHER_CONFIG.scheduler.domain_timeout_s
     stale_after = timeout + 10 if isinstance(timeout, (int, float)) and timeout > 0 else None
     now = datetime.now(timezone.utc)
@@ -43,6 +34,21 @@ def activity(request):
         event['status'] = 'UNKNOWN'
         event['phase'] = 'interrupted' if interrupted else 'running'
         event['status_label'] = str(_('Interrupted') if interrupted else _('Running'))
+    return events
+
+
+@never_cache
+@owner_required(api=True)
+@require_safe
+def activity(request):
+    if request.GET:
+        return JsonResponse({'error': 'Invalid query'}, status=400)
+    try:
+        events = check_activity.recent(request.workspace.owner_id)
+        domains = check_activity.domain_roster(request.workspace.owner_id)
+    except (sqlite3.Error, OSError):
+        return JsonResponse({'error': 'Activity unavailable'}, status=503)
+    present_events(events)
     for domain in domains:
         check = domain.pop('check_name')
         domain['label'] = str(check_label(check)) if check else ''

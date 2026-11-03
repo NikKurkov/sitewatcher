@@ -1,4 +1,4 @@
-"""A public bearer link grants only selected aggregate observations, never owner authority."""
+"""A public bearer link grants selected HTTP observations and activity, never owner authority."""
 import hashlib
 import json
 import re
@@ -142,6 +142,9 @@ def test_public_get_head_and_direct_mutations_never_dispatch_or_write(owner, cli
         assert get(guest, path).status_code == 200
         assert guest.head(path, HTTP_HOST='localhost').status_code == 200
         assert get(guest, path + 'data').status_code == 200
+        assert get(guest, path + 'activity').status_code == 200
+        assert guest.head(path + 'activity', HTTP_HOST='localhost').status_code == 200
+        assert guest.post(path + 'activity', HTTP_HOST='localhost').status_code == 405
         assert guest.post(path, {'action': 'check', 'owner_id': '731'}, HTTP_HOST='localhost').status_code == 405
         assert guest.post(path + 'data', HTTP_HOST='localhost').status_code == 405
         assert get(guest, '/api/status?token=' + token).status_code == 401
@@ -160,6 +163,8 @@ def test_bearer_paths_never_enter_django_404_or_exception_logs(owner, client, ca
     assert get(guest, '/status/invalid-token-sentinel/').status_code == 404
     monkeypatch.setattr(public, 'public_report', lambda *a, **kw: (_ for _ in ()).throw(RuntimeError(token)))
     assert get(guest, path).status_code == 503
+    monkeypatch.setattr(public, 'public_activity', lambda *a, **kw: (_ for _ in ()).throw(RuntimeError(token)))
+    assert get(guest, path + 'activity').status_code == 503
     assert 'Public status unavailable (RuntimeError)' in caplog.text
     assert token not in caplog.text and 'invalid-token-sentinel' not in caplog.text
     assert 'private-query-sentinel' not in caplog.text
@@ -339,3 +344,55 @@ def test_current_http_state_is_independent_of_selected_history_period(owner, cli
         assert label + '</span>' in body
         assert 'latest-private-sentinel' not in body and 'latest-private-sentinel' not in json.dumps(data)
     assert states == [expected] * 3
+
+
+def test_public_activity_is_filtered_before_limit_and_never_exposes_owner_data(owner, client):
+    from sitewatcher.check_activity import start, finish
+    path, token, _ = publish(client)
+    selected = start(731, 'shared.example', 'http_basic')
+    finish(selected, 'OK', 120)
+    for _ in range(105):
+        finish(start(731, 'hidden-sentinel.example', 'http_basic'), 'CRIT', 999)
+        finish(start(731, 'shared.example', 'malware'), 'CRIT', 999)
+    finish(start(973, 'shared.example', 'http_basic'), 'CRIT', 999)
+    guest = Client()
+    response = get(guest, path + 'activity')
+    assert response.status_code == 200
+    payload = response.json()
+    event, = payload['events']
+    assert event['domain'] == 'shared.example' and event['phase'] == 'finished'
+    assert event['status'] == 'OK' and event['elapsed_ms'] == 120
+    assert event['id'] != selected and 'check_name' not in event
+    public_salt = hashlib.sha256(token.encode()).hexdigest()
+    assert event['id'] != hashlib.sha256((public_salt + ':' + str(selected)).encode()).hexdigest()[:24]
+    assert payload['domains'] == [{'name': 'shared.example', 'status': 'OK',
+                                  'label': 'Website availability', 'status_label': 'OK'}]
+    serialized = json.dumps(payload)
+    for secret in (token, 'owner_id', 'hidden-sentinel', 'malware', 'foreign.example',
+                   'private-message', 'private-metrics', 'password'):
+        assert secret not in serialized
+    assert get(guest, path + 'activity').json() == payload
+    for suffix in ('?owner_id=973', '?days=1', '?domain=hidden-sentinel.example'):
+        assert get(guest, path + 'activity' + suffix).status_code == 404
+    assert response['Cache-Control'] == 'no-store' and response['Referrer-Policy'] == 'no-referrer'
+    assert guest.post(path + 'activity', HTTP_HOST='localhost').status_code == 405
+    assert get(guest, path).cookies.get('sessionid') is None
+
+
+def test_public_map_markup_and_activity_follow_selection_rotation_and_disable(owner, client):
+    from sitewatcher.check_activity import start
+    path, token, _ = publish(client)
+    start(731, 'shared.example', 'http_basic')
+    body = get(Client(), path).content.decode()
+    assert 'data-public-activity' in body and 'data-activity-endpoint="activity"' in body
+    assert 'data-activity-toggle' in body and '/assets/activity.js' in body
+    assert token not in body and 'href="/domains/' not in body
+    assert client.post('/settings/public', {'action': 'selection', 'domains': ''},
+                       HTTP_HOST='localhost').status_code == 200
+    assert get(Client(), path + 'activity').json() == {'events': [], 'domains': []}
+    assert 'data-live-activity' not in get(Client(), path).content.decode()
+    next_path, _, _ = publish(client, action='rotate')
+    assert get(Client(), path + 'activity').status_code == 404
+    assert get(Client(), next_path + 'activity').status_code == 200
+    client.post('/settings/public', {'action': 'disable'}, HTTP_HOST='localhost')
+    assert get(Client(), next_path + 'activity').status_code == 404

@@ -6,11 +6,11 @@ const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '../sitewatcher/webapp/static/sitewatcher/activity.js'), 'utf8');
 const epoch = Date.parse('2026-11-03T13:00:00Z');
 
-function page({saved = 'on', reduced = false, width = 1000} = {}) {
+function page({saved = 'on', reduced = false, width = 1000, publicView = false} = {}) {
   const timers = new Map();
   const frames = new Map();
   const requests = [];
-  const stored = new Map([['sitewatcher_live_activity', saved]]);
+  const stored = new Map([['sitewatcher_live_activity', saved], ['sitewatcher_public_live_activity', saved]]);
   const handlers = {};
   const windowHandlers = {};
   const mediaHandlers = {};
@@ -85,6 +85,7 @@ function page({saved = 'on', reduced = false, width = 1000} = {}) {
     idle: 'Idle', waiting: 'Waiting', unavailable: 'Unavailable', reducedLabel: 'Reduced motion',
     pausedLabel: 'Paused', mixedLabel: 'Mixed', recordedLabel: 'Recorded', liveLabel: 'Live',
     pinnedLabel: 'Pinned', selectLabel: 'Select a domain', selectedLabel: 'Selected domain', logOnly: 'Log only', newEvents: 'New events', followLabel: 'Follow'};
+  if (publicView) Object.assign(panel.dataset, {publicActivity: 'true', activityEndpoint: 'activity'});
   panel.querySelector = selector => elements[selector.slice(6, -1)] || null;
   const document = {hidden: false, documentElement: {lang: 'en'}, body: node('body'),
     querySelector: selector => selector === '[data-live-activity]' ? panel : toggle,
@@ -104,8 +105,8 @@ function page({saved = 'on', reduced = false, width = 1000} = {}) {
   });
   const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
   const respond = async (events, {ok = true, redirected = false, request = requests.at(-1),
-    domains = [...new Set(events.map(event => event.domain))].sort().map(name => ({name, status: 'UNKNOWN', label: '', status_label: 'No data'}))} = {}) => {
-    request.resolve({ok, redirected, json: async () => ({events, domains})});
+    status = 200, domains = [...new Set(events.map(event => event.domain))].sort().map(name => ({name, status: 'UNKNOWN', label: '', status_label: 'No data'}))} = {}) => {
+    request.resolve({ok, redirected, status, json: async () => ({events, domains})});
     await flush();
   };
   const poll = () => {
@@ -399,8 +400,38 @@ async function domainMapAndRetirement() {
   assert.equal(p.get('scene-nodes').children.length, 0, 'deleting a selected domain removes its static card');
 }
 
+async function publicActivityScope() {
+  const p = page({publicView: true});
+  assert.equal(p.requests[0].url, 'activity', 'capability endpoint is relative; token is never copied into markup/storage');
+  assert.equal(p.requests[0].options.credentials, 'omit');
+  assert.equal(p.requests[0].options.referrerPolicy, 'no-referrer');
+  await p.respond([event('opaque-first')]);
+  const row = p.get('activity-console').children[0];
+  assert.equal(row.children[2].children.some(child => child.tag === 'a'), false, 'public console has no owner-history links');
+  p.poll();
+  await p.respond([event('opaque-second')]);
+  assert.equal(p.get('activity-console').children.length, 1, 'removing publication also removes old console entries');
+  p.advance(1000);
+  p.poll();
+  await p.respond([], {ok: false, status: 404});
+  assert.equal(p.get('domain-map').children.length, 0, 'revoked link clears the map');
+  assert.equal(p.get('activity-console').children.length, 0, 'revoked link clears the console');
+  assert.equal(p.pulses().length, 0);
+  p.toggle.click();
+  assert.equal(p.stored.get('sitewatcher_public_live_activity'), 'off');
+  assert.equal(p.stored.get('sitewatcher_live_activity'), 'on', 'public and owner toggles have independent preferences');
+  p.toggle.click();
+  const stale = p.requests.at(-1);
+  p.toggle.click();
+  p.toggle.click();
+  await p.respond([event('current')]);
+  await p.respond([], {ok: false, status: 404, request: stale});
+  assert.equal(p.get('domain-map').children.length, 1, 'a late revoked response cannot clear a newer live session');
+  assert.equal(p.get('activity-console').children.length, 1);
+}
+
 (async () => {
-  for (const test of [domainMapAndRetirement, pinnedCardSurvivesResize, journey, pausedPolling, burstAndConsole, reducedMotionAndSafety, missingRunningRetiresWithoutResponse, cancellationAndFailures]) {
+  for (const test of [publicActivityScope, domainMapAndRetirement, pinnedCardSurvivesResize, journey, pausedPolling, burstAndConsole, reducedMotionAndSafety, missingRunningRetiresWithoutResponse, cancellationAndFailures]) {
     await test();
     console.log(`Live activity: ${test.name} passed`);
   }

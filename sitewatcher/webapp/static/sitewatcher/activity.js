@@ -25,7 +25,8 @@
   const mapDetail = find('[data-map-detail]');
   const unpin = find('[data-map-unpin]');
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
-  const storageKey = 'sitewatcher_live_activity';
+  const publicView = panel.dataset.publicActivity === 'true';
+  const storageKey = publicView ? 'sitewatcher_public_live_activity' : 'sitewatcher_live_activity';
   const speedKey = 'sitewatcher_scene_speed';
   const clock = new Intl.DateTimeFormat(document.documentElement.lang, {
     timeZone: panel.dataset.timezone, hour: '2-digit', minute: '2-digit', second: '2-digit',
@@ -72,7 +73,7 @@
   const signature = event => `${event.phase}:${event.status}`;
   const stamp = event => event.finished_at || event.started_at;
   const recent = () => [...records.values()].sort((a, b) =>
-    Date.parse(stamp(b)) - Date.parse(stamp(a)) || b.id - a.id);
+    Date.parse(stamp(b)) - Date.parse(stamp(a)) || String(b.id).localeCompare(String(a.id), 'en', {numeric: true}));
   const stateText = event => event.phase === 'running' ? panel.dataset.running
     : event.phase === 'interrupted' ? panel.dataset.interrupted : event.status_label;
   const legDuration = () => ({slower: 7000, slow: 4000, normal: 2000})[speed.value] || 4000;
@@ -113,6 +114,7 @@
     logged.set(key, true);
     while (logged.size > 300) logged.delete(logged.keys().next().value);
     const row = document.createElement('li');
+    row.dataset.domain = event.domain;
     const time = document.createElement('time');
     time.dateTime = stamp(event);
     time.textContent = clock.format(new Date(stamp(event)));
@@ -121,8 +123,8 @@
     state.dataset.level = level(event);
     state.textContent = event.phase === 'running' ? '→' : event.phase === 'interrupted' ? '×' : '←';
     const text = document.createElement('span');
-    const domain = document.createElement('a');
-    domain.href = `/domains/history?domain=${encodeURIComponent(event.domain)}`;
+    const domain = document.createElement(publicView ? 'span' : 'a');
+    if (!publicView) domain.href = `/domains/history?domain=${encodeURIComponent(event.domain)}`;
     domain.textContent = event.domain;
     text.append(`[${event.label}] `, domain, ` — ${stateText(event)}`);
     if (event.elapsed_ms !== null && event.phase === 'finished') text.append(` · ${event.elapsed_ms} ${panel.dataset.milliseconds}`);
@@ -455,6 +457,11 @@
   const render = (events, domains) => {
     const initial = !baseline;
     reconcileMap(domains);
+    if (publicView) {
+      for (const row of [...log.children]) if (!roster.has(row.dataset.domain)) row.remove();
+      unread = Math.min(unread, log.children.length);
+      updateFollow();
+    }
     const visibleIds = new Set(events.map(event => event.id));
     // A bounded feed can lose an unfinished probe. Retire its picture without fabricating a response.
     for (const flight of flights) {
@@ -521,9 +528,14 @@
     const controller = new AbortController();
     request = controller;
     try {
-      const response = await fetch('/api/activity', {credentials: 'same-origin', cache: 'no-store',
+      const response = await fetch(panel.dataset.activityEndpoint || '/api/activity', {
+        credentials: publicView ? 'omit' : 'same-origin', referrerPolicy: 'no-referrer', cache: 'no-store',
         signal: controller.signal, headers: {Accept: 'application/json'}});
-      if (!response.ok || response.redirected) throw new Error('Activity unavailable');
+      if (!response.ok || response.redirected) {
+        if (publicView && response.status === 404 && request === controller
+            && enabled && !document.hidden) render([], []);
+        throw new Error('Activity unavailable');
+      }
       const data = await response.json();
       if (request === controller && enabled && !document.hidden) render(data.events, data.domains);
     } catch (error) {

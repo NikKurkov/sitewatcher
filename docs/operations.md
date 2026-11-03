@@ -43,7 +43,7 @@ Docker images include application code and packaged examples only. Private YAML,
 - CSV exports may contain proxy credentials. Imports apply valid rows independently, reject concurrently changed merge targets, retain domains absent from the file and display added/updated/skipped counts. On errors, reselect the file or paste again; private CSV content is not redisplayed.
 - One web manual-check batch can run at a time. Other requests remain available. No separate scheduler or notification sender runs in the web process. A running bot sees newly saved states on its next tick.
 - Light/dark theme is a non-sensitive browser cookie. A small optional script changes the theme without discarding drafts; without JavaScript, theme links reload the saved page.
-- Every owner route requires login. Django sessions and CSRF protect mutations; login attempts are throttled. HTTPS deployments require explicit allowed hosts, secure cookies and a trusted proxy as described in README. Public bearer links expose only selected aggregate observations; disabling or rotating them revokes access immediately.
+- Every owner route requires login. Django sessions and CSRF protect mutations; login attempts are throttled. HTTPS deployments require explicit allowed hosts, secure cookies and a trusted proxy as described in README. Public bearer links expose only selected HTTP observations and scoped HTTP lifecycle events; disabling or rotating them revokes access immediately.
 
 ## Back up and restore
 
