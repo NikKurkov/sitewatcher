@@ -1563,3 +1563,103 @@ msgstr "Перетащите для изменения порядка. С кла
 #, python-format
 msgid "Move %(domain)s"
 msgstr "Переместить %(domain)s"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Select a domain in the map to inspect its route."
+msgstr "Выберите домен на карте, чтобы посмотреть маршрут."
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "No route captured. Request a route to enable hourly updates."
+msgstr "Маршрут ещё не получен. Запросите его, чтобы включить обновление раз в час."
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Route queued for the worker"
+msgstr "Маршрут в очереди worker"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Worker is tracing the route…"
+msgstr "Worker определяет маршрут…"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Route captured"
+msgstr "Маршрут получен"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Partial route — some routers did not respond or the destination was not reached"
+msgstr "Неполный маршрут — часть узлов не ответила или конечный адрес не достигнут"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Route could not be captured. Request a refresh to try again."
+msgstr "Не удалось получить маршрут. Запросите обновление для повторной попытки."
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Hourly updates disabled"
+msgstr "Обновление раз в час выключено"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Captured"
+msgstr "Получен"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Refresh route · hourly updates on"
+msgstr "Обновить маршрут · раз в час"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Request route · enable hourly updates"
+msgstr "Запросить маршрут · включить раз в час"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Could not save the route request. Try again."
+msgstr "Не удалось сохранить запрос маршрута. Попробуйте ещё раз."
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "A route is already queued or running."
+msgstr "Маршрут уже в очереди или определяется."
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Route queued. Waiting for the worker."
+msgstr "Маршрут в очереди. Ожидаем worker."
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Hourly route updates disabled."
+msgstr "Обновление маршрута раз в час выключено."
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "No response"
+msgstr "Нет ответа"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Hop"
+msgstr "Узел"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Follow signal"
+msgstr "Следовать за сигналом"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Resume following signal"
+msgstr "Возобновить слежение"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Network route"
+msgstr "Сетевой маршрут"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Network route controls"
+msgstr "Управление сетевым маршрутом"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Disable hourly updates"
+msgstr "Выключить обновление раз в час"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Route view"
+msgstr "Показать маршрут"
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "UDP trace from the monitoring worker. Routers may stay silent; missing replies do not mean the website is down. Requesting a route enables hourly updates. Only the forward route is measured; return animation is illustrative."
+msgstr "UDP-трассировка от worker мониторинга. Узлы могут не отвечать — это не означает, что сайт недоступен. Запрос включает обновление раз в час. Измеряется только прямой маршрут; обратное движение показано условно."
+
+#: sitewatcher/templates/sitewatcher/partials/route_controls.html
+msgid "Full hop list"
+msgstr "Все узлы маршрута"

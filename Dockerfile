@@ -5,6 +5,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DATABASE_PATH=/data/sitewatcher.db \
     XDG_CACHE_HOME=/data/cache
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends traceroute \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 # Source changes should reuse the installed runtime dependencies.
 COPY pyproject.toml ./

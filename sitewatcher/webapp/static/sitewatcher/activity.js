@@ -5,6 +5,7 @@
   if (!panel || !toggle) return;
   const find = selector => panel.querySelector(selector);
   const svg = find('[data-activity-scene]');
+  const canvas = find('[data-scene-scroll]') || svg;
   const links = find('[data-scene-links]');
   const stations = find('[data-scene-nodes]');
   const particles = find('[data-scene-pulses]');
@@ -28,6 +29,8 @@
   const publicView = panel.dataset.publicActivity === 'true';
   const storageKey = publicView ? 'sitewatcher_public_live_activity' : 'sitewatcher_live_activity';
   const speedKey = 'sitewatcher_scene_speed';
+  const routeView = !publicView && window.SiteWatcherRouteView
+    ? new window.SiteWatcherRouteView(panel, changeRouteView) : null;
   const clock = new Intl.DateTimeFormat(document.documentElement.lang, {
     timeZone: panel.dataset.timezone, hour: '2-digit', minute: '2-digit', second: '2-digit',
   });
@@ -76,11 +79,21 @@
     Date.parse(stamp(b)) - Date.parse(stamp(a)) || String(b.id).localeCompare(String(a.id), 'en', {numeric: true}));
   const stateText = event => event.phase === 'running' ? panel.dataset.running
     : event.phase === 'interrupted' ? panel.dataset.interrupted : event.status_label;
-  const legDuration = () => ({slower: 7000, slow: 4000, normal: 2000})[speed.value] || 4000;
+  const legDuration = flight => {
+    const base = ({slower: 7000, slow: 4000, normal: 2000})[speed.value] || 4000;
+    const points = nodes.get(flight.event.domain)?.route.points;
+    return base * (points ? Math.max(1, (points.length - 1) / 3) : 1);
+  };
   const capacity = () => compact ? 2 : 3;
   const pinned = domain => selectedName === domain || flights.some(flight => flight.event.domain === domain);
   const point = (route, t) => {
     const p = Math.max(0, Math.min(1, t));
+    if (route.points) {
+      const offset = p * (route.points.length - 1);
+      const index = Math.min(route.points.length - 2, Math.floor(offset));
+      const a = route.points[index], b = route.points[index + 1];
+      return {x: a.x + (b.x - a.x) * (offset - index), y: a.y + (b.y - a.y) * (offset - index)};
+    }
     const q = 1 - p;
     return {
       x: q ** 3 * route.x1 + 3 * q ** 2 * p * route.c1 + 3 * q * p ** 2 * route.c2 + p ** 3 * route.x2,
@@ -165,6 +178,7 @@
   const selectDomain = name => {
     const previous = nodes.get(selectedName);
     selectedName = selectedName === name ? null : name;
+    routeView?.select(selectedName);
     inspectedName = null;
     if (previous && !pinned(previous.domain)) {
       if (reduced.matches) removeNode(previous);
@@ -223,14 +237,22 @@
 
   const layoutNode = node => {
     const ys = compact ? [96, 245, 395, 544] : [68, 138, 208, 278, 348, 418];
-    const center = compact ? {x: 80, y: 320, scale: .65} : {x: 180, y: 240, scale: 1};
-    const x = compact ? 350 : 930;
-    const y = ys[node.slot];
+    const focused = routeView?.active && node.domain === selectedName ? routeView.geometry : null;
+    const center = focused ? focused.hub : compact ? {x: 80, y: 320, scale: .65} : {x: 180, y: 240, scale: 1};
+    const x = focused ? focused.target.x : compact ? 350 : 930;
+    const y = focused ? focused.target.y : ys[node.slot];
     const start = center.x + 95 * center.scale;
     const end = x - 20;
     node.route = {x1: start, y1: center.y, x2: end, y2: y,
       c1: start + (end - start) * .46, c2: start + (end - start) * .54};
-    node.path.setAttribute('d', `M${start} ${center.y}C${node.route.c1} ${center.y} ${node.route.c2} ${y} ${end} ${y}`);
+    if (focused) {
+      node.route.points = focused.points;
+      node.path.setAttribute('d', focused.points.map((p, i) => `${i ? 'L' : 'M'}${p.x} ${p.y}`).join(' '));
+      node.path.setAttribute('stroke-dasharray', roster.get(node.domain)?.route?.result?.reached ? '' : '5 6');
+    } else {
+      node.path.setAttribute('d', `M${start} ${center.y}C${node.route.c1} ${center.y} ${node.route.c2} ${y} ${end} ${y}`);
+      node.path.setAttribute('stroke-dasharray', '');
+    }
     node.group.setAttribute('transform', `translate(${x} ${y})`);
     node.body.setAttribute('y', compact ? -48 : -31);
     node.body.setAttribute('height', compact ? 100 : 62);
@@ -245,7 +267,9 @@
     node.touched = Date.parse(stamp(event)) || visualTime;
     node.group.dataset.pinned = String(node.domain === selectedName);
     node.group.dataset.level = level(event);
-    node.meta.textContent = compact && event.label.length > 24 ? event.label.slice(0, 23) + '…' : event.label;
+    node.meta.textContent = routeView?.active && event.domain === selectedName
+      ? routeView.geometry.destination_ip || event.label
+      : compact && event.label.length > 24 ? event.label.slice(0, 23) + '…' : event.label;
     node.state.textContent = stateText(event);
     const max = compact ? 18 : 29;
     node.name.textContent = event.domain.length > max
@@ -328,6 +352,7 @@
     paintMap();
   };
   const enqueue = (event, recorded = false) => {
+    if (routeView?.active && event.domain !== selectedName) return;
     if (flights.some(item => item.event.id === event.id) || queue.some(item => item.event.id === event.id)) return;
     if (reduced.matches) return;
     const item = {event, recorded};
@@ -344,7 +369,8 @@
     }
   };
   const fillReplay = () => {
-    const completed = recent().filter(event => event.phase === 'finished').slice(0, 6).reverse();
+    const completed = recent().filter(event => event.phase === 'finished'
+      && (!routeView?.active || event.domain === selectedName)).slice(0, routeView?.active ? 1 : 6).reverse();
     completed.forEach(event => enqueue(event, true));
     updateCounters();
     wake();
@@ -391,7 +417,7 @@
     }
     for (const flight of [...flights]) {
       if (flight.phase === 'out' || flight.phase === 'back') {
-        flight.progress = Math.min(1, flight.progress + delta / legDuration());
+        flight.progress = Math.min(1, flight.progress + delta / legDuration(flight));
         if (flight.progress === 1) {
           if (flight.phase === 'back') { returned++; removeFlight(flight); continue; }
           flight.phase = 'wait';
@@ -410,6 +436,7 @@
       drawFlight(flight);
     }
     updateCounters();
+    routeView?.step(flights);
     const moving = flights.some(flight => flight.phase !== 'wait' || flight.event.phase !== 'running');
     const retiring = [...nodes.values()].some(node => !pinned(node.domain) && node.retireAt !== undefined);
     if (moving || retiring || queue.length && flights.length < capacity()) frame = requestAnimationFrame(tick);
@@ -429,7 +456,10 @@
     }
   }
   const layout = () => {
-    const next = svg.clientWidth < 950;
+    const focused = routeView?.active ? routeView.geometry : null;
+    const next = !focused && canvas.clientWidth < 950;
+    svg.style.width = focused ? `${focused.width}px` : '';
+    svg.style.height = focused ? `${focused.height}px` : '';
     if (compact !== next) {
       compact = next;
       // Slots are stable within each layout; pin active domains before rebuilding on resize.
@@ -449,14 +479,36 @@
       }
     }
     panel.dataset.sceneLayout = compact ? 'compact' : 'wide';
-    svg.setAttribute('viewBox', compact ? '0 0 620 640' : '0 0 1200 480');
+    svg.setAttribute('viewBox', focused ? `0 0 ${focused.width} ${focused.height}`
+      : compact ? '0 0 620 640' : '0 0 1200 480');
+    if (selectedName && roster.has(selectedName) && !nodes.has(selectedName)) {
+      ensureNode(snapshotEvent(roster.get(selectedName)));
+    }
     nodes.forEach(node => { layoutNode(node); updateNode(node, node.last); });
     flights.forEach(drawFlight);
     paintMap();
   };
+  function changeRouteView() {
+    if (frame !== undefined && frame !== null) cancelAnimationFrame(frame);
+    frame = undefined;
+    lastFrame = undefined;
+    clearTimeout(loopTimer);
+    flights.forEach(flight => flight.group.remove());
+    flights = [];
+    queue = [];
+    nodes.clear();
+    links.replaceChildren();
+    stations.replaceChildren();
+    sent = returned = skipped = 0;
+    canvas.scrollLeft = 0;
+    layout();
+    updateCounters();
+    if (enabled) fillReplay();
+  }
   const render = (events, domains) => {
     const initial = !baseline;
     reconcileMap(domains);
+    routeView?.update(domains, selectedName);
     if (publicView) {
       for (const row of [...log.children]) if (!roster.has(row.dataset.domain)) row.remove();
       unread = Math.min(unread, log.children.length);
@@ -588,6 +640,7 @@
       nodes.clear();
       roster.clear();
       selectedName = inspectedName = null;
+      routeView?.reset();
       domainMap.replaceChildren();
       find('[data-map-count]').textContent = '0';
       mapDetail.textContent = panel.dataset.selectLabel;
@@ -686,7 +739,7 @@
     updateCounters();
     wake();
   });
-  new ResizeObserver(layout).observe(svg);
+  new ResizeObserver(layout).observe(canvas);
   panel.dataset.reducedMotion = String(reduced.matches);
   pause.disabled = reduced.matches;
   speed.disabled = reduced.matches;

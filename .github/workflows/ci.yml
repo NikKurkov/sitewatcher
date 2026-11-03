@@ -29,6 +29,7 @@ jobs:
           node tests/test_web_controls.cjs
           node --check sitewatcher/webapp/static/sitewatcher/activity.js
           node tests/test_live_activity.cjs
+          node tests/test_route_view.cjs
           node --check sitewatcher/webapp/static/sitewatcher/key_visibility.js
           node tests/test_key_visibility.cjs
       - run: pytest
@@ -47,6 +48,15 @@ jobs:
           touch sitewatcher/data/docker-probe.telegram-proxy sitewatcher/data/.telegram-proxy-docker-probe
           touch sitewatcher/data/docker-probe.virustotal-key sitewatcher/data/.virustotal-key-docker-probe
       - run: docker compose build web
+      - name: Verify unprivileged loopback route
+        run: >-
+          docker run --rm --network none --cap-drop ALL --entrypoint python sitewatcher:local -c
+          "import asyncio, os;
+          from sitewatcher.checks.traceroute import TracerouteCheck;
+          assert os.getuid() != 0;
+          result = asyncio.run(TracerouteCheck('127.0.0.1').run());
+          assert result.metrics['reached'], result.metrics;
+          assert result.metrics['hops'][0]['ip'] == '127.0.0.1'"
       - run: docker compose run --rm web sitewatcher check_all
       - run: docker compose run --rm web sitewatcher doctor --json
       - name: Verify installed authenticated workspace and partials

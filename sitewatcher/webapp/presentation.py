@@ -15,6 +15,7 @@ _CHECK_LABELS = {
     'rkn_ip': _('RKN IP listing'), 'rkn_block': _('Legacy RKN blocking'), 'ports': _('TCP ports'),
     'whois': _('Domain registration'), 'ip_blacklist': _('IP blocklists'),
     'ip_change': _('IP address changes'), 'malware': _('Malware detection'),
+    'traceroute': _('Network route'),
 }
 _CHECK_HELP = {
     'rkn_domain': _('A domain or parent-domain listing is Critical.'),

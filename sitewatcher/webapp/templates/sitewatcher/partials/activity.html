@@ -1,6 +1,7 @@
 {% load i18n %}
 <section class="panel activity-panel" id="live-checks" data-live-activity hidden
     aria-labelledby="live-checks-title" data-timezone="{% if public_view %}{{ public_timezone }}{% else %}{{ request.workspace.timezone }}{% endif %}"
+    {% if not public_view %}data-route-read-only="{{ read_only|yesno:'true,false' }}"{% endif %}
     {% if public_view %}data-public-activity="true" data-activity-endpoint="activity"{% endif %}
     data-running="{% translate 'Waiting for a result' %}" data-milliseconds="{% translate 'ms' %}" data-interrupted="{% translate 'No completion received' %}"
     data-idle="{% translate 'Waiting for the next check' %}"
@@ -48,6 +49,7 @@
     <div class="activity-stage">
         <div class="activity-stage-topline" aria-hidden="true"><span>SiteWatcher <b>/</b> {% translate 'Signal room' %}</span><span class="activity-stage-direction">{% translate 'Probe' %}<i></i>{% translate 'Response' %}</span></div>
         <div class="activity-field">
+        <div class="activity-canvas" data-scene-scroll tabindex="0">
         <svg class="activity-scene" data-activity-scene viewBox="0 0 1200 480" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
             <defs>
                 <linearGradient id="activity-wire-gradient" x1="0" x2="1"><stop offset="0" stop-color="#00cfb0" stop-opacity=".5"/><stop offset=".6" stop-color="#40758a" stop-opacity=".3"/><stop offset="1" stop-color="#00cfb0" stop-opacity=".6"/></linearGradient>
@@ -71,6 +73,7 @@
             <g data-scene-nodes></g>
             <g data-scene-pulses></g>
         </svg>
+        </div>
         <aside class="activity-map" aria-label="{% translate 'All domains' %}">
             <div class="activity-map-heading"><h3>{% translate 'All domains' %} <span data-map-count>0</span></h3><button type="button" data-map-unpin hidden title="{% translate 'Unpin domain' %}" aria-label="{% translate 'Unpin domain' %}">×</button></div>
             <p class="activity-map-key">{% translate 'Last saved check result' %}</p>
@@ -93,6 +96,7 @@
         </ul>
     </div>
     <p class="activity-playback-note">{% translate 'Animation follows recorded events; probe durations are shown in the log.' %}</p>
+    {% if not public_view %}{% include 'sitewatcher/partials/route_controls.html' %}{% endif %}
     <div class="activity-console">
         <div class="activity-console-heading"><h3><span aria-hidden="true">›_</span> {% translate 'Event console' %} <span class="activity-console-count" data-console-count>0</span></h3><button type="button" class="activity-console-follow" data-console-follow aria-pressed="true">{% translate 'Follow latest' %}</button></div>
         <div class="activity-console-scroll" data-console-scroll role="log" aria-live="off" tabindex="0" aria-label="{% translate 'Recent check events' %}"><ol data-activity-console></ol></div>

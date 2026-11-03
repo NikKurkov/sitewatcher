@@ -8,7 +8,7 @@ from django.utils.translation import gettext as _
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_safe
 
-from sitewatcher import check_activity
+from sitewatcher import check_activity, network_routes
 from .accounts import owner_required
 from .presentation import check_label, status_label
 
@@ -25,10 +25,11 @@ def present_events(events):
             event['status_label'] = str(status_label(event['status']))
             continue
         interrupted = False
-        if stale_after is not None:
+        event_deadline = 60 if event['check_name'] == 'traceroute' else stale_after
+        if event_deadline is not None:
             try:
                 stamp = datetime.fromisoformat(event['started_at'])
-                interrupted = (now - stamp).total_seconds() > stale_after
+                interrupted = (now - stamp).total_seconds() > event_deadline
             except (TypeError, ValueError, OverflowError):
                 interrupted = True
         event['status'] = 'UNKNOWN'
@@ -46,10 +47,13 @@ def activity(request):
     try:
         events = check_activity.recent(request.workspace.owner_id)
         domains = check_activity.domain_roster(request.workspace.owner_id)
+        routes = network_routes.read_owner(request.workspace.owner_id)
     except (sqlite3.Error, OSError):
         return JsonResponse({'error': 'Activity unavailable'}, status=503)
     present_events(events)
     for domain in domains:
+        if domain['name'] in routes:
+            domain['route'] = routes[domain['name']]
         check = domain.pop('check_name')
         domain['label'] = str(check_label(check)) if check else ''
         domain['status_label'] = str(status_label(domain['status']))

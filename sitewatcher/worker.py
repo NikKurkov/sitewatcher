@@ -13,7 +13,7 @@ import uuid
 from telegram import Bot
 from telegram.request import HTTPXRequest
 
-from . import maintenance, scheduler, scheduler_lock, storage
+from . import maintenance, network_routes, scheduler, scheduler_lock, storage
 from .bot import jobs
 from .bot.alerts import AlertDeduper
 from .config import AppConfig
@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 async def run_worker(cfg: AppConfig) -> None:
     """Own scheduling until cancellation; web processes never enter this loop."""
     with scheduler_lock.acquire(storage.DEFAULT_DB):
-        async with AsyncExitStack() as clients:
+        async with network_routes.runner(cfg), AsyncExitStack() as clients:
             context = SimpleNamespace(bot=None, application=SimpleNamespace(bot_data={
                 'cfg': cfg, 'alert_deduper': AlertDeduper(cfg.alerts.effective_cooldown),
             }))

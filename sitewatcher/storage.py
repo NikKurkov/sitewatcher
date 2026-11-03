@@ -45,6 +45,17 @@ CREATE TABLE IF NOT EXISTS domain_overrides (
   FOREIGN KEY(owner_id, domain) REFERENCES domains(owner_id, name) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS domain_routes (
+  owner_id INTEGER NOT NULL,
+  domain TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  state TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  result_json TEXT,
+  PRIMARY KEY(owner_id, domain),
+  FOREIGN KEY(owner_id, domain) REFERENCES domains(owner_id, name) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_id INTEGER NOT NULL,

@@ -245,3 +245,55 @@
 }
 
 .activity-panel[data-paused=true] .scene-node-content { animation-play-state: paused; }
+
+/* Private worker-origin route: a horizontal hop rail shares the existing signal scene. */
+.activity-route { padding: 16px 24px; border-top: 1px solid #294451; background: #101f2a; }
+.activity-route-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; }
+.activity-route-context { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; min-width: 0; }
+.activity-route-context strong { color: #c7dce5; font-size: 12px; font-weight: 550; }
+.activity-route-context span { color: #91b7c6; font-size: 12px; overflow-wrap: anywhere; }
+.activity-route-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.activity-route .activity-control { min-height: 34px; font-size: 11px; }
+.activity-panel .activity-route button:disabled { cursor: default; opacity: .45; }
+.activity-route-state { margin: 10px 0 4px; color: #a8c7d1; font-size: 12px; line-height: 1.6; }
+.activity-route-note { margin: 0; max-width: 85ch; color: #8ba6b4; font-size: 11px; line-height: 1.7; }
+.activity-route-details { margin-top: 12px; border-top: 1px solid #294451; padding-top: 10px; color: #a8c0cd; font-size: 12px; }
+.activity-route-details summary { cursor: pointer; line-height: 1.8; }
+.activity-route-details summary span { margin-inline-start: 10px; color: #8ba6b4; font-size: 11px; }
+.activity-route-details ol { margin: 12px 0 0; padding-inline-start: 30px; max-height: 300px; overflow: auto; scrollbar-width: thin; }
+.activity-route-details li { padding: 5px 8px; line-height: 1.7; overflow-wrap: anywhere; border-top: 1px solid #263c493d; font-variant-numeric: tabular-nums; }
+.activity-route-details li::marker { color: #7297a7; }
+.activity-route-details code { padding: 0; background: transparent; color: #d4e8ef; font-size: 12px; }
+.activity-field > [data-scene-scroll] { flex: 1 1 0; width: 0; min-width: 0; }
+[data-scene-scroll] { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: #416474 #0b151e; overscroll-behavior-inline: contain; }
+[data-scene-scroll] > .activity-scene { width: 100%; }
+.activity-panel[data-route-active=true] [data-scene-scroll] { align-self: stretch; }
+.activity-panel[data-route-active=true] [data-scene-scroll] > .activity-scene { height: 420px; min-height: 420px; max-width: none; }
+.activity-panel[data-route-active=true] .scene-node-name { font-size: 14px; }
+.activity-panel[data-route-active=true] .scene-node-meta { font-size: 11px; }
+.activity-panel[data-route-active=true] .scene-node-status { font-size: 10px; }
+.activity-panel[data-route-active=true] .scene-hub-label { font-size: 19px; }
+.activity-panel[data-route-active=true] .scene-hub-caption { font-size: 11px; display: block; }
+.scene-route-hop { --route-ink: #7194a5; }
+.scene-route-paddle { fill: var(--route-ink); }
+.scene-route-ttl { fill: #86a8b7; font-size: 12px; font-variant-numeric: tabular-nums; }
+.scene-route-ip { fill: #d4e8ef; font-size: 13px; font-family: ui-monospace, 'Cascadia Code', 'Liberation Mono', monospace; }
+.scene-route-ptr { fill: #89a9b9; font-size: 11px; }
+.scene-route-rtt { fill: #9abac9; font-size: 11px; font-variant-numeric: tabular-nums; }
+.scene-route-hop.is-traversed { --route-ink: #00cfb0; }
+.scene-route-hop.is-current .scene-route-paddle { filter: drop-shadow(0 0 5px #00cfb077); }
+.scene-route-hop.is-silent { --route-ink: #68808e; }
+.scene-route-hop.is-silent .scene-route-paddle { fill: transparent; stroke: var(--route-ink); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.scene-route-hop.is-silent .scene-route-ip { fill: #91a8b4; }
+.scene-route-hop.is-silent.is-current .scene-route-paddle { filter: none; }
+@media (max-width: 600px) {
+  .activity-route { padding: 14px 16px; }
+  .activity-route-heading { align-items: flex-start; }
+  .activity-route-actions { width: 100%; }
+  .activity-route .activity-control { min-height: 44px; padding: 9px; }
+  .activity-route-details summary span { display: block; margin-inline-start: 15px; }
+  .activity-field > [data-scene-scroll] { flex: none; width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scene-route-hop.is-current .scene-route-paddle { filter: none; }
+}

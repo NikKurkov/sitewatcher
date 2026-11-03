@@ -1,7 +1,7 @@
 {% extends 'sitewatcher/base.html' %}
 {% load i18n %}
 {% block title %}{% translate 'Overview · SiteWatcher' %}{% endblock %}
-{% block page_scripts %}<link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'activity.js' %}"></script>{% if not read_only %}<script defer src="{% url 'asset' 'domain_order.js' %}"></script>{% endif %}{% endblock %}
+{% block page_scripts %}<link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'route_view.js' %}"></script><script defer src="{% url 'asset' 'activity.js' %}"></script>{% if not read_only %}<script defer src="{% url 'asset' 'domain_order.js' %}"></script>{% endif %}{% endblock %}
 {% block content %}
     <h1 class="sr-only">{% translate 'Overview' %}</h1>
     {% if notice %}
