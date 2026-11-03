@@ -391,6 +391,9 @@ def test_overview_actions_are_accessible_header_icons_without_intro(owner, clien
     body = get(client, '/').content.decode()
     header = body.split('<header class="topbar">', 1)[1].split('</header>', 1)[0]
     assert 'class="topbar-actions"' in header
+    assert 'data-activity-toggle hidden' in header and 'aria-controls="live-checks"' in header
+    assert 'data-live-activity hidden' in body
+    assert '/assets/activity.js' in body
     assert 'href="/domains/new"' in header and 'action="/domains/check"' in header
     assert 'aria-label="Refresh now"' in header
     assert 'data-refresh-enabled' in header and 'aria-pressed="true"' in header

@@ -131,6 +131,9 @@ def test_virustotal_unavailable_or_missing_report_stays_unknown(api_key):
             result = await MalwareScanCheck('example.test', client=client,
                                            vt_cfg=_VTConfig(api_key=api_key)).run()
         assert result.status is Status.UNKNOWN
+        assert result.message == (
+            'VirusTotal has no report for this URL' if api_key else
+            'VirusTotal is not configured: API key is missing')
         assert len(requests) == (1 if api_key else 0)
         assert all(request.method == 'GET' for request in requests)
     asyncio.run(scenario())

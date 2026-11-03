@@ -1310,3 +1310,90 @@ msgstr "Приоритет окружения: используется TELEGRAM
 
 msgid "Removing the saved proxy restores standard proxy environment settings. A running worker picks up proxy changes on its next tick. Restart a polling bot after changing its proxy."
 msgstr "После удаления сохранённого прокси снова используются стандартные переменные окружения прокси. Работающий воркер подхватит изменения на следующем цикле. После изменения прокси перезапустите бота, получающего обновления."
+
+msgid "New VirusTotal API key"
+msgstr "Новый API-ключ VirusTotal"
+
+msgid "Remove saved VirusTotal API key"
+msgstr "Удалить сохранённый API-ключ VirusTotal"
+
+msgid "Enter a VirusTotal API key without spaces or control characters."
+msgstr "Введите API-ключ VirusTotal без пробелов и управляющих символов."
+
+msgid "Choose a new VirusTotal key or remove the saved key."
+msgstr "Введите новый ключ VirusTotal или выберите удаление сохранённого ключа."
+
+msgid "The VirusTotal key could not be read. Save a new key or remove it."
+msgstr "Не удалось прочитать ключ VirusTotal. Сохраните новый ключ или удалите его."
+
+msgid "Advanced: bot token, proxy, VirusTotal key and manual chat ID"
+msgstr "Дополнительно: токен бота, прокси, ключ VirusTotal и ID чата"
+
+msgid "Leave blank to keep the key. It is stored privately and never shown again. Changes apply on the next malware probe without restarting the worker or bot."
+msgstr "Оставьте поле пустым, чтобы сохранить текущий ключ. Он хранится в закрытом файле и больше не отображается. Изменения применятся при следующей проверке угроз без перезапуска обработчика или бота."
+
+msgid "VirusTotal API key configured."
+msgstr "API-ключ VirusTotal настроен."
+
+msgid "VirusTotal is not configured; malware checks need an API key."
+msgstr "VirusTotal не настроен: для проверки угроз нужен API-ключ."
+
+msgid "Environment override: VIRUSTOTAL_API_KEY takes priority. Saved changes apply after that override is removed."
+msgstr "Задано через окружение: VIRUSTOTAL_API_KEY имеет приоритет. Сохранённые изменения применятся после удаления этой настройки окружения."
+
+msgid "Installation override: malware.vt_api_key takes priority. Saved changes apply after that override is removed."
+msgstr "Задано в конфигурации установки: malware.vt_api_key имеет приоритет. Сохранённые изменения применятся после удаления этой настройки."
+
+msgid "This key is shared by this installation. Removing the saved key keeps environment and installation overrides. VirusTotal only reads existing URL reports; no URL is submitted for analysis."
+msgstr "Ключ используется всей установкой. Удаление сохранённого ключа не меняет настройки окружения и конфигурации. VirusTotal только читает существующие отчёты об URL; адреса не отправляются на анализ."
+
+msgid "VirusTotal is not configured: API key is missing"
+msgstr "VirusTotal не настроен: отсутствует API-ключ"
+
+msgid "VirusTotal has no report for this URL"
+msgstr "В VirusTotal нет отчёта об этом URL"
+
+msgid "VirusTotal configuration could not be read securely"
+msgstr "Не удалось безопасно прочитать настройки VirusTotal"
+
+msgid "VT: not_found"
+msgstr "VirusTotal не вернул отчёт; результат проверки неизвестен."
+
+msgid "Running"
+msgstr "Выполняется"
+
+msgid "Interrupted"
+msgstr "Прервано"
+
+msgid "No completion received"
+msgstr "Нет результата завершения"
+
+msgid "Waiting for the next check"
+msgstr "Ожидание следующей проверки"
+
+msgid "No recent checks yet"
+msgstr "Недавних проверок пока нет"
+
+msgid "Activity is temporarily unavailable; reconnecting…"
+msgstr "Данные временно недоступны; подключаемся повторно…"
+
+msgid "Live checks"
+msgstr "Проверки в реальном времени"
+
+msgid "Connecting…"
+msgstr "Подключаемся…"
+
+msgid "Websites and services"
+msgstr "Сайты и сервисы"
+
+msgid "Show live checks"
+msgstr "Показать проверки в реальном времени"
+
+msgid "Hide live checks"
+msgstr "Скрыть проверки в реальном времени"
+
+msgid "Waiting for a result"
+msgstr "Ожидание результата"
+
+msgid "ms"
+msgstr "мс"

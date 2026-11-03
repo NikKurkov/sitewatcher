@@ -16,6 +16,7 @@ from sitewatcher.telegram_connection import (
     find_chats, load_bot_token, save_bot_token, send_test_notification,
 )
 from sitewatcher.telegram_proxy import load_proxy, save_proxy, remove_proxy
+from sitewatcher.virustotal_settings import load_api_key, save_api_key, remove_api_key
 from .accounts import owner_required
 from .forms import WorkspacePreferencesForm
 
@@ -34,7 +35,7 @@ def _destination(cfg, owner_id):
     return chat_id, source
 
 
-@sensitive_variables('token', 'proxy')
+@sensitive_variables('token', 'proxy', 'api_key', 'configured_key', 'form')
 def _render(request, form=None, *, error='', notice='', chats=None, status=200, public_link=''):
     owner_id = request.workspace.owner_id
     destination, source = _destination(settings.SITEWATCHER_CONFIG, owner_id)
@@ -57,9 +58,19 @@ def _render(request, form=None, *, error='', notice='', chats=None, status=200, 
     except (OSError, ValueError):
         proxy_present = False
         error = error or _('The Telegram proxy could not be read. Save a new proxy or remove it.')
+    configured_key = settings.SITEWATCHER_CONFIG.malware.vt_api_key
+    try:
+        api_key = load_api_key(configured_key)
+        virustotal_present = bool(api_key)
+    except (OSError, ValueError):
+        virustotal_present = False
+        error = error or _('The VirusTotal key could not be read. Save a new key or remove it.')
     response = render(request, 'sitewatcher/preferences.html', {
         'form': form, 'read_only': settings.SITEWATCHER_READ_ONLY,
         'token_present': token_present, 'environment_override': bool(os.getenv('TELEGRAM_TOKEN', '').strip()),
+        'virustotal_present': virustotal_present,
+        'virustotal_environment_override': bool(os.getenv('VIRUSTOTAL_API_KEY', '').strip()),
+        'virustotal_config_override': bool(configured_key),
         'proxy_present': proxy_present,
         'proxy_environment_override': bool(os.getenv('TELEGRAM_PROXY', '').strip()),
         'destination': destination, 'destination_source': source,
@@ -75,7 +86,7 @@ def _render(request, form=None, *, error='', notice='', chats=None, status=200, 
 
 @owner_required
 @require_http_methods(['GET', 'HEAD', 'POST'])
-@sensitive_post_parameters('bot_token', 'telegram_proxy')
+@sensitive_post_parameters('bot_token', 'telegram_proxy', 'virustotal_api_key')
 @sensitive_variables('token', 'fields', 'form')
 def preferences(request):
     if request.method != 'POST':
@@ -96,6 +107,10 @@ def preferences(request):
             return _render(request, form, status=400)
         try:
             # Empty connection fields retain the existing configuration.
+            if form.cleaned_data['remove_virustotal_api_key']:
+                remove_api_key()
+            elif form.cleaned_data['virustotal_api_key']:
+                save_api_key(form.cleaned_data['virustotal_api_key'])
             if form.cleaned_data['remove_telegram_proxy']:
                 remove_proxy()
             elif form.cleaned_data['telegram_proxy']:

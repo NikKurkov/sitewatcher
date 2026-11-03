@@ -9,7 +9,7 @@ from typing import Iterable, List, Optional, Tuple
 
 import httpx
 
-from . import storage
+from . import check_activity, storage
 from .utils.http_body import DEFAULT_MAX_RESPONSE_BYTES
 from .utils.results import overall_from_results, status_text, strip_cached_suffix
 from .checks.base import CheckOutcome, Status
@@ -208,8 +208,16 @@ class Dispatcher:
             async with sem:
                 name = getattr(chk, "name", "")
                 start = asyncio.get_running_loop().time()
+                activity_status = Status.UNKNOWN.value
+                activity_task = None if ephemeral else asyncio.create_task(asyncio.to_thread(
+                    check_activity.start, owner_id, domain, name,
+                ))
                 try:
+                    if activity_task is not None:
+                        await asyncio.shield(activity_task)
+                    start = asyncio.get_running_loop().time()
                     res = await chk.run()
+                    activity_status = status_text(res.status)
                     elapsed_ms = int((asyncio.get_running_loop().time() - start) * 1000)
                     # Enrich metrics with elapsed time (non-invasive)
                     try:
@@ -233,6 +241,22 @@ class Dispatcher:
                     )
                     res = CheckOutcome(name, Status.UNKNOWN, f"error: {e.__class__.__name__}: {e}", {"elapsed_ms": elapsed_ms})
                     return idx, res
+                finally:
+                    if activity_task is not None:
+                        async def finish_activity():
+                            event_id = await activity_task
+                            elapsed_ms = int((asyncio.get_running_loop().time() - start) * 1000)
+                            await asyncio.to_thread(
+                                check_activity.finish, event_id, activity_status, elapsed_ms,
+                            )
+
+                        # A cancelled gather can cancel children again while they clean up.
+                        cleanup = asyncio.create_task(finish_activity())
+                        try:
+                            await asyncio.shield(cleanup)
+                        except asyncio.CancelledError:
+                            await cleanup
+                            raise
 
 
         # Prepare tasks, honoring cache if enabled
@@ -253,51 +277,56 @@ class Dispatcher:
 
         # Run tasks with optional timeout
         if tasks:
-            if isinstance(domain_timeout, (int, float)) and domain_timeout > 0:
-                try:
-                    done_results = await asyncio.wait_for(
-                        asyncio.gather(*tasks, return_exceptions=False),
-                        timeout=float(domain_timeout),
-                    )
+            try:
+                if isinstance(domain_timeout, (int, float)) and domain_timeout > 0:
+                    try:
+                        done_results = await asyncio.wait_for(
+                            asyncio.gather(*tasks, return_exceptions=False),
+                            timeout=float(domain_timeout),
+                        )
+                        for idx, res in done_results:
+                            results_ordered[idx] = res
+                    except asyncio.TimeoutError:
+                        # Domain-level timeout: cancel remaining tasks and mark them as timed out
+                        log.warning(
+                            "dispatcher.timeout",
+                            extra={
+                                "event": "dispatcher.timeout",
+                                "run_id": run_id,
+                                "owner_id": owner_id,
+                                "domain": domain,
+                                "timeout_s": float(domain_timeout),
+                            },
+                        )
+                        for t in tasks:
+                            if not t.done():
+                                t.cancel()
+
+                        gathered = await asyncio.gather(*tasks, return_exceptions=True)
+                        for pos, outcome in enumerate(gathered):
+                            chk_idx = idx_map[pos]
+                            name = getattr(checks[chk_idx], "name", "")
+                            if isinstance(outcome, tuple):
+                                i_idx, res = outcome
+                                results_ordered[i_idx] = res
+                            elif isinstance(outcome, asyncio.CancelledError):
+                                results_ordered[chk_idx] = CheckOutcome(name, Status.UNKNOWN, "timeout", {})
+                            elif isinstance(outcome, Exception):
+                                results_ordered[chk_idx] = CheckOutcome(
+                                    name, Status.UNKNOWN, f"error: {outcome.__class__.__name__}: {outcome}", {}
+                                )
+                            else:
+                                # Should not happen, but keep a sane fallback
+                                results_ordered[chk_idx] = CheckOutcome(name, Status.UNKNOWN, "unknown", {})
+
+                else:
+                    done_results = await asyncio.gather(*tasks, return_exceptions=False)
                     for idx, res in done_results:
                         results_ordered[idx] = res
-                except asyncio.TimeoutError:
-                    # Domain-level timeout: cancel remaining tasks and mark them as timed out
-                    log.warning(
-                        "dispatcher.timeout",
-                        extra={
-                            "event": "dispatcher.timeout",
-                            "run_id": run_id,
-                            "owner_id": owner_id,
-                            "domain": domain,
-                            "timeout_s": float(domain_timeout),
-                        },
-                    )
-                    for t in tasks:
-                        if not t.done():
-                            t.cancel()
-
-                    gathered = await asyncio.gather(*tasks, return_exceptions=True)
-                    for pos, outcome in enumerate(gathered):
-                        chk_idx = idx_map[pos]
-                        name = getattr(checks[chk_idx], "name", "")
-                        if isinstance(outcome, tuple):
-                            i_idx, res = outcome
-                            results_ordered[i_idx] = res
-                        elif isinstance(outcome, asyncio.CancelledError):
-                            results_ordered[chk_idx] = CheckOutcome(name, Status.UNKNOWN, "timeout", {})
-                        elif isinstance(outcome, Exception):
-                            results_ordered[chk_idx] = CheckOutcome(
-                                name, Status.UNKNOWN, f"error: {outcome.__class__.__name__}: {outcome}", {}
-                            )
-                        else:
-                            # Should not happen, but keep a sane fallback
-                            results_ordered[chk_idx] = CheckOutcome(name, Status.UNKNOWN, "unknown", {})
-
-            else:
-                done_results = await asyncio.gather(*tasks, return_exceptions=False)
-                for idx, res in done_results:
-                    results_ordered[idx] = res
+            except asyncio.CancelledError:
+                # Wait for running checks to finish their cancellation cleanup.
+                await asyncio.gather(*tasks, return_exceptions=True)
+                raise
 
         results: List[CheckOutcome] = [r for r in results_ordered if r is not None]
 

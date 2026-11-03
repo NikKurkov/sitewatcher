@@ -24,6 +24,20 @@ _STATUS_LABELS = {'OK': _('OK'), 'WARN': _('WARN'), 'CRIT': _('CRIT'),
                   'UNKNOWN': _('UNKNOWN')}
 
 
+_DIAGNOSTIC_MESSAGES = {
+    'VirusTotal is not configured: API key is missing':
+        _('VirusTotal is not configured: API key is missing'),
+    'VirusTotal has no report for this URL': _('VirusTotal has no report for this URL'),
+    'VirusTotal configuration could not be read securely':
+        _('VirusTotal configuration could not be read securely'),
+    'VT: not_found': _('VT: not_found'),
+}
+
+
+def diagnostic_message(value):
+    return _DIAGNOSTIC_MESSAGES.get(value, value)
+
+
 def status_label(value):
     return _STATUS_LABELS.get(value, value)
 

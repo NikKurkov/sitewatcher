@@ -25,7 +25,7 @@ from sitewatcher.web_actions import (
 from .accounts import owner_required
 from .forms import HistoryFiltersForm
 from .analytics import domain_report, overview_report
-from .presentation import check_label, domain_form_context, local_time, report_context, status_label
+from .presentation import check_label, diagnostic_message, domain_form_context, local_time, report_context, status_label
 
 # ponytail: one process-local manual run; run a single web process, use a job queue to scale.
 _check_lock = Lock()
@@ -122,6 +122,7 @@ def _page(request, view, domain='', *, error='', values=None, status=200):
             raise Http404('Domain not found') from None
         for item in history:
             item['check_label'] = check_label(item['check_name'])
+            item['message'] = diagnostic_message(item['message'])
             item['status_label'] = status_label(item['status'])
             item['observed'] = local_time(item['created_at'], request.workspace.timezone)
         return _render(request, 'domain_detail', {'report': report_context(report), 'row': row,
@@ -157,6 +158,7 @@ def _row_context(row, zone):
     row['observed'] = local_time(row['last_checked_at'], zone)
     for check in row['checks']:
         check['label'] = check_label(check['name'])
+        check['message'] = diagnostic_message(check['message'])
         check['status_label'] = status_label(check['status'])
         check['observed'] = local_time(check['checked_at'], zone)
     row['problems'] = sorted(

@@ -1,5 +1,5 @@
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import sqlite3
 
@@ -257,3 +257,18 @@ def test_snapshot_legacy_domains_without_favorites_stays_read_only(database):
     with sqlite3.connect(database) as conn:
         columns = {row[1] for row in conn.execute('PRAGMA table_info(domains)')}
     assert 'favorite' not in columns
+
+
+@pytest.mark.parametrize(('interval', 'age_seconds', 'expected'), [
+    (None, 300, False), (None, 599, False), (None, 600, True),
+    (7, 600, False), (7, 839, False), (7, 840, True), (0, 3600, False),
+])
+def test_overdue_notice_waits_for_two_intervals(database, interval, age_seconds, expected):
+    save(1, 'example.com', 'ping', timestamp=(NOW - timedelta(seconds=age_seconds)).isoformat())
+    save(1, 'example.com', 'tls_cert')
+    if interval is not None:
+        storage.set_domain_override(1, 'example.com', {'interval_minutes': interval})
+    row = build_snapshot(config(), 1, now=NOW)['domains'][0]
+    assert row['overdue'] is expected
+    if interval != 0:
+        assert row['stale']  # Freshness remains conservative; only the notice has a grace period.

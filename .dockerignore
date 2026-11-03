@@ -46,3 +46,9 @@ tests
 **/*.telegram-proxy
 **/.telegram-proxy-*
 assets
+
+# Private VirusTotal API key and atomic-write temporary files.
+*.virustotal-key
+.virustotal-key-*
+**/*.virustotal-key
+**/.virustotal-key-*

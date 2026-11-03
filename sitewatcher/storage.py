@@ -63,6 +63,19 @@ CREATE INDEX IF NOT EXISTS idx_history_owner_domain_check_created
 CREATE INDEX IF NOT EXISTS idx_history_owner_domain_check_id
   ON history(owner_id, domain, check_name, id DESC);
 
+CREATE TABLE IF NOT EXISTS check_activity (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_id INTEGER NOT NULL,
+  domain TEXT NOT NULL,
+  check_name TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  status TEXT NOT NULL,
+  elapsed_ms INTEGER,
+  FOREIGN KEY(owner_id, domain) REFERENCES domains(owner_id, name) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_check_activity_owner_id ON check_activity(owner_id, id DESC);
+
 CREATE TABLE IF NOT EXISTS whois_state (
   domain TEXT PRIMARY KEY,
   snapshot_json TEXT NOT NULL,

@@ -2,6 +2,7 @@
 {% load i18n %}
 {% block title %}{% translate 'Overview · SiteWatcher' %}{% endblock %}
 {% block header_actions %}{% include 'sitewatcher/partials/overview_actions.html' %}{% endblock %}
+{% block page_scripts %}<script defer src="{% url 'asset' 'activity.js' %}"></script>{% endblock %}
 {% block content %}
     <h1 class="sr-only">{% translate 'Overview' %}</h1>
     {% if notice %}
@@ -21,6 +22,7 @@
                 {% include 'sitewatcher/partials/time.html' with stamp=observed %}
             </div>
         </section>
+        {% include 'sitewatcher/partials/activity.html' %}
         <div class="list-toolbar">
             <form method="get" class="filter-form" role="search">
                 <label class="sr-only" for="q">{% translate 'Find a domain' %}</label>
@@ -62,7 +64,7 @@
                                         {% if row.error %}
                                             <span class="row-note">{{ row.error }}</span>
                                         {% endif %}
-                                        {% if row.stale and row.observed and not row.paused %}
+                                        {% if row.overdue and row.observed and not row.paused %}
                                             <span class="row-note">{% translate 'Some checks are overdue' %}</span>
                                         {% endif %}
                                     </div>

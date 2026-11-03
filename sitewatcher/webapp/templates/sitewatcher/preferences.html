@@ -120,6 +120,27 @@
                     <p class="field-help">{% translate 'Use a numeric chat ID, including the minus sign for a group. Leave blank to keep your destination. This changes delivery only; your existing domains and history stay with your account.' %}</p>
                 </div>
             </details>
+            <h2>VirusTotal</h2>
+                <div class="field">
+                    <label for="{{ form.virustotal_api_key.id_for_label }}">{{ form.virustotal_api_key.label }}</label>
+                    {{ form.virustotal_api_key }}
+                    {% if form.virustotal_api_key.errors %}
+                        <div id="id_virustotal_api_key_error">
+                            {% for error in form.virustotal_api_key.errors %}
+                                <p class="field-error">{{ error }}</p>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                    <p class="field-help">{% translate 'Leave blank to keep the key. It is stored privately and never shown again. Changes apply on the next malware probe without restarting the worker or bot.' %}</p>
+                    <p class="field-help">{% if virustotal_present %}{% translate 'VirusTotal API key configured.' %}{% else %}{% translate 'VirusTotal is not configured; malware checks need an API key.' %}{% endif %}</p>
+                    {% if virustotal_environment_override %}
+                        <p class="notice">{% translate 'Environment override: VIRUSTOTAL_API_KEY takes priority. Saved changes apply after that override is removed.' %}</p>
+                    {% elif virustotal_config_override %}
+                        <p class="notice">{% translate 'Installation override: malware.vt_api_key takes priority. Saved changes apply after that override is removed.' %}</p>
+                    {% endif %}
+                    <label>{{ form.remove_virustotal_api_key }} {{ form.remove_virustotal_api_key.label }}</label>
+                    <p class="field-help">{% translate 'This key is shared by this installation. Removing the saved key keeps environment and installation overrides. VirusTotal only reads existing URL reports; no URL is submitted for analysis.' %}</p>
+                </div>
             {% if not read_only %}
                 <div class="form-actions">
                     <button class="primary" type="submit">{% translate 'Save settings' %}</button>

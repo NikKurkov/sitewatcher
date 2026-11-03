@@ -1,0 +1,15 @@
+{% load i18n %}
+<section class="panel activity-panel" id="live-checks" data-live-activity hidden
+    aria-labelledby="live-checks-title" data-timezone="{{ request.workspace.timezone }}"
+    data-running="{% translate 'Waiting for a result' %}" data-milliseconds="{% translate 'ms' %}" data-interrupted="{% translate 'No completion received' %}"
+    data-idle="{% translate 'Waiting for the next check' %}"
+    data-waiting="{% translate 'No recent checks yet' %}"
+    data-unavailable="{% translate 'Activity is temporarily unavailable; reconnecting…' %}"
+>
+    <div class="activity-heading">
+        <h2 id="live-checks-title">{% translate 'Live checks' %}</h2>
+        <span class="muted" data-activity-status role="status">{% translate 'Connecting…' %}</span>
+    </div>
+    <div class="activity-endpoints" aria-hidden="true"><span>SiteWatcher</span><span>{% translate 'Websites and services' %}</span></div>
+    <ol class="activity-lanes" data-activity-lanes></ol>
+</section>

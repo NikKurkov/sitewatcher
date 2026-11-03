@@ -27,6 +27,8 @@ jobs:
         run: |
           node --check sitewatcher/webapp/static/sitewatcher/theme.js
           node tests/test_web_controls.cjs
+          node --check sitewatcher/webapp/static/sitewatcher/activity.js
+          node tests/test_live_activity.cjs
       - run: pytest
       - run: python -m sitewatcher.main --help
 
@@ -41,6 +43,7 @@ jobs:
           touch sitewatcher/data/docker-probe.db-wal sitewatcher/data/.env.docker-probe
           touch sitewatcher/data/docker-probe.web-secret sitewatcher/data/docker-probe.telegram-token
           touch sitewatcher/data/docker-probe.telegram-proxy sitewatcher/data/.telegram-proxy-docker-probe
+          touch sitewatcher/data/docker-probe.virustotal-key sitewatcher/data/.virustotal-key-docker-probe
       - run: docker compose build web
       - run: docker compose run --rm web sitewatcher check_all
       - run: docker compose run --rm web sitewatcher doctor --json
@@ -63,4 +66,6 @@ jobs:
           assert c.get('/assets/workspace.css', HTTP_HOST='localhost').status_code == 200;
           assert c.get('/assets/logo-dark.svg', HTTP_HOST='localhost')['Content-Type'] == 'image/svg+xml';
           assert c.get('/assets/favicon.ico', HTTP_HOST='localhost').status_code == 200;
+          assert c.get('/assets/activity.js', HTTP_HOST='localhost').status_code == 200;
+          assert c.get('/api/activity', HTTP_HOST='localhost').status_code == 401;
           assert c.get('/healthz', HTTP_HOST='localhost').status_code == 200"

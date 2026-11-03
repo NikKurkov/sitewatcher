@@ -65,9 +65,28 @@ with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) 
 PY
 ```
 
-Keep `.env`, custom YAML, `<database>.web-secret`, `<database>.telegram-token` and `<database>.telegram-proxy` separately with restrictive permissions (secret/token files require mode 0600). Stop writes to settings while taking a coordinated backup; for the simplest consistent full backup, stop web, worker and bot first. Never put runtime credentials in release archives. `/export_csv` backs up domain settings only; it does not include history, alert state, or shared caches. Its keyword/port cells use JSON when needed; ordinary comma-separated keyword input remains accepted.
+Keep `.env`, custom YAML, `<database>.web-secret`, `<database>.telegram-token`, `<database>.telegram-proxy` and `<database>.virustotal-key` separately with restrictive permissions (private credential files require mode 0600). Stop writes to settings while taking a coordinated backup; for the simplest consistent full backup, stop web, worker and bot first. Never put runtime credentials in release archives. `/export_csv` backs up domain settings only; it does not include history, alert state, or shared caches. Its keyword/port cells use JSON when needed; ordinary comma-separated keyword input remains accepted.
 
-To restore, stop every worker, bot and web process, retain the current database **and its sidecars together** in a rollback directory, place the verified backup at `DATABASE_PATH`, restore its matching web-secret/token/proxy files, and restore file ownership and mode 0600. Do not reuse stale WAL/SHM files with a restored database. Start with `doctor`, then restart web and the single scheduler. Do not overlay an old database while a process still has it open. RKN indexes can be rebuilt; a configured standalone WHOIS/IP-change database needs its own backup if retaining that state matters.
+To restore, stop every worker, bot and web process, retain the current database **and its sidecars together** in a rollback directory, place the verified backup at `DATABASE_PATH`, restore its matching web-secret/token/proxy/VirusTotal key files, and restore file ownership and mode 0600. Do not reuse stale WAL/SHM files with a restored database. Start with `doctor`, then restart web and the single scheduler. Do not overlay an old database while a process still has it open. RKN indexes can be rebuilt; a configured standalone WHOIS/IP-change database needs its own backup if retaining that state matters.
+
+## Live check activity
+
+The optional overview panel reads `/api/activity` every two seconds while enabled and
+visible. It never starts probes. Lifecycle rows are shared through SQLite across web,
+worker and bot; the table retains at most 1,000 rows per owner and the API returns the
+latest 100. Cached and ephemeral probes do not create activity. Telemetry writes have
+a short timeout and cannot prevent a monitoring probe when telemetry storage fails.
+When a positive domain timeout is configured, a missing finish beyond that timeout
+plus ten seconds is shown as interrupted, not as a successful response. Without an
+execution deadline the panel waits for a completion without inferring interruption.
+Stopping/restarting a worker can leave unfinished rows.
+
+The domain-row overdue notice waits for two configured check intervals. Saved-result
+freshness and scheduling still use the original interval.
+
+VirusTotal keys can be stored in Advanced settings. `VIRUSTOTAL_API_KEY` overrides
+YAML `malware.vt_api_key`, which overrides the private saved file. Every probe reloads
+the effective key. Missing configuration and missing passive reports remain UNKNOWN.
 
 ## Configuration and maintenance
 
