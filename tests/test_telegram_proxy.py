@@ -97,8 +97,6 @@ def test_telegram_proxy_routes_ordinary_calls_and_polling_through_same_proxy(mon
     asyncio.run(scenario())
 
 
-
-
 @pytest.mark.parametrize(('value', 'expected'), [
     (' http://user:password@proxy.example:3128 ', 'http://user:password@proxy.example:3128'),
     ('https://proxy.example:443', 'https://proxy.example:443'),
@@ -184,6 +182,6 @@ def test_socks_debug_logs_never_expose_proxy_authentication(caplog):
     from sitewatcher import telegram_connection  # noqa: F401 - installs client log filters
     caplog.set_level('DEBUG')
     logging.getLogger('httpcore.socks').debug(
-        "setup_socks5_connection.started host='api.telegram.org' auth=%r",
+        "setup_socks5_connection.started auth=%r",
         (b'private-proxy-user', b'private-proxy-password'))
     assert 'private-proxy' not in caplog.text
