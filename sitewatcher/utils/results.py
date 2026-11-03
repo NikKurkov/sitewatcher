@@ -2,7 +2,28 @@
 from __future__ import annotations
 
 import re
+import json
+from datetime import datetime, timedelta, timezone
 from typing import Iterable
+
+
+def current_rkn_result(check_name: str, metrics, max_age_hours: int = 168, *, status=None) -> bool:
+    """Frozen-source results remain history, never evidence for a current RKN result."""
+    if check_name not in {'rkn_domain', 'rkn_ip'}:
+        return True
+    try:
+        data = json.loads(metrics) if isinstance(metrics, str) else metrics
+        if not isinstance(data, dict):
+            return False
+        if status_text(status) == 'UNKNOWN' and data.get('registry_version') == '3':
+            return True  # A failed current attempt still has a valid scheduling timestamp.
+        if data.get('source') not in {'antifilter', 'bol-van'}:
+            return False
+        updated = datetime.fromisoformat(data['source_updated_at'].replace('Z', '+00:00'))
+        age = datetime.now(timezone.utc) - updated
+        return -timedelta(minutes=5) <= age <= timedelta(hours=max_age_hours)
+    except (ValueError, TypeError, KeyError, AttributeError, RecursionError):
+        return False
 
 
 def status_text(status: object) -> str:

@@ -1,5 +1,6 @@
 """Private-by-default Django settings; runtime secrets are loaded by bootstrap."""
 from datetime import timedelta
+from pathlib import Path
 
 from sitewatcher import storage
 
@@ -24,6 +25,7 @@ MIDDLEWARE = [
     'sitewatcher.webapp.middleware.ManagementBodyMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'sitewatcher.webapp.middleware.WorkspaceLanguageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'axes.middleware.AxesMiddleware',
 ]
@@ -45,7 +47,10 @@ TEMPLATES = [{
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 USE_TZ = True
 TIME_ZONE = 'Europe/Moscow'
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'en'
+LANGUAGES = [('en', 'English'), ('ru', 'Русский')]
+USE_I18N = True
+LOCALE_PATHS = [Path(__file__).resolve().parent / 'locale']
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Lax'
 SESSION_COOKIE_AGE = 12 * 60 * 60

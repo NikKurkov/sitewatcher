@@ -41,6 +41,16 @@ def _validate_proxy(value: str | None) -> str | None:
     return value
 
 
+def _split_legacy_rkn(value):
+    """Accept the former combined RKN flag/schedule without overriding explicit new keys."""
+    if isinstance(value, dict) and 'rkn_block' in value:
+        value = value.copy()
+        legacy = value.pop('rkn_block')
+        value.setdefault('rkn_domain', legacy)
+        value.setdefault('rkn_ip', legacy)
+    return value
+
+
 class ChecksModel(ConfigModel):
     model_config = ConfigDict(strict=True)
     """Feature flags for individual checks."""
@@ -49,12 +59,15 @@ class ChecksModel(ConfigModel):
     keywords: bool = False
     deface: bool = False
     ping: bool = True
-    rkn_block: bool = False
+    rkn_domain: bool = False
+    rkn_ip: bool = False
     ports: bool = False
     whois: bool = True
     ip_blacklist: bool = False
     ip_change: bool = True
     malware: bool = False
+
+    _legacy_rkn = model_validator(mode='before')(_split_legacy_rkn)
 
 
 class CheckSchedule(ConfigModel):
@@ -77,13 +90,16 @@ class SchedulesConfig(ConfigModel):
     keywords:     CheckSchedule = CheckSchedule(interval_minutes=10,  cache_ttl_minutes=5)
     deface:       CheckSchedule = CheckSchedule(interval_minutes=15,  cache_ttl_minutes=5)
     ping:         CheckSchedule = CheckSchedule(interval_minutes=5,   cache_ttl_minutes=0)
-    rkn_block:    CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
+    rkn_domain:   CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
+    rkn_ip:       CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
     ports:        CheckSchedule = CheckSchedule(interval_minutes=60,  cache_ttl_minutes=0)
     # For whois we explicitly keep cache_unknown=False to avoid sticking on "no expiry info"
     whois:        CheckSchedule = CheckSchedule(interval_minutes=1440, cache_ttl_minutes=1440, cache_unknown=False)
     ip_blacklist: CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
     ip_change:    CheckSchedule = CheckSchedule(interval_minutes=120,  cache_ttl_minutes=120)
     malware:      CheckSchedule = CheckSchedule(interval_minutes=1440,  cache_ttl_minutes=1440)
+
+    _legacy_rkn = model_validator(mode='before')(_split_legacy_rkn)
 
 
 class SchedulerConfig(ConfigModel):
@@ -163,16 +179,22 @@ class PortsConfig(ConfigModel):
 
 
 class RknConfig(ConfigModel):
-    """RKN (zapret-info) source configuration."""
-    source: Literal["z-i"] = "z-i"
-    # Local SQLite index path; if None -> <package data>/z_i_index.db
+    """Complete Antifilter bundles with bol-van/rulist as fallback."""
+    source: Literal['antifilter', 'bol-van'] = 'antifilter'
+    # Local SQLite index path; default: beside monitoring DB, retaining z_i_index.db name.
     index_db_path: Optional[str] = None
-    # Upstream dump URL (csv or csv.gz)
-    z_i_url: str = "https://raw.githubusercontent.com/zapret-info/z-i/master/dump.csv.gz"
+    # Accepted only for old config files; frozen z-i is never downloaded.
+    z_i_url: Optional[str] = Field(None, exclude=True)
     # Refresh policy
-    cache_ttl_hours: int = 12
+    cache_ttl_hours: int = Field(12, gt=0)
+    max_source_age_hours: int = Field(168, gt=0)
     match_subdomains: bool = True
     check_ip: bool = True
+
+    @field_validator('source', mode='before')
+    @classmethod
+    def migrate_source(cls, value):
+        return 'antifilter' if value == 'z-i' else value
 
 
 class WhoisConfig(ConfigModel):
@@ -447,6 +469,8 @@ def resolve_settings(cfg: AppConfig, domain: str, override: Optional[dict] = Non
     ports = values.pop("ports", ports)
     interval = values.pop("interval_minutes", interval)
     validated_defaults = Defaults.model_validate(values)
+    if not cfg.rkn.check_ip:
+        validated_defaults.checks.rkn_ip = False
     return ResolvedSettings(
         name=normalized,
         **validated_defaults.model_dump(exclude={"checks"}),

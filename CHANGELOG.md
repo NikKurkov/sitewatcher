@@ -1,30 +1,42 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-11-03
 
-- Add browser management for domains, inherited settings, live checks, history, owner alerts and CSV, with typed deletion confirmation and an explicit `--read-only` fallback.
-- Protect web mutations with strict same-origin POST/CSRF validation, bounded native form parsing and atomic duplicate/stale-edit guards.
-- Add persistent Day/Night/System themes; a small optional script preserves unsaved forms while switching.
+### Added
 
-- Add a Docker image and Compose setup for one-command startup with persistent SQLite data.
-- Add a loopback-only, read-only web dashboard with fixed owner isolation, search, status filters, saved check details and JSON output. No frontend framework or runtime dependency is required.
-- Add sanitized `doctor` diagnostics for local configuration, schema, database integrity and permissions; retain native SQLite reader locks during concurrent checkpoints.
-- Make storage updates atomic, preserve concurrent settings changes, and prevent completed jobs from restoring deleted domains.
-- Retry undelivered incident transitions and summaries without consuming their state; serialize concurrent delivery and respect alert toggles.
-- Apply the Telegram proxy to both ordinary Bot API calls and long polling.
-- Validate domain settings and YAML before use, preserve explicit zero values, and give safe field-specific error messages.
-- Fail closed on corrupt stored settings; allow an explicit full reset without exposing malformed content.
-- Bound page downloads before decompression, including redirect bodies, and reject incomplete content without reporting a clean result.
-- Save wizard and CSV domain creation together with settings in one transaction, and inherit the configured check defaults.
-- Correct TLS wildcard matching, redirect failure severity, incomplete DNSBL/RKN coverage, WHOIS fallback/cache paths and per-domain HTTP proxies.
-- Preserve IP-change baselines during temporary DNS failures; require completed, valid VirusTotal observations before reporting a clean result.
-- Isolate IP-change baselines by owner and ad hoc scans, preserving legacy cache migration without consuming another owner's change.
-- Fix same-day history filtering, lossless CSV keyword/port round trips, zero history retention and UTC maintenance scheduling.
-- Honor `/check example.com --force` as documented, preserving the prefix flag form.
-- Detect history transitions before filtering their status and order simultaneous events by insertion ID.
-- Test supported Python versions 3.12–3.14, including real loopback HTTPS/proxy and cancellation flows.
-- Require python-telegram-bot 22.4 or newer for native polling startup on Python 3.14; offload history cleanup and compaction so they do not block the Telegram event loop.
-- Exclude private YAML, environment files, runtime SQLite sidecars and cache archives from Docker builds; test the installed assets and build boundary with synthetic canaries.
+- Authenticated Django workspace with domain management, history, CSV backups and
+  optional Telegram notifications. A standalone worker runs scheduled monitoring.
+- English and Russian panel languages, per-account timezone settings, persistent themes
+  and revocable public status pages for selected domains.
+- Favorite domains, atomic addition of up to 50 comma-separated domains, history filters,
+  interactive response-time charts and status details on hover or keyboard focus.
+- Docker Compose setup with a nonroot web/worker image, persistent data and local-only
+  port binding. `doctor` checks configuration, schema, integrity and permissions.
+
+### Changed
+
+- RKN checks use Antifilter with bol-van as fallback. Domain listings are Critical;
+  shared-IP listings are Warning. Source dates and complete bundles are checked before
+  publishing an index. Stale or incomplete data cannot confirm a clean result.
+- Domain forms show inherited defaults and accept readable keyword/port lists. Existing
+  RKN configuration keys, schedules and CSV headers remain supported.
+- Python 3.12–3.14 are covered by CI, including installed-package and container checks.
+
+### Fixed
+
+- Keep owner settings, history, IP-change baselines and public selections isolated.
+  Reject duplicate creation, stale edits and malformed stored settings safely.
+- Save domain/settings changes atomically and avoid recreating deleted domains when
+  in-flight checks finish. Serialize shared RKN index publication across processes.
+- Preserve pending alerts after delivery failures and apply Telegram proxies to polling
+  as well as ordinary Bot API calls. Maintenance no longer blocks the bot event loop.
+- Correct TLS wildcard matching, redirect severity, bounded/decompressed HTTP reads,
+  WHOIS fallbacks, DNSBL coverage and incomplete external-service results.
+- Preserve CSV list values and legacy RKN merge settings. Make analytics date-boundary
+  tests independent of the wall clock.
+
+Back up persistent data before upgrading. Startup applies additive database migrations;
+see [operations and rollback](docs/operations.md).
 
 ## 0.2.0 — 2026-09-30
 

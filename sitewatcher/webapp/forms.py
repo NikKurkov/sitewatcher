@@ -1,12 +1,14 @@
 """Django authentication with one generic rejection for every account state."""
+from datetime import datetime, time, timedelta, timezone
 from email import policy
 from email.parser import BytesParser
 from urllib.parse import parse_qs
-from zoneinfo import available_timezones
+from zoneinfo import ZoneInfo, available_timezones
 
 from django import forms
 from django.contrib.auth.forms import AuthenticationForm
 from django.core.exceptions import ValidationError
+from django.utils.translation import gettext_lazy as _
 
 from .accounts import AUTH_ERROR
 from .models import Workspace
@@ -48,18 +50,21 @@ def parse_management_form(content_type: str, body: bytes) -> dict[str, str]:
 
 class WorkspacePreferencesForm(forms.Form):
     """Validate optional patches so a timezone save never resets Telegram settings."""
-    timezone = forms.CharField(label='Timezone', max_length=64, required=False,
-                               help_text='Dates and times use your selected timezone.',
+    language = forms.ChoiceField(label=_('Language'), required=False,
+                                 choices=[('en', 'English'), ('ru', 'Русский')],
+                                 help_text=_('Choose the language of your workspace.'))
+    timezone = forms.CharField(label=_('Timezone'), max_length=64, required=False,
+                               help_text=_('Dates and times use your selected timezone.'),
                                widget=forms.Select(choices=[
                                    (zone, zone.replace('_', ' ').replace('/', ' / '))
                                    for zone in sorted(available_timezones())
                                    if not zone.startswith(('posix/', 'right/'))]))
-    enabled = forms.ChoiceField(label='Telegram notifications', required=False,
-                               choices=[('on', 'Enabled'), ('off', 'Disabled')])
-    chat_id = forms.IntegerField(label='Chat ID', required=False,
+    enabled = forms.ChoiceField(label=_('Telegram notifications'), required=False,
+                               choices=[('on', _('Enabled')), ('off', _('Disabled'))])
+    chat_id = forms.IntegerField(label=_('Chat ID'), required=False,
                                  min_value=-(2**63) + 1, max_value=2**63 - 1,
                                  widget=forms.TextInput(attrs={'inputmode': 'numeric'}))
-    bot_token = forms.CharField(label='New bot token', required=False, max_length=224,
+    bot_token = forms.CharField(label=_('New bot token'), required=False, max_length=224,
                                 widget=forms.PasswordInput(render_value=False, attrs={
                                     'autocomplete': 'new-password', 'spellcheck': 'false',
                                 }))
@@ -71,19 +76,25 @@ class WorkspacePreferencesForm(forms.Form):
             try:
                 ZoneInfo(value)
             except (ValueError, ZoneInfoNotFoundError):
-                raise ValidationError('Choose a valid timezone from the list.') from None
+                raise ValidationError(_('Choose a valid timezone from the list.')) from None
+        return value
+
+    def clean_language(self):
+        value = self.cleaned_data['language']
+        if 'language' in self.data and not value:
+            raise ValidationError(_('Choose English or Russian.'))
         return value
 
     def clean_enabled(self):
         value = self.cleaned_data['enabled']
         if 'enabled' in self.data and not value:
-            raise ValidationError('Choose Enabled or Disabled.')
+            raise ValidationError(_('Choose Enabled or Disabled.'))
         return value
 
     def clean_chat_id(self):
         value = self.cleaned_data['chat_id']
         if value == 0:
-            raise ValidationError('Enter a nonzero numeric Telegram chat ID.')
+            raise ValidationError(_('Enter a nonzero numeric Telegram chat ID.'))
         return value
 
     def clean_bot_token(self):
@@ -95,3 +106,39 @@ class WorkspacePreferencesForm(forms.Form):
             except ValueError as error:
                 raise ValidationError(str(error)) from None
         return ''
+
+
+class HistoryFiltersForm(forms.Form):
+    """Date inputs describe inclusive calendar days in the workspace timezone."""
+    history_from = forms.DateField(label=_('From date'), required=False,
+        input_formats=['%Y-%m-%d'],
+        widget=forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date'}))
+    history_to = forms.DateField(label=_('To date'), required=False,
+        input_formats=['%Y-%m-%d'],
+        widget=forms.DateInput(format='%Y-%m-%d', attrs={'type': 'date'}))
+    history_check = forms.ChoiceField(label=_('Check'), required=False)
+    history_status = forms.ChoiceField(label=_('State'), required=False)
+
+    def __init__(self, *args, zone: str, **kwargs):
+        super().__init__(*args, **kwargs)
+        from sitewatcher.config import ChecksModel
+        from .presentation import check_label, status_label
+        self.zone = ZoneInfo(zone)
+        self.fields['history_check'].choices = [('', _('All checks'))] + [
+            (name, check_label(name)) for name in [*ChecksModel.model_fields, 'rkn_block']]
+        self.fields['history_status'].choices = [('', _('All states'))] + [
+            (name, status_label(name)) for name in ('OK', 'WARN', 'CRIT', 'UNKNOWN')]
+
+    def clean(self):
+        data = super().clean()
+        start, end = data.get('history_from'), data.get('history_to')
+        if start and end and start > end:
+            raise ValidationError(_('The end date must not be before the start date.'))
+        try:
+            data['since'] = (datetime.combine(start, time.min, self.zone).astimezone(timezone.utc)
+                             if start else None)
+            data['until'] = ((datetime.combine(end, time.min, self.zone) + timedelta(days=1))
+                             .astimezone(timezone.utc) if end else None)
+        except (ValueError, OverflowError):
+            raise ValidationError(_('Date range is out of bounds.')) from None
+        return data

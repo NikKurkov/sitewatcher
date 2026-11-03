@@ -7,6 +7,7 @@ import logging
 from . import storage
 from .config import AppConfig, resolve_settings
 from .dispatcher import Dispatcher
+from .utils.results import current_rkn_result
 
 log = logging.getLogger(__name__)
 
@@ -22,9 +23,16 @@ def due_checks(cfg: AppConfig, owner_id: int, domain: str, *, warmup: bool = Fal
         return []
     checks = settings.checks.model_dump()
     ages = storage.last_check_ages(owner_id, domain)
+    outdated = set()
+    if any(checks.get(name) for name in ('rkn_domain', 'rkn_ip')):
+        latest = storage.latest_check_results(owner_id, domain)
+        outdated = {name for name in ('rkn_domain', 'rkn_ip') if name in latest
+                    and not current_rkn_result(name, latest[name]['metrics_json'],
+                                               cfg.rkn.max_source_age_hours,
+                                               status=latest[name]['status'])}
     return [
         name for name, enabled in checks.items()
-        if enabled and (name not in ages or ages[name] >= (
+        if enabled and (name in outdated or name not in ages or ages[name] >= (
             int(domain_interval) if domain_interval is not None
             else getattr(cfg.schedules, name).interval_minutes
         ))

@@ -89,6 +89,8 @@ def _parse_only(arg: Optional[str]) -> Optional[list[str]]:
     if not arg:
         return None
     checks = [x.strip() for x in arg.split(",") if x.strip()]
+    checks = [name for check in checks for name in (
+        ('rkn_domain', 'rkn_ip') if check == 'rkn_block' else (check,))]
     unknown = set(checks) - ChecksModel.model_fields.keys()
     if unknown:
         raise SystemExit(f"Unknown check: {', '.join(sorted(unknown))}")

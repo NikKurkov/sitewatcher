@@ -5,6 +5,8 @@
 __pycache__
 .pytest_cache
 .ruff_cache
+*.scheduler.lock
+**/*.scheduler.lock
 *.db
 *.db-shm
 *.db-wal

@@ -1,18 +1,123 @@
 {% extends 'sitewatcher/base.html' %}
-{% block title %}{% if view == 'edit' %}Edit domain{% else %}Add domain{% endif %} · SiteWatcher{% endblock %}
+{% load i18n %}
+{% block title %}{% if view == 'edit' %}{% translate 'Edit domain' %}{% else %}{% translate 'Add domain' %}{% endif %} {% translate '· SiteWatcher' %}{% endblock %}
 {% block main_class %}form-page{% endblock %}
 {% block content %}
-<a class="back-link" href="/">← All domains</a>
-<div class="page-heading"><div><p class="eyebrow">Monitoring</p><h1>{% if view == 'edit' %}Edit domain{% else %}Add domain{% endif %}</h1><p class="subtitle">{% if view == 'edit' %}Adjust what SiteWatcher checks for this domain.{% else %}Start with website availability and certificate checks.{% endif %}</p></div></div>
-{% if error %}<div class="notice error-notice" role="alert"><strong>Settings were not saved.</strong><p>{{ error }}</p>{% if view == 'edit' %}<a href="/domains/edit?domain={{ domain|urlencode }}">Reload saved settings</a>{% endif %}</div>{% endif %}
-<form method="post" action="{% if view == 'edit' %}/domains/save{% else %}/domains/add{% endif %}" class="panel domain-form">{% csrf_token %}
-<input type="hidden" name="revision" value="{{ revision }}">
-<div class="form-section"><h2>The basics</h2><div class="field"><label for="domain">Domain</label><input id="domain" name="domain" value="{{ values.domain }}" required autocomplete="off" placeholder="example.com" {% if view == 'edit' %}readonly{% endif %} aria-describedby="domain-help{% if field_errors.domain %} domain-error{% endif %}" {% if field_errors.domain %}aria-invalid="true"{% endif %}>{% if field_errors.domain %}<p class="field-error" id="domain-error">{{ field_errors.domain }}</p>{% endif %}<p class="field-help" id="domain-help">A hostname, such as example.com. No path is needed.</p></div>
-{% include 'sitewatcher/partials/number_field.html' with field=interval %}<p class="field-help">Leave blank to use the default schedule. Use 0 to pause monitoring.</p>
-<div class="form-grid">{% for field in basic_checks %}{% include 'sitewatcher/partials/check_field.html' %}{% endfor %}</div></div>
-<details class="advanced-settings" {% if advanced_error %}open{% endif %}><summary>Advanced checks and settings</summary><div class="form-section"><p class="field-help">Optional checks and overrides for this domain. Default follows your workspace configuration.</p><div class="form-grid">{% for field in advanced_checks %}{% include 'sitewatcher/partials/check_field.html' %}{% endfor %}</div><h3>Timing and thresholds</h3><div class="form-grid">{% for field in numeric_fields %}{% include 'sitewatcher/partials/number_field.html' %}{% endfor %}</div>
-<div class="field"><label for="keywords">Required keywords</label><textarea id="keywords" name="keywords" rows="2" aria-describedby="keywords-help{% if field_errors.keywords %} keywords-error{% endif %}" {% if field_errors.keywords %}aria-invalid="true"{% endif %}>{{ values.keywords }}</textarea>{% if field_errors.keywords %}<p class="field-error" id="keywords-error">{{ field_errors.keywords }}</p>{% endif %}<p class="field-help" id="keywords-help">JSON list, for example ["Welcome", "Shop"]. Blank uses the default; [] clears the list.</p></div><div class="field"><label for="ports">TCP ports</label><textarea id="ports" name="ports" rows="2" aria-describedby="ports-help{% if field_errors.ports %} ports-error{% endif %}" {% if field_errors.ports %}aria-invalid="true"{% endif %}>{{ values.ports }}</textarea>{% if field_errors.ports %}<p class="field-error" id="ports-error">{{ field_errors.ports }}</p>{% endif %}<p class="field-help" id="ports-help">JSON list, for example [80, 443]. Blank uses the default; [] clears the list.</p></div>
-<h3>Proxy</h3><p class="field-help">{% if proxy_present %}A proxy is configured.{% else %}No proxy configured.{% endif %} Credentials are never displayed.</p><div class="field"><label for="proxy_mode">Proxy action</label><select name="proxy_mode" id="proxy_mode" {% if field_errors.proxy_mode %}aria-invalid="true" aria-describedby="proxy_mode-error"{% endif %}><option value="keep" {% if values.proxy_mode == 'keep' %}selected{% endif %}>Keep existing override</option><option value="inherit" {% if values.proxy_mode == 'inherit' %}selected{% endif %}>Use workspace proxy</option><option value="clear" {% if values.proxy_mode == 'clear' %}selected{% endif %}>Clear override (use common client)</option><option value="set" {% if values.proxy_mode == 'set' %}selected{% endif %}>Set a new proxy</option></select>{% if field_errors.proxy_mode %}<p class="field-error" id="proxy_mode-error">{{ field_errors.proxy_mode }}</p>{% endif %}</div><div class="field"><label for="proxy">New proxy URL</label><input type="password" id="proxy" name="proxy" value="" autocomplete="new-password" aria-describedby="proxy-help{% if field_errors.proxy %} proxy-error{% endif %}" {% if field_errors.proxy %}aria-invalid="true"{% endif %}>{% if field_errors.proxy %}<p class="field-error" id="proxy-error">{{ field_errors.proxy }}</p>{% endif %}<p id="proxy-help" class="field-help">Choose Set a new proxy to apply this value. Re-enter it after a validation error.</p></div></div></details>
-<div class="form-actions"><button type="submit" class="primary">{% if view == 'edit' %}Save settings{% else %}Add domain{% endif %}</button><a href="/">Cancel</a></div></form>
-{% if view == 'edit' and not read_only %}{% include 'sitewatcher/partials/reset_settings.html' %}{% endif %}
+    <a class="back-link" href="/">{% translate '← All domains' %}</a>
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">{% translate 'Monitoring' %}</p>
+            <h1>{% if view == 'edit' %}{% translate 'Edit domain' %}{% else %}{% translate 'Add domain' %}{% endif %}</h1>
+            <p class="subtitle">{% if view == 'edit' %}{% translate 'Adjust what SiteWatcher checks for this domain.' %}{% else %}{% translate 'Start with your workspace defaults or customize the checks below.' %}{% endif %}</p>
+        </div>
+    </div>
+    {% if error %}
+        <div class="notice error-notice" role="alert">
+            <strong>{% translate 'Settings were not saved.' %}</strong>
+            <p>{{ error }}</p>
+            {% if view == 'edit' %}
+                <a href="/domains/edit?domain={{ domain|urlencode }}">{% translate 'Reload saved settings' %}</a>
+            {% endif %}
+        </div>
+    {% endif %}
+    <form method="post"
+        action="{% if view == 'edit' %}/domains/save{% else %}/domains/add{% endif %}"
+        class="panel domain-form"
+    >
+        {% csrf_token %}
+        <input type="hidden" name="revision" value="{{ revision }}">
+        <div class="form-section">
+            <h2>{% translate 'The basics' %}</h2>
+            <div class="field">
+                <label for="domain">{% translate 'Domain' %}</label>
+                <input id="domain" name="domain" value="{{ values.domain }}" required autocomplete="off" placeholder="{% if view == 'add' %}example.com, example.org{% else %}example.com{% endif %}" {% if view == 'edit' %}readonly{% endif %} aria-describedby="domain-help{% if field_errors.domain %} domain-error{% endif %}" {% if field_errors.domain %}aria-invalid="true"{% endif %}>
+                {% if field_errors.domain %}
+                    <p class="field-error" id="domain-error">{{ field_errors.domain }}</p>
+                {% endif %}
+                <p class="field-help" id="domain-help">{% if view == 'add' %}{% translate 'Enter up to 50 domains separated by commas, for example example.com, example.org. The settings below apply to every domain. No paths are needed.' %}{% else %}{% translate 'A hostname, such as example.com. No path is needed.' %}{% endif %}</p>
+            </div>
+            {% include 'sitewatcher/partials/number_field.html' with field=interval %}
+            <p class="field-help">{% translate 'Leave blank to use the default schedule. Use 0 to pause monitoring.' %}</p>
+            <div class="form-grid">
+                {% for field in basic_checks %}
+                    {% include 'sitewatcher/partials/check_field.html' %}
+                {% endfor %}
+            </div>
+        </div>
+        <details class="advanced-settings" {% if advanced_error %}open{% endif %}>
+            <summary>{% translate 'Advanced checks and settings' %}</summary>
+            <div class="form-section">
+                <p class="field-help">{% translate 'Optional checks and overrides for this domain. Default follows your workspace configuration.' %}</p>
+                <div class="form-grid">
+                    {% for field in advanced_checks %}
+                        {% include 'sitewatcher/partials/check_field.html' %}
+                    {% endfor %}
+                </div>
+                <h3>{% translate 'Timing and thresholds' %}</h3>
+                <div class="form-grid">
+                    {% for field in numeric_fields %}
+                        {% include 'sitewatcher/partials/number_field.html' %}
+                    {% endfor %}
+                </div>
+                <div class="field">
+                    <label for="keywords">{% translate 'Required keywords' %}</label>
+                    <textarea id="keywords"
+                        name="keywords"
+                        rows="2"
+                        aria-describedby="keywords-help{% if field_errors.keywords %} keywords-error{% endif %}"
+                        {% if field_errors.keywords %}aria-invalid="true"{% endif %}
+                    >{{ values.keywords }}</textarea>
+                    {% if field_errors.keywords %}
+                        <p class="field-error" id="keywords-error">{{ field_errors.keywords }}</p>
+                    {% endif %}
+                    <p class="field-help" id="keywords-help">{% translate 'Separate keywords with commas, for example welcome, shop. Quote phrases containing commas: "Hello, world". Blank uses the default; - clears the list.' %}</p>
+                </div>
+                <div class="field">
+                    <label for="ports">{% translate 'TCP ports' %}</label>
+                    <textarea id="ports"
+                        name="ports"
+                        rows="2"
+                        aria-describedby="ports-help{% if field_errors.ports %} ports-error{% endif %}"
+                        {% if field_errors.ports %}aria-invalid="true"{% endif %}
+                    >{{ values.ports }}</textarea>
+                    {% if field_errors.ports %}
+                        <p class="field-error" id="ports-error">{{ field_errors.ports }}</p>
+                    {% endif %}
+                    <p class="field-help" id="ports-help">{% translate 'Separate ports or ranges with commas, for example 1-1024, 2205. Valid ports: 1–65535. Blank uses the default; - clears the list.' %}</p>
+                </div>
+                <h3>{% translate 'Proxy' %}</h3>
+                <p class="field-help">{% if proxy_present %}{% translate 'A proxy is configured.' %}{% else %}{% translate 'No proxy configured.' %}{% endif %} {% translate 'Credentials are never displayed.' %}</p>
+                <div class="field">
+                    <label for="proxy_mode">{% translate 'Proxy action' %}</label>
+                    <select name="proxy_mode"
+                        id="proxy_mode"
+                        {% if field_errors.proxy_mode %}aria-invalid="true" aria-describedby="proxy_mode-error"{% endif %}
+                    >
+                        <option value="keep" {% if values.proxy_mode == 'keep' %}selected{% endif %}>{% translate 'Keep existing override' %}</option>
+                        <option value="inherit" {% if values.proxy_mode == 'inherit' %}selected{% endif %}>{% translate 'Use workspace proxy' %}</option>
+                        <option value="clear" {% if values.proxy_mode == 'clear' %}selected{% endif %}>{% translate 'Clear override (use common client)' %}</option>
+                        <option value="set" {% if values.proxy_mode == 'set' %}selected{% endif %}>{% translate 'Set a new proxy' %}</option>
+                    </select>
+                    {% if field_errors.proxy_mode %}
+                        <p class="field-error" id="proxy_mode-error">{{ field_errors.proxy_mode }}</p>
+                    {% endif %}
+                </div>
+                <div class="field">
+                    <label for="proxy">{% translate 'New proxy URL' %}</label>
+                    <input type="password" id="proxy" name="proxy" value="" autocomplete="new-password" aria-describedby="proxy-help{% if field_errors.proxy %} proxy-error{% endif %}" {% if field_errors.proxy %}aria-invalid="true"{% endif %}>
+                    {% if field_errors.proxy %}
+                        <p class="field-error" id="proxy-error">{{ field_errors.proxy }}</p>
+                    {% endif %}
+                    <p id="proxy-help" class="field-help">{% translate 'Choose Set a new proxy to apply this value. Re-enter it after a validation error.' %}</p>
+                </div>
+            </div>
+        </details>
+        <div class="form-actions">
+            <button type="submit" class="primary">{% if view == 'edit' %}{% translate 'Save settings' %}{% else %}{% translate 'Add domain' %}{% endif %}</button>
+            <a href="/">{% translate 'Cancel' %}</a>
+        </div>
+    </form>
+    {% if view == 'edit' and not read_only %}
+        {% include 'sitewatcher/partials/reset_settings.html' %}
+    {% endif %}
 {% endblock %}

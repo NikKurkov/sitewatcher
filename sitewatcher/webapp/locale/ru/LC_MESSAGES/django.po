@@ -1,0 +1,1297 @@
+# Russian translations for SiteWatcher.
+# Distributed under the same license as SiteWatcher.
+msgid ""
+msgstr ""
+"Project-Id-Version: SiteWatcher 0.3.0\n"
+"Report-Msgid-Bugs-To: https://github.com/NikKurkov/sitewatcher/issues\n"
+"POT-Creation-Date: 2026-11-03 15:41+0300\n"
+"PO-Revision-Date: 2026-11-03 11:00+0300\n"
+"Last-Translator: SiteWatcher contributors\n"
+"Language-Team: Russian\n"
+"Language: ru\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
+"n%10<=4 && (n%100<12 || n%100>14) ? 1 : 2);\n"
+
+msgid "Unable to sign in with these credentials."
+msgstr "Не удалось войти с указанными учётными данными."
+
+msgid "Settings unavailable; reload the page"
+msgstr "Настройки недоступны; обновите страницу"
+
+msgid "Invalid request"
+msgstr "Некорректный запрос"
+
+msgid "Paused"
+msgstr "Приостановлено"
+
+msgid "Critical"
+msgstr "Критическая ошибка"
+
+msgid "Warning"
+msgstr "Предупреждение"
+
+msgid "Healthy"
+msgstr "Всё в порядке"
+
+msgid "No data"
+msgstr "Нет данных"
+
+msgid "Settings error"
+msgstr "Ошибка настроек"
+
+msgid "All domains"
+msgstr "Все домены"
+
+msgid "Problems"
+msgstr "Проблемы"
+
+msgid "Warnings"
+msgstr "Предупреждения"
+
+msgid "Overdue"
+msgstr "Проверка просрочена"
+
+msgid "Monitoring unavailable"
+msgstr "Мониторинг недоступен"
+
+#, python-format
+msgid "Domains added: %(count)s"
+msgstr "Добавлено доменов: %(count)s"
+
+msgid "Domain saved"
+msgstr "Домен сохранён"
+
+msgid "Confirm deletion first"
+msgstr "Сначала подтвердите удаление"
+
+msgid "No domains to check"
+msgstr "Нет доменов для проверки"
+
+msgid "Another manual check is running"
+msgstr "Уже выполняется другая ручная проверка"
+
+msgid "Checks completed; results saved"
+msgstr "Проверки завершены; результаты сохранены"
+
+msgid "Domain updated"
+msgstr "Домен обновлён"
+
+msgid "Notification preference saved"
+msgstr "Настройка уведомлений сохранена"
+
+msgid "Choose a file or pasted CSV, not both"
+msgstr "Выберите один источник: файл или текст CSV"
+
+#, python-format
+msgid "CSV: %(added)s added, %(updated)s updated, %(skipped)s skipped"
+msgstr ""
+"CSV: добавлено — %(added)s, обновлено — %(updated)s, пропущено — %(skipped)s"
+
+msgid ". Some rows were not imported."
+msgstr ". Некоторые строки не импортированы."
+
+msgid "Read-only workspace"
+msgstr "Рабочее пространство доступно только для чтения"
+
+msgid "Settings changed; reload the domain before resetting"
+msgstr "Настройки изменились; обновите страницу домена перед сбросом"
+
+msgid "Invalid action; reload the page"
+msgstr "Некорректное действие; обновите страницу"
+
+msgid "Checks timed out; inspect saved results before retrying"
+msgstr ""
+"Время проверки истекло; изучите сохранённые результаты перед повторным "
+"запуском"
+
+msgid "Operation failed; inspect saved state before retrying"
+msgstr ""
+"Операция не выполнена; проверьте сохранённые данные перед повторной попыткой"
+
+msgid "Method not allowed"
+msgstr "Метод не поддерживается"
+
+msgid "Language"
+msgstr "Язык"
+
+msgid "Choose the language of your workspace."
+msgstr "Выберите язык рабочего пространства."
+
+msgid "Timezone"
+msgstr "Часовой пояс"
+
+msgid "Dates and times use your selected timezone."
+msgstr "Дата и время отображаются в выбранном часовом поясе."
+
+msgid "Telegram notifications"
+msgstr "Уведомления в Telegram"
+
+msgid "Enabled"
+msgstr "Включены"
+
+msgid "Disabled"
+msgstr "Выключены"
+
+msgid "Chat ID"
+msgstr "ID чата"
+
+msgid "New bot token"
+msgstr "Новый токен бота"
+
+msgid "Choose a valid timezone from the list."
+msgstr "Выберите часовой пояс из списка."
+
+msgid "Choose English or Russian."
+msgstr "Выберите английский или русский язык."
+
+msgid "Choose Enabled or Disabled."
+msgstr "Выберите «Включены» или «Выключены»."
+
+msgid "Enter a nonzero numeric Telegram chat ID."
+msgstr "Введите числовой ID чата Telegram, отличный от нуля."
+
+msgid "From date"
+msgstr "Дата с"
+
+msgid "To date"
+msgstr "Дата по"
+
+msgid "Check"
+msgstr "Проверка"
+
+msgid "State"
+msgstr "Состояние"
+
+msgid "All checks"
+msgstr "Все проверки"
+
+msgid "All states"
+msgstr "Все состояния"
+
+msgid "The end date must not be before the start date."
+msgstr "Конечная дата не может быть раньше начальной."
+
+msgid "Date range is out of bounds."
+msgstr "Указан недопустимый диапазон дат."
+
+msgid "The saved Telegram connection could not be read. Save a new bot token."
+msgstr ""
+"Не удалось прочитать сохранённые настройки Telegram. Сохраните новый токен "
+"бота."
+
+msgid "Settings saved."
+msgstr "Настройки сохранены."
+
+msgid "Settings could not be saved. Reload and check before retrying."
+msgstr ""
+"Не удалось сохранить настройки. Обновите страницу и проверьте их перед "
+"повторной попыткой."
+
+msgid "Add a bot token before connecting to Telegram."
+msgstr "Добавьте токен бота перед подключением к Telegram."
+
+msgid "Choose a chat below, then save it as your destination."
+msgstr "Выберите чат ниже и сохраните его для отправки уведомлений."
+
+msgid ""
+"No chats found. Send /start to your bot and try again, or enter a chat ID in "
+"Advanced."
+msgstr ""
+"Чаты не найдены. Отправьте боту /start и повторите поиск или введите ID чата "
+"в дополнительных настройках."
+
+msgid "Choose a chat destination before sending a test."
+msgstr "Выберите чат перед отправкой тестового уведомления."
+
+msgid "Test notification sent to the effective destination shown below."
+msgstr "Тестовое уведомление отправлено в действующий чат, указанный ниже."
+
+msgid ""
+"Telegram could not complete the request. Check the token and destination. If "
+"finding chats, another process may be polling or a webhook may be enabled; "
+"enter a chat ID in Advanced, or stop polling before trying again."
+msgstr ""
+"Telegram не смог выполнить запрос. Проверьте токен и чат назначения. Поиску "
+"чатов может мешать другой процесс, получающий обновления, или включённый "
+"вебхук. Введите ID чата в дополнительных настройках или остановите получение "
+"обновлений перед повторной попыткой."
+
+msgid "Website availability"
+msgstr "Доступность сайта"
+
+msgid "TLS certificate"
+msgstr "Сертификат TLS"
+
+msgid "Required keywords"
+msgstr "Обязательные ключевые слова"
+
+msgid "Defacement markers"
+msgstr "Признаки подмены страницы"
+
+msgid "Ping reachability"
+msgstr "Доступность по ping"
+
+msgid "RKN domain blocking"
+msgstr "Блокировка домена РКН"
+
+msgid "RKN IP listing"
+msgstr "IP-адрес в реестре РКН"
+
+msgid "Legacy RKN blocking"
+msgstr "Блокировка РКН (устаревшая проверка)"
+
+msgid "TCP ports"
+msgstr "TCP-порты"
+
+msgid "Domain registration"
+msgstr "Регистрация домена"
+
+msgid "IP blocklists"
+msgstr "Чёрные списки IP-адресов"
+
+msgid "IP address changes"
+msgstr "Изменения IP-адреса"
+
+msgid "Malware detection"
+msgstr "Обнаружение вредоносного кода"
+
+msgid "A domain or parent-domain listing is Critical."
+msgstr ""
+"Наличие домена или родительского домена в реестре считается критической "
+"ошибкой."
+
+msgid ""
+"An IPv4 listing is Warning; it may concern another domain on shared hosting."
+msgstr ""
+"Наличие IPv4-адреса в реестре считается предупреждением: оно может "
+"относиться к другому домену на общем хостинге."
+
+msgid "OK"
+msgstr "Норма"
+
+msgid "WARN"
+msgstr "Предупреждение"
+
+msgid "CRIT"
+msgstr "Критическая ошибка"
+
+msgid "UNKNOWN"
+msgstr "Нет данных"
+
+msgid "Check this value."
+msgstr "Проверьте это значение."
+
+msgid "Enter keywords separated by commas; quote phrases containing commas."
+msgstr ""
+"Введите ключевые слова через запятую; фразы с запятыми заключайте в кавычки."
+
+msgid "Enter TCP ports (1–65535) or ranges, separated by commas."
+msgstr "Введите TCP-порты (1–65535) или диапазоны через запятую."
+
+msgid "Enter a supported proxy URL with a host."
+msgstr "Введите URL поддерживаемого прокси с указанием хоста."
+
+msgid "Choose a valid proxy action."
+msgstr "Выберите допустимое действие с прокси."
+
+msgid "This domain is already monitored."
+msgstr "Этот домен уже отслеживается."
+
+msgid "Enter a valid hostname, such as example.com."
+msgstr "Введите корректное имя хоста, например example.com."
+
+msgid "Enter at most 50 domains."
+msgstr "Введите не более 50 доменов."
+
+msgid "On"
+msgstr "Вкл."
+
+msgid "Off"
+msgstr "Выкл."
+
+msgid "Check interval (minutes)"
+msgstr "Интервал проверки (минуты)"
+
+msgid "Request timeout (seconds)"
+msgstr "Время ожидания ответа (секунды)"
+
+msgid "Slow response warning (ms)"
+msgstr "Предупреждение о медленном ответе (мс)"
+
+msgid "Slow response critical (ms)"
+msgstr "Критически медленный ответ (мс)"
+
+msgid "Certificate warning (days before expiry)"
+msgstr "Предупреждение об истечении сертификата (дней до окончания)"
+
+msgid "Not found"
+msgstr "Не найдено"
+
+msgid "Available"
+msgstr "Доступен"
+
+msgid "Unavailable"
+msgstr "Недоступен"
+
+msgid "No recent data"
+msgstr "Нет актуальных данных"
+
+msgid "Select only domains in your workspace."
+msgstr "Выбирайте только домены из своего рабочего пространства."
+
+msgid "Enable public status first"
+msgstr "Сначала включите публичную страницу"
+
+msgid "Public status updated."
+msgstr "Настройки публичной страницы обновлены."
+
+msgid "Public status settings temporarily unavailable; reload Settings."
+msgstr ""
+"Настройки публичной страницы временно недоступны; обновите страницу настроек."
+
+msgid "Skip to content"
+msgstr "Перейти к содержимому"
+
+msgid "Main navigation"
+msgstr "Основная навигация"
+
+msgid "Overview"
+msgstr "Обзор"
+
+msgid "Settings"
+msgstr "Настройки"
+
+msgid "Dark theme"
+msgstr "Тёмная тема"
+
+msgid "Website monitoring"
+msgstr "Мониторинг сайтов"
+
+#, python-format
+msgid "Times in %(timezone)s"
+msgstr "Время: %(timezone)s"
+
+msgid "· SiteWatcher"
+msgstr "· SiteWatcher"
+
+msgid "← All domains"
+msgstr "← Все домены"
+
+msgid "Domain history"
+msgstr "История домена"
+
+msgid "Last checked"
+msgstr "Последняя проверка"
+
+msgid "Edit domain"
+msgstr "Изменить домен"
+
+msgid "Check now"
+msgstr "Проверить сейчас"
+
+msgid "Resume monitoring"
+msgstr "Возобновить мониторинг"
+
+msgid "Pause monitoring"
+msgstr "Приостановить мониторинг"
+
+msgid "Remove domain"
+msgstr "Удалить домен"
+
+msgid ""
+"Monitoring settings need attention. Saved settings and history are unchanged."
+msgstr ""
+"Проверьте настройки мониторинга. Сохранённые настройки и история не изменены."
+
+msgid "Recover domain settings"
+msgstr "Восстановить настройки домена"
+
+msgid "HTTP observations"
+msgstr "HTTP-проверки"
+
+msgid "Successful checks"
+msgstr "Успешные проверки"
+
+#, python-format
+msgid "%(successful)s successful · %(failed)s failed"
+msgstr "Успешных — %(successful)s · неудачных — %(failed)s"
+
+#, python-format
+msgid "%(percent)s%% failed"
+msgstr "Неудачных — %(percent)s%%"
+
+msgid "Recorded checks"
+msgstr "Сохранённые проверки"
+
+#, python-format
+msgid "%(count)s unknown"
+msgstr "Без определённого результата — %(count)s"
+
+msgid "Latest HTTP observation"
+msgstr "Последняя HTTP-проверка"
+
+msgid ""
+"No HTTP observations in this period. New results appear after an HTTP check "
+"runs."
+msgstr ""
+"За этот период нет HTTP-проверок. Новые результаты появятся после выполнения "
+"HTTP-проверки."
+
+#, python-format
+msgid ""
+"%(scheduled)s scheduled · %(manual)s manual · %(legacy)s legacy observations"
+msgstr ""
+"По расписанию — %(scheduled)s · вручную — %(manual)s · старых записей — "
+"%(legacy)s"
+
+msgid "Latest monitoring checks"
+msgstr "Последние проверки мониторинга"
+
+msgid "· Overdue"
+msgstr "· Проверка просрочена"
+
+msgid "Checks unavailable until settings are recovered."
+msgstr "Проверки недоступны до восстановления настроек."
+
+msgid "No checks enabled."
+msgstr "Нет включённых проверок."
+
+msgid "Recent check history"
+msgstr "История последних проверок"
+
+msgid "Filter"
+msgstr "Фильтр"
+
+msgid "Reset filters"
+msgstr "Сбросить фильтры"
+
+#, python-format
+msgid "Dates use %(timezone)s. Up to 100 matching results are shown."
+msgstr ""
+"Даты указаны в часовом поясе %(timezone)s. Показаны последние 100 подходящих "
+"результатов."
+
+#, python-format
+msgid "Latest 100 saved check results · %(timezone)s"
+msgstr "Последние 100 сохранённых результатов · %(timezone)s"
+
+msgid "Checked"
+msgstr "Время проверки"
+
+msgid "Result"
+msgstr "Результат"
+
+msgid "No results match these filters."
+msgstr "По выбранным фильтрам результатов нет."
+
+msgid "No saved check results."
+msgstr "Нет сохранённых результатов проверок."
+
+msgid "Add domain"
+msgstr "Добавить домен"
+
+msgid "Monitoring"
+msgstr "Мониторинг"
+
+msgid "Adjust what SiteWatcher checks for this domain."
+msgstr "Настройте проверки SiteWatcher для этого домена."
+
+msgid "Start with your workspace defaults or customize the checks below."
+msgstr ""
+"Используйте настройки рабочего пространства по умолчанию или настройте "
+"проверки ниже."
+
+msgid "Settings were not saved."
+msgstr "Настройки не сохранены."
+
+msgid "Reload saved settings"
+msgstr "Загрузить сохранённые настройки"
+
+msgid "The basics"
+msgstr "Основное"
+
+msgid "Domain"
+msgstr "Домен"
+
+msgid ""
+"Enter up to 50 domains separated by commas, for example example.com, "
+"example.org. The settings below apply to every domain. No paths are needed."
+msgstr ""
+"Введите до 50 доменов через запятую, например example.com, example.org. "
+"Настройки ниже применятся ко всем доменам. Пути указывать не нужно."
+
+msgid "A hostname, such as example.com. No path is needed."
+msgstr "Имя хоста, например example.com. Путь указывать не нужно."
+
+msgid "Leave blank to use the default schedule. Use 0 to pause monitoring."
+msgstr ""
+"Оставьте пустым для расписания по умолчанию. Укажите 0, чтобы приостановить "
+"мониторинг."
+
+msgid "Advanced checks and settings"
+msgstr "Дополнительные проверки и настройки"
+
+msgid ""
+"Optional checks and overrides for this domain. Default follows your "
+"workspace configuration."
+msgstr ""
+"Дополнительные проверки и индивидуальные настройки домена. Значение по "
+"умолчанию берётся из настроек рабочего пространства."
+
+msgid "Timing and thresholds"
+msgstr "Интервалы и пороговые значения"
+
+msgid ""
+"Separate keywords with commas, for example welcome, shop. Quote phrases "
+"containing commas: \"Hello, world\". Blank uses the default; - clears the "
+"list."
+msgstr ""
+"Разделяйте ключевые слова запятыми, например welcome, shop. Фразы с запятыми "
+"заключайте в кавычки: \"Hello, world\". Пустое поле — значение по умолчанию; "
+"- очищает список."
+
+msgid ""
+"Separate ports or ranges with commas, for example 1-1024, 2205. Valid ports: "
+"1–65535. Blank uses the default; - clears the list."
+msgstr ""
+"Разделяйте порты или диапазоны запятыми, например 1-1024, 2205. Допустимые "
+"порты: 1–65535. Пустое поле — значение по умолчанию; - очищает список."
+
+msgid "Proxy"
+msgstr "Прокси"
+
+msgid "A proxy is configured."
+msgstr "Прокси настроен."
+
+msgid "No proxy configured."
+msgstr "Прокси не настроен."
+
+msgid "Credentials are never displayed."
+msgstr "Учётные данные никогда не отображаются."
+
+msgid "Proxy action"
+msgstr "Действие с прокси"
+
+msgid "Keep existing override"
+msgstr "Сохранить индивидуальную настройку"
+
+msgid "Use workspace proxy"
+msgstr "Использовать прокси рабочего пространства"
+
+msgid "Clear override (use common client)"
+msgstr "Сбросить настройку (использовать общий клиент)"
+
+msgid "Set a new proxy"
+msgstr "Задать новый прокси"
+
+msgid "New proxy URL"
+msgstr "URL нового прокси"
+
+msgid ""
+"Choose Set a new proxy to apply this value. Re-enter it after a validation "
+"error."
+msgstr ""
+"Выберите «Задать новый прокси», чтобы применить это значение. После ошибки "
+"проверки введите его повторно."
+
+msgid "Save settings"
+msgstr "Сохранить настройки"
+
+msgid "Cancel"
+msgstr "Отмена"
+
+msgid "Recover settings · SiteWatcher"
+msgstr "Восстановление настроек · SiteWatcher"
+
+msgid "← Domain history"
+msgstr "← История домена"
+
+msgid "Invalid domain settings"
+msgstr "Некорректные настройки домена"
+
+msgid ""
+"Saved settings cannot be used. They have been kept unchanged. Reset the "
+"overrides to use workspace defaults, then edit the domain again."
+msgstr ""
+"Сохранённые настройки нельзя использовать. Они оставлены без изменений. "
+"Сбросьте индивидуальные настройки, чтобы использовать настройки рабочего "
+"пространства по умолчанию, затем снова отредактируйте домен."
+
+msgid "Sign in · SiteWatcher"
+msgstr "Вход · SiteWatcher"
+
+msgid "Your monitoring workspace"
+msgstr "Ваше рабочее пространство мониторинга"
+
+msgid "Welcome back"
+msgstr "С возвращением"
+
+msgid "Sign in to SiteWatcher."
+msgstr "Войдите в SiteWatcher."
+
+msgid "Sign in"
+msgstr "Войти"
+
+msgid "Forgot your password? Contact the person who manages this installation."
+msgstr "Забыли пароль? Обратитесь к администратору этой установки."
+
+msgid "Settings · SiteWatcher"
+msgstr "Настройки · SiteWatcher"
+
+msgid "Workspace"
+msgstr "Рабочее пространство"
+
+msgid "Import domains"
+msgstr "Импорт доменов"
+
+msgid ""
+"Re-select the file or paste the CSV again. Private CSV content is not "
+"redisplayed."
+msgstr ""
+"Выберите файл или вставьте CSV повторно. Конфиденциальное содержимое CSV "
+"повторно не отображается."
+
+#, python-format
+msgid ""
+"Remove <strong>%(domain)s</strong> and its saved check history? This cannot "
+"be undone."
+msgstr ""
+"Удалить <strong>%(domain)s</strong> и сохранённую историю проверок? Это "
+"действие нельзя отменить."
+
+#, python-format
+msgid "Type %(domain)s to confirm removal"
+msgstr "Введите %(domain)s для подтверждения удаления"
+
+msgid "Remove domain and history"
+msgstr "Удалить домен и историю"
+
+msgid "Upload a CSV backup or paste its contents. Choose one source."
+msgstr ""
+"Загрузите резервную копию CSV или вставьте её содержимое. Выберите один "
+"источник."
+
+msgid "CSV file"
+msgstr "Файл CSV"
+
+msgid "Or paste CSV text"
+msgstr "Или вставьте текст CSV"
+
+msgid "Import mode"
+msgstr "Режим импорта"
+
+msgid "Merge into existing overrides"
+msgstr "Объединить с текущими индивидуальными настройками"
+
+msgid "Replace overrides for listed domains"
+msgstr "Заменить индивидуальные настройки указанных доменов"
+
+msgid ""
+"Domains absent from the CSV stay unchanged. Replace removes omitted "
+"overrides for each listed domain."
+msgstr ""
+"Домены, которых нет в CSV, не изменятся. При замене у каждого указанного "
+"домена удаляются индивидуальные настройки, отсутствующие в CSV."
+
+msgid "Import CSV"
+msgstr "Импортировать CSV"
+
+msgid "Notifications"
+msgstr "Уведомления"
+
+msgid ""
+"Keep a worker or bot process running for automatic checks and optional "
+"Telegram notifications."
+msgstr ""
+"Для автоматических проверок и уведомлений в Telegram должен работать процесс "
+"worker или бота."
+
+msgid "Save notification setting"
+msgstr "Сохранить настройку уведомлений"
+
+msgid "Account"
+msgstr "Учётная запись"
+
+#, python-format
+msgid "Times are shown in %(timezone)s."
+msgstr "Время отображается в часовом поясе %(timezone)s."
+
+msgid "Change password"
+msgstr "Изменить пароль"
+
+msgid "Sign out"
+msgstr "Выйти"
+
+msgid "Domain backups and configuration"
+msgstr "Резервные копии и настройки доменов"
+
+msgid "Download domain CSV backup"
+msgstr "Скачать резервную копию доменов в CSV"
+
+msgid "Import domain CSV"
+msgstr "Импортировать домены из CSV"
+
+msgid ""
+"Global check defaults and scheduling are managed in your installation "
+"configuration."
+msgstr ""
+"Общие настройки проверок по умолчанию и расписание задаются в конфигурации "
+"установки."
+
+msgid "Overview · SiteWatcher"
+msgstr "Обзор · SiteWatcher"
+
+msgid "Your workspace"
+msgstr "Ваше рабочее пространство"
+
+msgid "Keep an eye on the sites that matter."
+msgstr "Следите за важными для вас сайтами."
+
+msgid ""
+"Run fresh checks for every domain and save the results. This can take a "
+"while."
+msgstr ""
+"Запустить новые проверки всех доменов и сохранить результаты. Это может "
+"занять некоторое время."
+
+msgid "Check all domains now"
+msgstr "Проверить все домены сейчас"
+
+msgid "Refresh now"
+msgstr "Обновить сейчас"
+
+msgid "Refresh every minute"
+msgstr "Обновлять каждую минуту"
+
+msgid "Monitoring summary"
+msgstr "Сводка мониторинга"
+
+#, python-format
+msgid "%(count)s domain needs attention"
+msgid_plural "%(count)s domains need attention"
+msgstr[0] "%(count)s домен требует внимания"
+msgstr[1] "%(count)s домена требуют внимания"
+msgstr[2] "%(count)s доменов требуют внимания"
+
+msgid "Waiting for first results"
+msgstr "Ожидание первых результатов"
+
+msgid "Monitoring is paused"
+msgstr "Мониторинг приостановлен"
+
+msgid "No active warnings"
+msgstr "Нет активных предупреждений"
+
+#, python-format
+msgid "%(count)s domain"
+msgid_plural "%(count)s domains"
+msgstr[0] "%(count)s домен"
+msgstr[1] "%(count)s домена"
+msgstr[2] "%(count)s доменов"
+
+#, python-format
+msgid "%(count)s healthy"
+msgstr "Без проблем — %(count)s"
+
+#, python-format
+msgid "%(count)s paused"
+msgstr "Приостановлено — %(count)s"
+
+#, python-format
+msgid "%(count)s without current results"
+msgstr "Без актуальных результатов — %(count)s"
+
+msgid "Find a domain"
+msgstr "Найти домен"
+
+msgid "Find a domain…"
+msgstr "Найти домен…"
+
+msgid "Filter domains"
+msgstr "Фильтр доменов"
+
+msgid "Domains"
+msgstr "Домены"
+
+msgid ""
+"Domains, with favorites first. Historical percentages describe HTTP checks "
+"in the selected period."
+msgstr ""
+"Сначала показаны избранные домены. Процентные показатели относятся к HTTP-"
+"проверкам за выбранный период."
+
+msgid "Status"
+msgstr "Статус"
+
+msgid "HTTP history"
+msgstr "История HTTP"
+
+msgid "Actions"
+msgstr "Действия"
+
+msgid "Some checks are overdue"
+msgstr "Некоторые проверки просрочены"
+
+#, python-format
+msgid "Average response: %(latency)s ms"
+msgstr "Среднее время ответа: %(latency)s мс"
+
+msgid "No latency data"
+msgstr "Нет данных о времени ответа"
+
+#, python-format
+msgid "Edit %(domain)s"
+msgstr "Изменить %(domain)s"
+
+msgid "Edit"
+msgstr "Изменить"
+
+msgid "History"
+msgstr "История"
+
+msgid "No domains match this filter."
+msgstr "Нет доменов, соответствующих фильтру."
+
+msgid "Show all domains"
+msgstr "Показать все домены"
+
+msgid "Successful"
+msgstr "Успешные"
+
+msgid "Failed"
+msgstr "Неудачные"
+
+msgid "Unknown / no observations"
+msgstr "Неопределённый результат / нет проверок"
+
+#, python-format
+msgid "HTTP observations · %(count)s day"
+msgid_plural "HTTP observations · %(count)s days"
+msgstr[0] "HTTP-проверки · %(count)s день"
+msgstr[1] "HTTP-проверки · %(count)s дня"
+msgstr[2] "HTTP-проверки · %(count)s дней"
+
+msgid ""
+"Successful checks is the share of recorded HTTP checks that succeeded. Gaps "
+"are not counted as success."
+msgstr ""
+"Успешные проверки — доля сохранённых HTTP-проверок, завершившихся успешно. "
+"Пропуски не считаются успешными проверками."
+
+msgid "Add your first domain"
+msgstr "Добавьте первый домен"
+
+msgid ""
+"See availability, response times, and recent check results in one place."
+msgstr ""
+"Доступность, время ответа и последние результаты проверок — в одном месте."
+
+msgid "Use Add domain to start with a hostname such as example.com."
+msgstr "Нажмите «Добавить домен» и укажите имя хоста, например example.com."
+
+msgid "Response time"
+msgstr "Время ответа"
+
+#, python-format
+msgid "%(latency)s ms"
+msgstr "%(latency)s мс"
+
+msgid "Average of successful HTTP responses"
+msgstr "Среднее время успешных HTTP-ответов"
+
+msgid "HTTP response time in milliseconds"
+msgstr "Время HTTP-ответа в миллисекундах"
+
+msgid ""
+"Each point is an average of successful responses in a time bucket. Missing "
+"buckets break the line. The table below contains exact values."
+msgstr ""
+"Каждая точка — среднее время успешных ответов за интервал. Пропущенные "
+"интервалы разрывают линию. Точные значения приведены в таблице ниже."
+
+msgid "No successful response times recorded in this period."
+msgstr "За этот период нет данных о времени успешных ответов."
+
+msgid "View chart data"
+msgstr "Показать данные графика"
+
+#, python-format
+msgid ""
+"HTTP observations · %(timezone)s. Missing intervals have no observations."
+msgstr ""
+"HTTP-проверки · %(timezone)s. В пропущенных интервалах нет результатов "
+"проверок."
+
+msgid "Period starting"
+msgstr "Начало периода"
+
+msgid "Unknown"
+msgstr "Неопределённый результат"
+
+msgid "No observations recorded."
+msgstr "Нет сохранённых результатов проверок."
+
+#, python-format
+msgid "Default (%(default)s)"
+msgstr "По умолчанию (%(default)s)"
+
+msgid "Remove from favorites"
+msgstr "Убрать из избранного"
+
+msgid "Add to favorites"
+msgstr "Добавить в избранное"
+
+#, python-format
+msgid "Remove %(domain)s from favorites"
+msgstr "Убрать %(domain)s из избранного"
+
+#, python-format
+msgid "Add %(domain)s to favorites"
+msgstr "Добавить %(domain)s в избранное"
+
+msgid "Favorite"
+msgstr "Избранный домен"
+
+msgid "History period"
+msgstr "Период истории"
+
+msgid "24h"
+msgstr "24 ч"
+
+msgid "7d"
+msgstr "7 дн."
+
+msgid "30d"
+msgstr "30 дн."
+
+msgid "Reset domain settings"
+msgstr "Сбросить настройки домена"
+
+msgid ""
+"Remove every override for this domain, including its proxy. All settings "
+"will use workspace defaults. Saved check history is kept."
+msgstr ""
+"Удалить все индивидуальные настройки домена, включая прокси. Будут применены "
+"настройки рабочего пространства по умолчанию. Сохранённая история проверок "
+"останется."
+
+msgid "Reset all overrides"
+msgstr "Сбросить все индивидуальные настройки"
+
+msgid "Not checked yet"
+msgstr "Ещё не проверялся"
+
+#, python-format
+msgid ""
+"HTTP observations: %(successful)s successful, %(failed)s failed, %(unknown)s "
+"unknown. Empty space means no observations."
+msgstr ""
+"HTTP-проверки: успешных — %(successful)s, неудачных — %(failed)s, с "
+"неопределённым результатом — %(unknown)s. Пустое место означает отсутствие "
+"результатов проверок."
+
+#, python-format
+msgid ""
+"%(period)s: %(successful)s successful, %(failed)s failed, %(unknown)s unknown"
+msgstr ""
+"%(period)s: успешных — %(successful)s, неудачных — %(failed)s, с "
+"неопределённым результатом — %(unknown)s"
+
+msgid "Timestamp is in the future"
+msgstr "Дата и время находятся в будущем"
+
+msgid "Just now"
+msgstr "Только что"
+
+#, python-format
+msgid "%(elapsed)s ago"
+msgstr "%(elapsed)s назад"
+
+msgid "Change password · SiteWatcher"
+msgstr "Изменение пароля · SiteWatcher"
+
+msgid "← Settings"
+msgstr "← Настройки"
+
+msgid "Choose how you see your monitoring and where to receive alerts."
+msgstr "Настройте отображение мониторинга и получение уведомлений."
+
+msgid "This workspace is read-only. You can still change your password."
+msgstr ""
+"Это рабочее пространство доступно только для чтения. Вы можете изменить свой "
+"пароль."
+
+msgid "Workspace preferences"
+msgstr "Настройки рабочего пространства"
+
+msgid ""
+"Scheduled checks keep running when notifications are disabled. Keep the "
+"monitoring process running to check your sites automatically."
+msgstr ""
+"Отключение уведомлений не останавливает проверки по расписанию. Для "
+"автоматической проверки сайтов процесс мониторинга должен работать."
+
+msgid "Telegram connection"
+msgstr "Подключение к Telegram"
+
+msgid "Bot token configured"
+msgstr "Токен бота настроен"
+
+msgid "Telegram is not connected"
+msgstr "Telegram не подключён"
+
+msgid "Website monitoring works without Telegram."
+msgstr "Мониторинг сайтов работает и без Telegram."
+
+msgid ""
+"Environment override: this installation uses TELEGRAM_TOKEN. A token saved "
+"here will be used only after that override is removed."
+msgstr ""
+"Настройка окружения имеет приоритет: эта установка использует "
+"TELEGRAM_TOKEN. Сохранённый здесь токен будет использоваться только после "
+"удаления этой настройки окружения."
+
+msgid "Effective destination:"
+msgstr "Действующий чат:"
+
+msgid ""
+"This destination is managed by your installation. Saving another chat below "
+"will not change delivery until its alerts.chat_id override is removed."
+msgstr ""
+"Этот чат задан в конфигурации установки. Сохранение другого чата ниже не "
+"изменит доставку, пока настройка alerts.chat_id не будет удалена из "
+"конфигурации."
+
+msgid ""
+"This is the installation’s TELEGRAM_ALERT_CHAT_ID fallback. Saving your own "
+"destination below takes priority."
+msgstr ""
+"Используется резервное значение TELEGRAM_ALERT_CHAT_ID из настроек "
+"установки. Сохранённый ниже собственный чат имеет приоритет."
+
+msgid "This is your saved workspace destination."
+msgstr "Это чат, сохранённый для вашего рабочего пространства."
+
+msgid "No notification destination selected yet."
+msgstr "Чат для уведомлений ещё не выбран."
+
+msgid ""
+"Open <a href=\"https://t.me/BotFather\" rel=\"noreferrer\">BotFather</a> in "
+"Telegram, send /newbot, and follow its instructions to get a bot token."
+msgstr ""
+"Откройте <a href=\"https://t.me/BotFather\" rel=\"noreferrer\">BotFather</a> "
+"в Telegram, отправьте /newbot и следуйте инструкциям, чтобы получить токен "
+"бота."
+
+msgid ""
+"Save the token in Advanced below. Open your new bot and send /start. For a "
+"group, add the bot and send a message there."
+msgstr ""
+"Сохраните токен в дополнительных настройках ниже. Откройте нового бота и "
+"отправьте /start. Для группы добавьте в неё бота и отправьте туда сообщение."
+
+msgid ""
+"Use Find chats, choose your chat and save it. Then send a test notification."
+msgstr ""
+"Нажмите «Найти чаты», выберите и сохраните чат. Затем отправьте тестовое "
+"уведомление."
+
+msgid "Advanced: bot token and manual chat ID"
+msgstr "Дополнительно: токен бота и ввод ID чата"
+
+msgid ""
+"Leave blank to keep the configured token. Tokens are stored privately and "
+"never shown again. A running worker picks up token changes on its next tick. "
+"Restart a polling bot after changing its token."
+msgstr ""
+"Оставьте пустым, чтобы сохранить текущий токен. Токены хранятся "
+"конфиденциально и больше не отображаются. Работающий worker применит "
+"изменение токена на следующем цикле. После смены токена перезапустите бота, "
+"получающего обновления."
+
+msgid ""
+"Use a numeric chat ID, including the minus sign for a group. Leave blank to "
+"keep your destination. This changes delivery only; your existing domains and "
+"history stay with your account."
+msgstr ""
+"Введите числовой ID чата, включая знак минуса для группы. Оставьте пустым, "
+"чтобы сохранить текущий чат. Меняется только доставка уведомлений; домены и "
+"история остаются в вашей учётной записи."
+
+msgid "Check your connection"
+msgstr "Проверить подключение"
+
+msgid ""
+"Finding chats only reads recent Telegram updates. Another running bot or a "
+"webhook can prevent discovery; use the manual chat ID in Advanced in that "
+"case. Test sends one separate message even when regular notifications are "
+"disabled."
+msgstr ""
+"Поиск чатов только читает последние обновления Telegram. Другой запущенный "
+"бот или вебхук может помешать поиску; в этом случае введите ID чата в "
+"дополнительных настройках. Тест отправляет одно отдельное сообщение, даже "
+"если обычные уведомления отключены."
+
+msgid "Find chats"
+msgstr "Найти чаты"
+
+msgid "Send test notification"
+msgstr "Отправить тестовое уведомление"
+
+msgid "Choose your Telegram chat"
+msgstr "Выберите чат Telegram"
+
+msgid "Choose a chat"
+msgstr "Выберите чат"
+
+msgid "Save destination"
+msgstr "Сохранить чат"
+
+msgid "Public status page"
+msgstr "Публичная страница состояния"
+
+msgid ""
+"Public status is enabled. Anyone with the link can read aggregate HTTP "
+"observations for your selected domains."
+msgstr ""
+"Публичная страница включена. Любой, у кого есть ссылка, может просмотреть "
+"сводные результаты HTTP-проверок выбранных доменов."
+
+msgid "Public status is disabled. Publish only the domains you choose."
+msgstr "Публичная страница отключена. Вы сами выбираете домены для публикации."
+
+msgid ""
+"Diagnostic messages, Telegram settings, and private domains stay private."
+msgstr ""
+"Диагностические сообщения, настройки Telegram и непубличные домены остаются "
+"конфиденциальными."
+
+msgid "New public link — save it now"
+msgstr "Новая публичная ссылка — сохраните её сейчас"
+
+msgid "Public link copied."
+msgstr "Публичная ссылка скопирована."
+
+msgid "Link selected. Press Ctrl+C or use your device’s Copy action."
+msgstr ""
+"Ссылка выделена. Нажмите Ctrl+C или выберите «Копировать» на устройстве."
+
+msgid "Copy public link"
+msgstr "Скопировать публичную ссылку"
+
+msgid "Copy this link now. It is shown only once."
+msgstr "Скопируйте ссылку сейчас. Она отображается только один раз."
+
+msgid "Published domains"
+msgstr "Опубликованные домены"
+
+msgid ""
+"Only checked domains are public. Leave all unchecked to publish an empty "
+"page."
+msgstr ""
+"Публикуются только отмеченные домены. Снимите все отметки, чтобы "
+"опубликовать пустую страницу."
+
+msgid "Add a domain to your workspace to publish it here."
+msgstr "Добавьте домен в рабочее пространство, чтобы опубликовать его здесь."
+
+msgid "Save published domains"
+msgstr "Сохранить опубликованные домены"
+
+msgid "Enable public status"
+msgstr "Включить публичную страницу"
+
+msgid ""
+"The full link cannot be recovered. Rotate to create a new link; the old link "
+"stops working immediately. Disable to revoke all access."
+msgstr ""
+"Полную ссылку нельзя восстановить. При замене создаётся новая ссылка, а "
+"старая сразу перестаёт работать. Отключите публичную страницу, чтобы закрыть "
+"доступ всем."
+
+msgid "Rotate link"
+msgstr "Заменить ссылку"
+
+msgid "Disable public status"
+msgstr "Отключить публичную страницу"
+
+msgid "Service status · SiteWatcher"
+msgstr "Состояние сервисов · SiteWatcher"
+
+msgid "Public status"
+msgstr "Публичное состояние"
+
+msgid "Service status"
+msgstr "Состояние сервисов"
+
+msgid "Latest website status and recent history."
+msgstr "Текущее состояние сайтов и недавняя история."
+
+msgid "Published service status"
+msgstr "Состояние опубликованных сервисов"
+
+#, python-format
+msgid "%(count)s service unavailable"
+msgid_plural "%(count)s services unavailable"
+msgstr[0] "%(count)s сервис недоступен"
+msgstr[1] "%(count)s сервиса недоступны"
+msgstr[2] "%(count)s сервисов недоступны"
+
+msgid "All published services available"
+msgstr "Все опубликованные сервисы доступны"
+
+msgid "No recent data for some services"
+msgstr "Для некоторых сервисов нет актуальных данных"
+
+#, python-format
+msgid ""
+"%(available)s available · %(unavailable)s unavailable · %(published)s "
+"published"
+msgstr ""
+"Доступно — %(available)s · недоступно — %(unavailable)s · опубликовано — "
+"%(published)s"
+
+msgid "Failed checks"
+msgstr "Неудачные проверки"
+
+msgid "Published services only"
+msgstr "Только опубликованные сервисы"
+
+msgid ""
+"Successful checks = successful ÷ (successful + failed). Failure percentage "
+"uses the same denominator. Unknown observations are excluded. These are "
+"recorded checks, not continuous uptime."
+msgstr ""
+"Доля успешных проверок = успешные ÷ (успешные + неудачные). Доля неудачных "
+"проверок рассчитывается с тем же знаменателем. Проверки с неопределённым "
+"результатом не учитываются. Показатели отражают сохранённые проверки, а не "
+"непрерывную доступность сайта."
+
+msgid "successful checks"
+msgstr "успешных проверок"
+
+msgid "No HTTP observations in this period."
+msgstr "За этот период нет HTTP-проверок."
+
+msgid "Response time and chart data"
+msgstr "Время ответа и данные графика"
+
+msgid "No domains published"
+msgstr "Нет опубликованных доменов"
+
+msgid "This page has no published services yet."
+msgstr "На этой странице пока нет опубликованных сервисов."
+
+msgid ""
+"Empty history intervals mean no observations were recorded. Current "
+"availability uses the monitoring interval to detect overdue HTTP "
+"observations. Paused services and services with no recent data are not "
+"counted as available."
+msgstr ""
+"Пустые интервалы истории означают, что результаты проверок не записывались. "
+"Текущая доступность учитывает интервал мониторинга для выявления "
+"просроченных HTTP-проверок. Сервисы с приостановленным мониторингом и "
+"сервисы без актуальных данных не считаются доступными."

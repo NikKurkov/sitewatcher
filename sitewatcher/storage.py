@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS domains (
   owner_id INTEGER NOT NULL,
   name TEXT NOT NULL,
+  favorite INTEGER NOT NULL DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now')),
   PRIMARY KEY(owner_id, name),
   FOREIGN KEY(owner_id) REFERENCES users(telegram_id) ON DELETE CASCADE
@@ -140,6 +141,9 @@ def _ensure_initialized(db_path: Path | None = None) -> None:
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(history)")}
             if "source" not in columns:
                 conn.execute("ALTER TABLE history ADD COLUMN source TEXT NOT NULL DEFAULT 'legacy'")
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(domains)")}
+            if "favorite" not in columns:
+                conn.execute("ALTER TABLE domains ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0")
     _INITIALIZED_PATHS.add(db_path)
 
 
@@ -239,6 +243,15 @@ def remove_domain(owner_id: int, name: str) -> bool:
     with _write_connection() as conn:
         cur = conn.execute("DELETE FROM domains WHERE owner_id=? AND name=?", (int(owner_id), name))
         return cur.rowcount > 0
+
+
+def set_domain_favorite(owner_id: int, name: str, favorite: bool) -> bool:
+    """Set an existing owned domain's display preference without touching monitoring settings."""
+    _ensure_initialized()
+    with _write_connection() as conn:
+        result = conn.execute("UPDATE domains SET favorite=? WHERE owner_id=? AND name=?",
+                              (int(favorite), int(owner_id), (name or '').strip().lower()))
+        return result.rowcount > 0
 
 
 def list_domains(owner_id: int) -> List[str]:
@@ -569,6 +582,19 @@ def set_domain_override(
     return current
 
 
+def create_domains_with_overrides(owner_id: int, overrides: dict[str, dict]) -> None:
+    """Create a validated batch for one owner, rolling back on conflicts or write errors."""
+    _ensure_initialized()
+    with _write_connection() as conn:
+        conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES(?)", (int(owner_id),))
+        for domain, data in overrides.items():
+            if conn.execute("SELECT 1 FROM domains WHERE owner_id=? AND name=?",
+                            (int(owner_id), domain)).fetchone():
+                raise ValueError("Domain already exists")
+            conn.execute("INSERT INTO domains(owner_id,name) VALUES(?,?)", (int(owner_id), domain))
+            _store_domain_override(conn, owner_id, domain, data)
+
+
 def _domain_reset_revision(conn: sqlite3.Connection, owner_id: int, domain: str) -> str:
     row = conn.execute(
         "SELECT data_json FROM domain_overrides WHERE owner_id=? AND domain=?",
@@ -623,6 +649,7 @@ def iter_history(
     statuses: set[str] | None = None,
     since: datetime | None = None,
     limit: int = 20,
+    until: datetime | None = None,
 ):
     """
     Yield last history rows for the owner with optional filters.
@@ -649,11 +676,12 @@ def iter_history(
             where.append(f"UPPER(status) IN ({qs})")
             args.extend(s.upper() for s in statuses)
 
-        if since:
-            where.append("created_at >= ?")
-            # History uses SQLite UTC timestamps with a space, not ISO's "T" separator.
-            cutoff = since if since.tzinfo is not None else since.replace(tzinfo=timezone.utc)
-            args.append(cutoff.astimezone(timezone.utc).replace(tzinfo=None).isoformat(sep=" "))
+        for bound, operator in ((since, ">="), (until, "<")):
+            if bound is not None:
+                where.append(f"created_at {operator} ?")
+                # History uses SQLite UTC timestamps with a space, not ISO's T separator.
+                cutoff = bound if bound.tzinfo is not None else bound.replace(tzinfo=timezone.utc)
+                args.append(cutoff.astimezone(timezone.utc).replace(tzinfo=None).isoformat(sep=" "))
 
         sql = (
             'SELECT id, domain, check_name AS "check", status, message, metrics_json, created_at '

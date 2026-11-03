@@ -4,6 +4,8 @@ import logging
 import secrets
 
 from django.conf import settings
+from django.utils import translation
+from django.utils.translation import gettext as _
 from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
@@ -66,11 +68,19 @@ def public_report(workspace, *, days):
 def status(request, token, *, data=False):
     """Called inside the early bearer-path boundary; no owner/session middleware runs."""
     if request.method not in {'GET', 'HEAD'}:
-        return HttpResponse('Method not allowed', status=405, headers={'Allow': 'GET, HEAD'})
+        return HttpResponse(_('Method not allowed'), status=405, headers={'Allow': 'GET, HEAD'})
     workspace = Workspace.objects.filter(public_enabled=True,
         public_token_hash=hashlib.sha256(token.encode()).hexdigest()).first()
     if workspace is None:
-        return HttpResponse('Not found', status=404)
+        return HttpResponse(_('Not found'), status=404)
+    request.LANGUAGE_CODE = workspace.language
+    with translation.override(workspace.language):
+        response = _status_page(request, workspace, data=data)
+    response['Content-Language'] = workspace.language
+    return response
+
+
+def _status_page(request, workspace, *, data):
     query = request.GET
     try:
         if set(query) - {'days', 'mode'} or any(len(v) != 1 for _, v in query.lists()):
@@ -86,7 +96,7 @@ def status(request, token, *, data=False):
                                 samesite='Strict', secure=settings.SESSION_COOKIE_SECURE)
             return response
     except ValueError:
-        return HttpResponse('Not found', status=404)
+        return HttpResponse(_('Not found'), status=404)
     report = public_report(workspace, days=days)
     if data:
         return JsonResponse(report)
@@ -94,8 +104,8 @@ def status(request, token, *, data=False):
         report_context(item)
         item['observed'] = local_time(item['last_checked_at'], workspace.timezone)
         item['state'], item['state_label'] = {
-            'available': ('ok', 'Available'), 'unavailable': ('crit', 'Unavailable'),
-            'no_recent_data': ('unknown', 'No recent data'), 'paused': ('paused', 'Paused'),
+            'available': ('ok', _('Available')), 'unavailable': ('crit', _('Unavailable')),
+            'no_recent_data': ('unknown', _('No recent data')), 'paused': ('paused', _('Paused')),
         }[item['current_state']]
     available = sum(item['current_state'] == 'available' for item in report['domains'])
     unavailable = sum(item['current_state'] == 'unavailable' for item in report['domains'])
@@ -113,7 +123,7 @@ def status(request, token, *, data=False):
 def publication(request):
     from .preferences import _render
     if settings.SITEWATCHER_READ_ONLY:
-        return HttpResponse('Read-only workspace', status=405, headers={'Allow': 'GET, HEAD'})
+        return HttpResponse(_('Read-only workspace'), status=405, headers={'Allow': 'GET, HEAD'})
     fields = dict(request.management_form)
     fields.pop('csrfmiddlewaretoken', None)
     action = fields.get('action')
@@ -123,15 +133,15 @@ def publication(request):
             or ('domains' in fields and selection) or any(v != 'on' for v in selection.values())
             or action not in {
             'enable', 'rotate', 'disable', 'selection'}):
-        return HttpResponse('Invalid request', status=400)
+        return HttpResponse(_('Invalid request'), status=400)
     names = sorted(set(fields['domains'].split()) if 'domains' in fields else selection)
     if not set(names) <= owned:
-        return _render(request, error='Select only domains in your workspace.', status=400)
+        return _render(request, error=_('Select only domains in your workspace.'), status=400)
     link = ''
     with transaction.atomic():
         workspace = Workspace.objects.get(pk=request.workspace.pk)
         if action in {'rotate', 'selection'} and not workspace.public_enabled:
-            return HttpResponse('Enable public status first', status=400)
+            return HttpResponse(_('Enable public status first'), status=400)
         if action in {'enable', 'rotate'}:
             token = secrets.token_urlsafe(32)
             workspace.public_enabled = True
@@ -145,9 +155,9 @@ def publication(request):
         workspace.save(update_fields=['public_enabled', 'public_token_hash', 'public_domains'])
     request.workspace = workspace
     try:
-        return _render(request, notice='Public status updated.', public_link=link)
+        return _render(request, notice=_('Public status updated.'), public_link=link)
     except Exception as error:
         # Rendering the one-time link must not put its context into exception reports.
         logging.getLogger(__name__).warning(
             'Public status settings unavailable (%s)', type(error).__name__)
-        return HttpResponse('Public status settings temporarily unavailable; reload Settings.', status=503)
+        return HttpResponse(_('Public status settings temporarily unavailable; reload Settings.'), status=503)

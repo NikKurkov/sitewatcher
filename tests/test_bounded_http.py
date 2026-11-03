@@ -265,7 +265,8 @@ def test_operator_body_limit_is_positive_and_propagated_only_to_page_checks():
     async def scenario():
         cfg = AppConfig(http=HttpClientConfig(max_response_bytes=4096))
         cfg.defaults.checks = ChecksModel(**{
-            name: name in {'http_basic', 'keywords', 'deface', 'whois', 'rkn_block', 'malware'}
+            name: name in {'http_basic', 'keywords', 'deface', 'whois', 'rkn_domain',
+                           'rkn_ip', 'malware'}
             for name in ChecksModel.model_fields
         })
         async with Dispatcher(cfg) as dispatcher:

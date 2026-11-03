@@ -173,7 +173,7 @@ def test_snapshot_uses_bounded_queries_and_does_not_initialize_or_write(database
     monkeypatch.setattr(sqlite3, 'connect', connect)
     monkeypatch.setattr(storage, '_ensure_initialized', forbidden_initialization)
     assert build_snapshot(config(), 1, now=NOW)['summary']['total'] == 25
-    assert len([sql for sql in statements if sql.startswith(('SELECT', 'WITH', 'PRAGMA'))]) == 3
+    assert len([sql for sql in statements if sql.startswith(('SELECT', 'WITH', 'PRAGMA'))]) == 4
     assert all(sql.startswith(('SELECT', 'WITH', 'PRAGMA', 'BEGIN', 'ROLLBACK')) for sql in statements)
 
 
@@ -246,3 +246,14 @@ def test_legacy_database_without_latest_index_remains_readable_and_unmodified(da
     assert build_snapshot(config(), 1, now=NOW) == before
     with closing(sqlite3.connect(database)) as conn:
         assert conn.execute("PRAGMA index_list('history')").fetchall() == indexes_before
+
+
+def test_snapshot_legacy_domains_without_favorites_stays_read_only(database):
+    storage.add_domain(1, 'example.com')
+    with sqlite3.connect(database) as conn:
+        conn.execute('ALTER TABLE domains DROP COLUMN favorite')
+    snapshot = build_snapshot(config(), 1, now=NOW)
+    assert snapshot['domains'][0]['favorite'] is False
+    with sqlite3.connect(database) as conn:
+        columns = {row[1] for row in conn.execute('PRAGMA table_info(domains)')}
+    assert 'favorite' not in columns

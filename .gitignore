@@ -20,6 +20,7 @@ sitewatcher/data/config.yaml
 sitewatcher/data/*.yaml
 
 # Databases & local caches
+*.scheduler.lock
 *.db
 *.db-shm
 *.db-wal

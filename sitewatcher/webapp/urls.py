@@ -24,7 +24,7 @@ def health(request):
         with closing(sqlite3.connect(storage.DEFAULT_DB.resolve().as_uri() + '?mode=ro',
                                      uri=True, timeout=1)) as connection:
             for table, columns in (
-                ('domains', 'owner_id,name'), ('history', 'source,metrics_json'),
+                ('domains', 'owner_id,name,favorite'), ('history', 'source,metrics_json'),
                 ('webapp_workspace', 'owner_id,public_enabled'),
                 ('auth_user', 'password'), ('django_session', 'session_key'),
             ):
@@ -67,5 +67,6 @@ urlpatterns += [
 ]
 urlpatterns += [path('domains/' + route, domains.action, {'operation': operation})
                 for route, operation in [('add', 'add'), ('save', 'save'), ('pause', 'pause'),
-                                         ('resume', 'resume'), ('reset', 'reset'), ('check', 'check')]]
+                                         ('resume', 'resume'), ('reset', 'reset'), ('check', 'check'),
+                                         ('favorite', 'favorite')]]
 urlpatterns += [path('alerts', domains.action, {'operation': 'alerts'})]

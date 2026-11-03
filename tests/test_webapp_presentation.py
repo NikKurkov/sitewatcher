@@ -58,7 +58,7 @@ def test_detail_percent_sources_timezone_and_bounded_chart(owner, client):
     assert '66.7%' in body and '120 ms' in body
     assert '3 manual' in body and '0 scheduled' in body and '0 legacy' in body
     assert 'View chart data' in body and '<svg' in body
-    assert 'Successful checks' in body and 'continuous uptime' in body
+    assert 'Successful checks' in body and 'continuous uptime' not in body
     assert 'private diagnostic' not in body.split('Latest monitoring checks')[0]
     assert 'Europe/Moscow' in body
     for invalid in ['0', '365', 'nope']:
@@ -112,7 +112,7 @@ def test_anonymous_theme_only_changes_cosmetic_cookie(web_database, client):
     assert get(client, '/theme?mode=dark&next=https://evil.example/').status_code == 400
 
 
-def test_new_domain_form_defaults_to_http_tls_only(owner, client):
+def test_new_domain_form_selects_workspace_defaults(owner, client):
     from html.parser import HTMLParser
     class SelectedOptions(HTMLParser):
         def __init__(self):
@@ -129,12 +129,47 @@ def test_new_domain_form_defaults_to_http_tls_only(owner, client):
     parser.feed(get(client, '/domains/new').content.decode())
     from sitewatcher.config import ChecksModel
     assert {key: parser.values['check.' + key] for key in ChecksModel.model_fields} == {
-        key: 'on' if key in {'http_basic', 'tls_cert'} else 'off'
+        key: ''
         for key in ChecksModel.model_fields}
     parser.values.update(domain='basic.example')
     response = client.post('/domains/add', parser.values, HTTP_HOST='localhost')
     assert response.status_code == 303
-    assert storage.get_domain_override(41, 'basic.example')['checks']['ping'] is False
+    assert 'checks' not in storage.get_domain_override(41, 'basic.example')
+
+
+def test_new_domain_interval_is_filled_from_configured_schedule(owner, client, settings):
+    from sitewatcher.config import AppConfig
+    settings.SITEWATCHER_CONFIG = AppConfig.model_validate({
+        'schedules': {'http_basic': {'interval_minutes': 17}},
+        'defaults': {'checks': {'ping': True}},
+    })
+    body = get(client, '/domains/new').content.decode()
+    assert 'name="interval_minutes" value="17"' in body
+    assert '<option value="" selected>Default (On)</option>' in body
+    assert 'placeholder="Default (10)"' in body
+    assert 'JSON list' not in body
+
+
+def test_rkn_controls_and_history_distinguish_domain_critical_from_ip_warning(owner, client,
+                                                                            settings):
+    from sitewatcher.config import AppConfig, ChecksModel
+    settings.SITEWATCHER_CONFIG = AppConfig.model_validate({'defaults': {'checks': {
+        **dict.fromkeys(ChecksModel.model_fields, False), 'rkn_domain': True, 'rkn_ip': True,
+    }}})
+    body = get(client, '/domains/new').content.decode()
+    assert 'name="check.rkn_domain"' in body and 'RKN domain blocking' in body
+    assert 'name="check.rkn_ip"' in body and 'RKN IP listing' in body
+    assert 'name="check.rkn_block"' not in body
+    storage.add_domain(41, 'shared.example')
+    storage.save_history(41, 'shared.example', 'rkn_block', 'CRIT', 'Legacy IP result', {})
+    from datetime import datetime, timezone
+    metrics = {'source': 'antifilter', 'source_updated_at': datetime.now(timezone.utc).isoformat()}
+    storage.save_history(41, 'shared.example', 'rkn_domain', 'OK', 'Domain not listed', metrics)
+    storage.save_history(41, 'shared.example', 'rkn_ip', 'WARN', 'Shared IP listed', metrics)
+    body = get(client, '/domains/history?domain=shared.example').content.decode()
+    assert 'badge warn' in body and 'Warning' in body and 'Critical' not in body
+    assert body.count('RKN domain blocking') == body.count('RKN IP listing') == 3
+    assert 'Legacy RKN blocking' in body
 
 
 def test_history_tolerates_unparseable_legacy_time():
@@ -300,3 +335,52 @@ def test_get_head_parity_retains_private_security_headers(owner, client, route):
     assert head['Cache-Control'] == 'no-store'
     assert head['X-Frame-Options'] == 'DENY'
     assert 'Access-Control-Allow-Origin' not in head
+
+
+def test_chart_hover_values_stay_with_their_bucket_across_gaps():
+    from sitewatcher.webapp.presentation import chart_context
+    chart = chart_context([
+        {'index': 0, 'latency_ms': 125.5, 'label': '2026-11-03 10:00 MSK'},
+        {'index': 1, 'latency_ms': None, 'label': '2026-11-03 10:12 MSK'},
+        {'index': 2, 'latency_ms': 0, 'label': '2026-11-03 10:24 MSK'},
+    ], 'latency_ms')
+    assert [(dot['label'], dot['value']) for dot in chart['dots']] == [
+        ('2026-11-03 10:00 MSK', 125.5), ('2026-11-03 10:24 MSK', 0),
+    ]
+
+
+def test_dashboard_problem_tooltip_uses_each_check_time_and_only_owner_results(owner, client,
+                                                                              settings):
+    from sitewatcher.config import AppConfig, ChecksModel
+    settings.SITEWATCHER_CONFIG = AppConfig.model_validate({'defaults': {'checks': {
+        **dict.fromkeys(ChecksModel.model_fields, False), 'http_basic': True, 'tls_cert': True,
+    }}})
+    for owner_id in (41, 99):
+        storage.add_domain(owner_id, 'problem.example')
+    storage.save_history(41, 'problem.example', 'http_basic', 'CRIT', '<HTTP failed>', {})
+    storage.save_history(41, 'problem.example', 'tls_cert', 'WARN', 'Certificate expires soon', {})
+    storage.save_history(99, 'problem.example', 'http_basic', 'CRIT', 'OTHER OWNER DETAIL', {})
+    with storage._write_connection() as conn:
+        conn.execute("UPDATE history SET created_at='2026-11-03 10:00:00' "
+                     "WHERE owner_id=41 AND check_name='http_basic'")
+        conn.execute("UPDATE history SET created_at='2026-11-03 10:30:00' "
+                     "WHERE owner_id=41 AND check_name='tls_cert'")
+    response = get(client, '/')
+    row = next(row for row in response.context['rows'] if row['name'] == 'problem.example')
+    assert [check['name'] for check in row['problems']] == ['http_basic', 'tls_cert']
+    html = response.content.decode()
+    assert 'data-status-preview' in html and 'role="tooltip" tabindex="0"' in html
+    assert '&lt;HTTP failed&gt;' in html and 'Certificate expires soon' in html
+    assert '2026-11-03T10:00:00+00:00' in html and '2026-11-03T10:30:00+00:00' in html
+    assert 'OTHER OWNER DETAIL' not in html
+
+
+def test_dashboard_tooltip_explains_overdue_success_as_warning():
+    from sitewatcher.webapp.domains import _row_context
+    row = {'overall': 'WARN', 'paused': False, 'error': None, 'last_checked_at': None,
+           'checks': [{'name': 'http_basic', 'status': 'OK', 'stale': True, 'missing': False,
+                       'checked_at': '2026-11-03T10:00:00+00:00', 'message': 'HTTP 200'}]}
+    _row_context(row, 'Europe/Moscow')
+    assert row['state'] == 'warn'
+    assert row['problems'][0]['stale'] is True
+    assert row['problems'][0]['observed']['label'] == '03 Nov 2026, 13:00 MSK'

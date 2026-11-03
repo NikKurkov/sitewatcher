@@ -1,30 +1,209 @@
 {% extends 'sitewatcher/base.html' %}
-{% block title %}Settings · SiteWatcher{% endblock %}
+{% load i18n %}
+{% block title %}{% translate 'Settings · SiteWatcher' %}{% endblock %}
 {% block content %}
-<div class="page-heading"><div><p class="eyebrow">Your workspace</p><h1>Settings</h1><p class="subtitle">Choose how you see your monitoring and where to receive alerts.</p></div></div>
-{% if read_only %}<p class="notice" role="status">This workspace is read-only. You can still change your password.</p>{% endif %}
-{% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
-{% if error %}<p class="notice error-notice" role="alert">{{ error }}</p>{% endif %}
-<form class="panel form-section preferences-form" method="post" action="/settings">{% csrf_token %}
-<fieldset {% if read_only %}disabled{% endif %}>
-<legend>Workspace preferences</legend>
-<div class="field"><label for="{{ form.timezone.id_for_label }}">{{ form.timezone.label }}</label>{{ form.timezone }}{% if form.timezone.errors %}<div id="id_timezone_error">{% for error in form.timezone.errors %}<p class="field-error">{{ error }}</p>{% endfor %}</div>{% endif %}<p id="id_timezone_helptext" class="field-help">{{ form.timezone.help_text }}</p></div>
-<div class="field"><label for="{{ form.enabled.id_for_label }}">{{ form.enabled.label }}</label>{{ form.enabled }}{% if form.enabled.errors %}<div id="id_enabled_error">{% for error in form.enabled.errors %}<p class="field-error">{{ error }}</p>{% endfor %}</div>{% endif %}<p class="field-help">Scheduled checks keep running when notifications are disabled. Keep the monitoring process running to check your sites automatically.</p></div>
-<h2>Telegram connection</h2>
-<p>{% if token_present %}<strong>Bot token configured</strong>{% else %}<strong>Telegram is not connected</strong>{% endif %}. Website monitoring works without Telegram.</p>
-{% if environment_override %}<p class="notice">Environment override: this installation uses TELEGRAM_TOKEN. A token saved here will be used only after that override is removed.</p>{% endif %}
-<p>{% if destination %}Effective destination: <strong>{{ destination }}</strong>. {% if destination_source == 'installation' %}This destination is managed by your installation. Saving another chat below will not change delivery until its alerts.chat_id override is removed.{% elif destination_source == 'environment' %}This is the installation’s TELEGRAM_ALERT_CHAT_ID fallback. Saving your own destination below takes priority.{% else %}This is your saved workspace destination.{% endif %}{% else %}No notification destination selected yet.{% endif %}</p>
-<ol class="setup-steps"><li>Open <a href="https://t.me/BotFather" rel="noreferrer">BotFather</a> in Telegram, send /newbot, and follow its instructions to get a bot token.</li><li>Save the token in Advanced below. Open your new bot and send /start. For a group, add the bot and send a message there.</li><li>Use Find chats, choose your chat and save it. Then send a test notification.</li></ol>
-<details {% if form.bot_token.errors or form.chat_id.errors %}open{% endif %}><summary>Advanced: bot token and manual chat ID</summary><div class="field"><label for="{{ form.bot_token.id_for_label }}">{{ form.bot_token.label }}</label>{{ form.bot_token }}{% if form.bot_token.errors %}<div id="id_bot_token_error">{% for error in form.bot_token.errors %}<p class="field-error">{{ error }}</p>{% endfor %}</div>{% endif %}<p class="field-help">Leave blank to keep the configured token. Tokens are stored privately and never shown again. A running worker picks up token changes on its next tick. Restart a polling bot after changing its token.</p></div><div class="field"><label for="{{ form.chat_id.id_for_label }}">{{ form.chat_id.label }}</label>{{ form.chat_id }}{% if form.chat_id.errors %}<div id="id_chat_id_error">{% for error in form.chat_id.errors %}<p class="field-error">{{ error }}</p>{% endfor %}</div>{% endif %}<p class="field-help">Use a numeric chat ID, including the minus sign for a group. Leave blank to keep your destination. This changes delivery only; your existing domains and history stay with your account.</p></div></details>
-{% if not read_only %}<div class="form-actions"><button class="primary" type="submit">Save settings</button></div>{% endif %}
-</fieldset></form>
-<section class="panel form-section"><h2>Check your connection</h2><p class="field-help">Finding chats only reads recent Telegram updates. Another running bot or a webhook can prevent discovery; use the manual chat ID in Advanced in that case. Test sends one separate message even when regular notifications are disabled.</p><div class="detail-actions"><form method="post" action="/settings">{% csrf_token %}<button name="action" value="find_chats" type="submit" {% if read_only %}disabled{% endif %}>Find chats</button></form><form method="post" action="/settings">{% csrf_token %}<button name="action" value="test" type="submit" {% if read_only %}disabled{% endif %}>Send test notification</button></form></div>
-{% if chats %}<form method="post" action="/settings">{% csrf_token %}<div class="field"><label for="discovered_chat">Choose your Telegram chat</label><select name="chat_id" id="discovered_chat" required><option value="">Choose a chat</option>{% for chat in chats %}<option value="{{ chat.id }}">{{ chat.label }} ({{ chat.id }})</option>{% endfor %}</select></div><button type="submit" class="primary">Save destination</button></form>{% endif %}</section>
-
-<section class="panel form-section publication-settings"><h2>Public status page</h2><p class="field-help">{% if request.workspace.public_enabled %}Public status is enabled. Anyone with the link can read aggregate HTTP observations for your selected domains.{% else %}Public status is disabled. Publish only the domains you choose.{% endif %} Diagnostic messages, Telegram settings, and private domains stay private.</p>
-{% if public_link %}<div class="notice"><label for="public-link">New public link — save it now</label><input id="public-link" type="text" readonly value="{{ public_link }}"><button type="button" class="copy-public-link" data-copy-target="public-link">Copy public link</button><span class="field-help" role="status" data-copy-status>Copy this link now. It is shown only once.</span></div>{% endif %}
-<form method="post" action="/settings/public">{% csrf_token %}<fieldset {% if read_only %}disabled{% endif %}><legend>Published domains</legend><p class="field-help">Only checked domains are public. Leave all unchecked to publish an empty page.</p><div class="publication-domains">{% for item in publication_domains %}<label><input type="checkbox" name="domain.{{ item.name }}" {% if item.selected %}checked{% endif %}> <span>{{ item.name }}</span></label>{% empty %}<p class="muted">Add a domain to your workspace to publish it here.</p>{% endfor %}</div><div class="detail-actions"><button type="submit" class="primary" name="action" value="{% if request.workspace.public_enabled %}selection{% else %}enable{% endif %}">{% if request.workspace.public_enabled %}Save published domains{% else %}Enable public status{% endif %}</button></div></fieldset></form>
-{% if request.workspace.public_enabled %}<p class="field-help">The full link cannot be recovered. Rotate to create a new link; the old link stops working immediately. Disable to revoke all access.</p><div class="detail-actions"><form method="post" action="/settings/public">{% csrf_token %}<button name="action" value="rotate" {% if read_only %}disabled{% endif %}>Rotate link</button></form><form method="post" action="/settings/public">{% csrf_token %}<button name="action" value="disable" {% if read_only %}disabled{% endif %}>Disable public status</button></form></div>{% endif %}</section>
-<section class="panel form-section"><h2>Account</h2><div class="detail-actions"><a class="button" href="/password/">Change password</a><form method="post" action="/logout/">{% csrf_token %}<button type="submit">Sign out</button></form></div></section>
-<details class="panel form-section"><summary>Domain backups and configuration</summary><p><a href="/export.csv">Download domain CSV backup</a></p>{% if not read_only %}<p><a href="/import">Import domain CSV</a></p>{% endif %}<p class="field-help">Global check defaults and scheduling are managed in your installation configuration.</p></details>
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">{% translate 'Your workspace' %}</p>
+            <h1>{% translate 'Settings' %}</h1>
+            <p class="subtitle">{% translate 'Choose how you see your monitoring and where to receive alerts.' %}</p>
+        </div>
+    </div>
+    {% if read_only %}
+        <p class="notice" role="status">{% translate 'This workspace is read-only. You can still change your password.' %}</p>
+    {% endif %}
+    {% if notice %}
+        <p class="notice" role="status">{{ notice }}</p>
+    {% endif %}
+    {% if error %}
+        <p class="notice error-notice" role="alert">{{ error }}</p>
+    {% endif %}
+    <form class="panel form-section preferences-form" method="post" action="/settings">
+        {% csrf_token %}
+        <fieldset {% if read_only %}disabled{% endif %}>
+            <legend>{% translate 'Workspace preferences' %}</legend>
+            <div class="field">
+                <label for="{{ form.timezone.id_for_label }}">{{ form.timezone.label }}</label>
+                {{ form.timezone }}
+                {% if form.timezone.errors %}
+                    <div id="id_timezone_error">
+                        {% for error in form.timezone.errors %}
+                            <p class="field-error">{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+                <p id="id_timezone_helptext" class="field-help">{{ form.timezone.help_text }}</p>
+            </div>
+            <div class="field">
+                <label for="{{ form.language.id_for_label }}">{{ form.language.label }}</label>
+                {{ form.language }}
+                {% if form.language.errors %}
+                    <div id="id_language_error">
+                        {% for error in form.language.errors %}
+                            <p class="field-error">{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+                <p id="id_language_helptext" class="field-help">{{ form.language.help_text }}</p>
+            </div>
+            <div class="field">
+                <label for="{{ form.enabled.id_for_label }}">{{ form.enabled.label }}</label>
+                {{ form.enabled }}
+                {% if form.enabled.errors %}
+                    <div id="id_enabled_error">
+                        {% for error in form.enabled.errors %}
+                            <p class="field-error">{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+                <p class="field-help">{% translate 'Scheduled checks keep running when notifications are disabled. Keep the monitoring process running to check your sites automatically.' %}</p>
+            </div>
+            <h2>{% translate 'Telegram connection' %}</h2>
+            <p>{% if token_present %}<strong>{% translate 'Bot token configured' %}</strong>{% else %}<strong>{% translate 'Telegram is not connected' %}</strong>{% endif %}. {% translate 'Website monitoring works without Telegram.' %}</p>
+            {% if environment_override %}
+                <p class="notice">{% translate 'Environment override: this installation uses TELEGRAM_TOKEN. A token saved here will be used only after that override is removed.' %}</p>
+            {% endif %}
+            <p>{% if destination %}{% translate 'Effective destination:' %} <strong>{{ destination }}</strong>. {% if destination_source == 'installation' %}{% translate 'This destination is managed by your installation. Saving another chat below will not change delivery until its alerts.chat_id override is removed.' %}{% elif destination_source == 'environment' %}{% translate 'This is the installation’s TELEGRAM_ALERT_CHAT_ID fallback. Saving your own destination below takes priority.' %}{% else %}{% translate 'This is your saved workspace destination.' %}{% endif %}{% else %}{% translate 'No notification destination selected yet.' %}{% endif %}</p>
+            <ol class="setup-steps">
+                <li>
+                    {% blocktranslate %}Open <a href="https://t.me/BotFather" rel="noreferrer">BotFather</a> in Telegram, send /newbot, and follow its instructions to get a bot token.{% endblocktranslate %}
+                </li>
+                <li>
+                    {% translate 'Save the token in Advanced below. Open your new bot and send /start. For a group, add the bot and send a message there.' %}
+                </li>
+                <li>
+                    {% translate 'Use Find chats, choose your chat and save it. Then send a test notification.' %}
+                </li>
+            </ol>
+            <details {% if form.bot_token.errors or form.chat_id.errors %}open{% endif %}>
+                <summary>{% translate 'Advanced: bot token and manual chat ID' %}</summary>
+                <div class="field">
+                    <label for="{{ form.bot_token.id_for_label }}">{{ form.bot_token.label }}</label>
+                    {{ form.bot_token }}
+                    {% if form.bot_token.errors %}
+                        <div id="id_bot_token_error">
+                            {% for error in form.bot_token.errors %}
+                                <p class="field-error">{{ error }}</p>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                    <p class="field-help">{% translate 'Leave blank to keep the configured token. Tokens are stored privately and never shown again. A running worker picks up token changes on its next tick. Restart a polling bot after changing its token.' %}</p>
+                </div>
+                <div class="field">
+                    <label for="{{ form.chat_id.id_for_label }}">{{ form.chat_id.label }}</label>
+                    {{ form.chat_id }}
+                    {% if form.chat_id.errors %}
+                        <div id="id_chat_id_error">
+                            {% for error in form.chat_id.errors %}
+                                <p class="field-error">{{ error }}</p>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                    <p class="field-help">{% translate 'Use a numeric chat ID, including the minus sign for a group. Leave blank to keep your destination. This changes delivery only; your existing domains and history stay with your account.' %}</p>
+                </div>
+            </details>
+            {% if not read_only %}
+                <div class="form-actions">
+                    <button class="primary" type="submit">{% translate 'Save settings' %}</button>
+                </div>
+            {% endif %}
+        </fieldset>
+    </form>
+    <section class="panel form-section">
+        <h2>{% translate 'Check your connection' %}</h2>
+        <p class="field-help">{% translate 'Finding chats only reads recent Telegram updates. Another running bot or a webhook can prevent discovery; use the manual chat ID in Advanced in that case. Test sends one separate message even when regular notifications are disabled.' %}</p>
+        <div class="detail-actions">
+            <form method="post" action="/settings">
+                {% csrf_token %}
+                <button name="action" value="find_chats" type="submit" {% if read_only %}disabled{% endif %}>{% translate 'Find chats' %}</button>
+            </form>
+            <form method="post" action="/settings">
+                {% csrf_token %}
+                <button name="action" value="test" type="submit" {% if read_only %}disabled{% endif %}>{% translate 'Send test notification' %}</button>
+            </form>
+        </div>
+        {% if chats %}
+            <form method="post" action="/settings">
+                {% csrf_token %}
+                <div class="field">
+                    <label for="discovered_chat">{% translate 'Choose your Telegram chat' %}</label>
+                    <select name="chat_id" id="discovered_chat" required>
+                        <option value="">{% translate 'Choose a chat' %}</option>
+                        {% for chat in chats %}
+                            <option value="{{ chat.id }}">{{ chat.label }} ({{ chat.id }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="primary">{% translate 'Save destination' %}</button>
+            </form>
+        {% endif %}
+    </section>
+    <section class="panel form-section publication-settings">
+        <h2>{% translate 'Public status page' %}</h2>
+        <p class="field-help">{% if request.workspace.public_enabled %}{% translate 'Public status is enabled. Anyone with the link can read aggregate HTTP observations for your selected domains.' %}{% else %}{% translate 'Public status is disabled. Publish only the domains you choose.' %}{% endif %} {% translate 'Diagnostic messages, Telegram settings, and private domains stay private.' %}</p>
+        {% if public_link %}
+            <div class="notice">
+                <label for="public-link">{% translate 'New public link — save it now' %}</label>
+                <input id="public-link" type="text" readonly value="{{ public_link }}">
+                <button type="button"
+                    class="copy-public-link"
+                    data-copy-target="public-link"
+                    data-copy-success="{% translate 'Public link copied.' %}"
+                    data-copy-failure="{% translate 'Link selected. Press Ctrl+C or use your device’s Copy action.' %}"
+                >{% translate 'Copy public link' %}</button>
+                <span class="field-help" role="status" data-copy-status>{% translate 'Copy this link now. It is shown only once.' %}</span>
+            </div>
+        {% endif %}
+        <form method="post" action="/settings/public">
+            {% csrf_token %}
+            <fieldset {% if read_only %}disabled{% endif %}>
+                <legend>{% translate 'Published domains' %}</legend>
+                <p class="field-help">{% translate 'Only checked domains are public. Leave all unchecked to publish an empty page.' %}</p>
+                <div class="publication-domains">
+                    {% for item in publication_domains %}
+                        <label><input type="checkbox" name="domain.{{ item.name }}" {% if item.selected %}checked{% endif %}> <span>{{ item.name }}</span></label>
+                    {% empty %}
+                        <p class="muted">{% translate 'Add a domain to your workspace to publish it here.' %}</p>
+                    {% endfor %}
+                </div>
+                <div class="detail-actions">
+                    <button type="submit"
+                        class="primary"
+                        name="action" value="{% if request.workspace.public_enabled %}selection{% else %}enable{% endif %}"
+                    >{% if request.workspace.public_enabled %}{% translate 'Save published domains' %}{% else %}{% translate 'Enable public status' %}{% endif %}</button>
+                </div>
+            </fieldset>
+        </form>
+        {% if request.workspace.public_enabled %}
+            <p class="field-help">{% translate 'The full link cannot be recovered. Rotate to create a new link; the old link stops working immediately. Disable to revoke all access.' %}</p>
+            <div class="detail-actions">
+                <form method="post" action="/settings/public">
+                    {% csrf_token %}
+                    <button name="action" value="rotate" {% if read_only %}disabled{% endif %}>{% translate 'Rotate link' %}</button>
+                </form>
+                <form method="post" action="/settings/public">
+                    {% csrf_token %}
+                    <button name="action" value="disable" {% if read_only %}disabled{% endif %}>{% translate 'Disable public status' %}</button>
+                </form>
+            </div>
+        {% endif %}
+    </section>
+    <section class="panel form-section">
+        <h2>{% translate 'Account' %}</h2>
+        <div class="detail-actions">
+            <a class="button" href="/password/">{% translate 'Change password' %}</a>
+            <form method="post" action="/logout/">
+                {% csrf_token %}
+                <button type="submit">{% translate 'Sign out' %}</button>
+            </form>
+        </div>
+    </section>
+    <details class="panel form-section">
+        <summary>{% translate 'Domain backups and configuration' %}</summary>
+        <p><a href="/export.csv">{% translate 'Download domain CSV backup' %}</a></p>
+        {% if not read_only %}
+            <p><a href="/import">{% translate 'Import domain CSV' %}</a></p>
+        {% endif %}
+        <p class="field-help">{% translate 'Global check defaults and scheduling are managed in your installation configuration.' %}</p>
+    </details>
 {% endblock %}

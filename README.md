@@ -2,7 +2,9 @@
 
 SiteWatcher monitors websites in a private browser workspace, with optional Telegram alerts and a revocable public status page. A web process and a monitoring worker share SQLite; no external database is needed.
 
-Checks: HTTP status and latency, TLS certificate, ping, page keywords, defacement markers, RKN listing, IP changes, IP blocklists, TCP ports, WHOIS/RDAP, and passive VirusTotal reputation. Expensive checks are off by default or run less often. Each Telegram user owns their own domain list and overrides.
+Checks: HTTP status and latency, TLS certificate, ping, page keywords, defacement markers, RKN listing, IP changes, IP blocklists, TCP ports, WHOIS/RDAP, and passive VirusTotal reputation. RKN has two independent checks: **RKN domain blocking** (`rkn_domain`) reports Critical for a domain or parent-domain listing, while **RKN IP listing** (`rkn_ip`) reports Warning for a listed DNS-resolved IPv4 address, which may belong to shared hosting. Both use the same cached index from Antifilter, with bol-van/rulist as fallback; neither proves actual provider-level blocking. IPv6 is not checked. Legacy `checks.rkn_block` and `schedules.rkn_block` configure both checks unless explicit new keys override them; `rkn.check_ip: false` globally disables the IP check. Existing combined results remain in history as **Legacy RKN blocking** and are not reused by the new checks. CSV backups include separate columns and still accept the old format.
+
+Expensive checks are off by default or run less often. Each Telegram user owns their own domain list and overrides.
 
 ## Quick start with Docker
 
@@ -115,29 +117,114 @@ sitewatcher web --port 8080
 # Open http://127.0.0.1:8080
 ```
 
-Sign in with the local account created by `sitewatcher setup`. The dashboard derives its owner exclusively from the authenticated account. Optional `--owner <owner_id>` only verifies the existing workspace binding; it never grants access. The dashboard manages only that owner's domains: add a domain, edit its checks/settings, pause/resume, inspect history, reset overrides or remove it with typed confirmation. Use **Check now** on a domain history page or **More actions → Check all domains now** on the overview; results are saved without sending Telegram messages from the web process. One manual run is allowed at a time using a process-local lock; run a single web process. Probes bypass cache and use the configured per-domain timeout (120 seconds by default). The worker or bot continues scheduled monitoring and evaluates saved state on its next tick. Workspace settings configure timezone and owner notifications; CSV import/export uses the same format as Telegram. Search/filter saved results or read `/api/status` as JSON. Overdue results are marked explicitly, paused domains retain their saved state, and timestamps use the workspace timezone (Europe/Moscow by default), with a timezone label next to observation times. Overview and public status refresh every minute when JavaScript is enabled, with a pause checkbox and a manual Refresh now link. Refresh waits while the tab is hidden, a filter draft is being edited or a disclosure is open. Edit/settings/login forms never refresh automatically. `/healthz` performs a minimal read-only database/schema check (503 on failure); it exposes no monitoring data and does not certify worker activity or site health.
+Sign in with the account created by `sitewatcher setup`. Each account sees only its
+own domains and history. `--owner <owner_id>` verifies an existing workspace binding;
+it never grants access to another owner.
 
-Open **Settings** (`/settings` or `/workspace`) to change the display timezone (a native list of locations, default `Europe/Moscow`), enable Telegram notifications, and choose a destination. Stored observations remain in UTC. Telegram is optional: add domains and run checks without a token. For Telegram, create a bot with BotFather, save its token in **Advanced**, open your bot and send `/start`, then use **Find chats**, explicitly save a destination, and **Send test notification**. Discovery only reads recent updates without acknowledging them; existing polling or a webhook can prevent it, so a manual numeric chat ID remains available. Saving settings never sends a message. Test sends one explicit message to the effective destination even if regular notifications are disabled.
+### Domains and history
 
-The connection token is stored beside the database as `<database-filename>.telegram-token`, atomically with mode `0600`; keep it private in backups alongside `<database-filename>.web-secret`. A nonempty `TELEGRAM_TOKEN` environment variable overrides that file. An already running bot must be restarted after a token change. The worker reloads the private token file at tick boundaries without restarting or resetting alert state. YAML and environment changes require a process restart. Delivery keeps its existing priority: `alerts.chat_id` in YAML, then the owner’s saved chat, then `TELEGRAM_ALERT_CHAT_ID`. Settings shows the effective destination and warns when an installation override wins; changing a destination never changes the owner ID or historical domain ownership. Bot API calls honor `TELEGRAM_PROXY` and have a finite timeout.
+- Add one domain or up to 50 comma-separated domains with shared settings. The whole
+  batch is validated before saving; an invalid or duplicate domain leaves it unsaved.
+- Star a domain to keep it at the top. Within the favorite and ordinary groups,
+  problems appear first. Favorites do not change monitoring settings.
+- Hover or focus a Critical/Warning badge to see the affected checks, their diagnostics
+  and individual observation times. Missing and overdue checks are identified explicitly.
+- Open a domain for 24-hour, 7-day or 30-day HTTP history. Hover or focus a graph point
+  for its time and response latency. Empty intervals remain empty.
+- Filter recent check history by date range, check and state. Dates use the workspace
+  timezone, include both selected days, and return the latest 100 matching records.
+  These filters do not change the graph period.
 
-Settings forms preserve inherited values and reject stale edits instead of overwriting concurrent changes. Proxy credentials are never redisplayed; choose keep, inherit, clear override or set a new value. Clearing the domain override returns to the common HTTP client, which can have its own proxy. CSV downloads are private configuration backups and can contain proxy credentials. Imports apply valid rows independently, skip concurrently changed merge targets and report skipped rows; replace affects listed domains only.
+**Successful checks** is the share of successful recorded HTTP checks among successful
+and failed checks. Unknown observations are excluded; this is not continuous-time uptime.
+The chart data table is also available without JavaScript. Current state, historical
+percentages and manual/scheduled observation counts remain separate.
 
-Use the **sun / switch / moon** control in the header. The browser remembers the choice; switching preserves unsaved input when JavaScript is enabled. Native forms and theme links also work without JavaScript. New domains added through the browser start with website availability and certificate checks enabled; optional checks are off and can be selected under **Advanced checks and settings**. Existing domains keep their settings.
+Use the icon buttons at the top of a domain page to edit, check, pause/resume or remove
+it. Removal requires typed confirmation. **Check all domains now** is at the top of the
+overview. Manual checks save fresh results without sending Telegram messages; the
+worker evaluates saved state on its next tick. One manual run is allowed at a time in
+the web process, with the configured per-domain timeout (120 seconds by default).
 
-The overview puts problems first, with a table on desktop and the same facts in cards on phones. Open a domain for **24h / 7d / 30d** HTTP history and response times. **Successful checks** means successful recorded HTTP checks divided by successful plus failed checks; unknown observations are excluded, and this is not continuous-time uptime. Empty chart intervals stay empty. The chart data table and recent check history are available in native disclosures, including without JavaScript. Manual, scheduled, and legacy observation counts remain visible.
+### Settings and notifications
 
-Public sharing is off by default. In **Settings → Public status page**, select owned domains and choose **Enable public status**. Copy the newly issued link immediately; it is shown only in that response and cannot be recovered later. **Rotate link** creates a new link and revokes the old one immediately; **Disable public status** revokes access. Saving an empty selection deliberately publishes an empty page. A public link grants read-only HTTP aggregates for the selected domains, with 24h / 7d / 30d history, successful and failed check percentages, and native response-time/chart-data disclosures. Current service status reuses the monitoring freshness policy: overdue HTTP observations show no recent data, and paused services are labelled explicitly; historical percentages remain unchanged. It exposes no owner ID, diagnostic messages, raw metrics, private domains, or management actions. The public JSON companion is the same link with `data` appended. Public pages and JSON are served with no-store, no-referrer and noindex headers. Only the SHA-256 token digest is stored; keep the full link private and rotate it if shared accidentally. Uvicorn access logging is disabled, and Django public-path/error diagnostics are redacted. If publishing behind a reverse proxy, disable or redact its access/error URL logs for `/status/` as well; application redaction cannot protect upstream logs. Use HTTPS for remote access.
+**Settings → Language** switches between English (default) and Russian. The choice is
+saved per account and remembered on the sign-in page. Browser language headers do not
+override it. Public pages use their publisher's language. Probe diagnostics and API/CSV
+identifiers retain their original format.
 
-For viewing only, run `sitewatcher web --read-only`. Monitoring and preference mutations are then rejected; password changes remain available, while authenticated viewing, history, private CSV backup download and the theme switch remain usable. Authentication still writes sessions and login-attempt records. Global YAML, API credentials and scheduler configuration remain deployment settings.
+The workspace timezone defaults to `Europe/Moscow`; observations are stored in UTC.
+The header's sun/switch/moon control remembers the chosen theme. Switching themes with
+JavaScript preserves unsaved forms; native theme links work without JavaScript.
 
-The server binds to IPv4 loopback by default. For a Python installation on another Linux host, keep the server running there and forward its port from your computer:
+New domain forms prefill the check interval and show inherited values as **Default
+(On/Off)** or numeric placeholders. Required keywords accept a comma-separated list
+(quote phrases containing commas). TCP ports accept numbers and inclusive ranges such
+as `1-1024, 2205`. Blank lists inherit defaults; `-` clears them. Saved probe options are
+retained for ports kept in the list.
+
+Settings reject stale edits rather than overwriting concurrent changes. Proxy
+credentials are never redisplayed: keep, inherit, clear or set a new override. Clearing
+a domain proxy returns to the common HTTP client, which can have its own proxy.
+Private CSV backups may contain proxy credentials. Imports validate each row, skip
+concurrently changed merge targets and report failures. Replace affects listed domains
+only.
+
+Telegram is optional. To enable it, save a BotFather token in **Settings → Advanced**,
+open the bot and send `/start`, then choose **Find chats**, save a destination and use
+**Send test notification**. Saving settings sends no message. Discovery does not consume
+updates; a webhook or an active polling process can prevent discovery, so manual numeric
+chat IDs remain available.
+
+The token is stored beside the database as `<database-filename>.telegram-token` with
+mode `0600`. `TELEGRAM_TOKEN` in the environment takes precedence. Restart a running bot
+after changing its token; the worker reloads it at tick boundaries. Delivery uses
+`alerts.chat_id` from YAML, then the owner's saved chat, then `TELEGRAM_ALERT_CHAT_ID`.
+Settings shows the effective destination. Changing it does not change domain ownership
+or historical data. Bot API calls use `TELEGRAM_PROXY` and a finite timeout.
+
+### Public status
+
+Sharing is off by default. In **Settings → Public status page**, select owned domains
+and choose **Enable public status**. Copy the issued link immediately: it appears only
+in that response. **Rotate link** revokes the old link; **Disable public status** revokes
+all public access. An empty selection publishes an empty page.
+
+The link grants read-only aggregates for selected domains: HTTP history, percentages,
+response times and current freshness/paused state. It exposes no owner ID, private
+domains, diagnostic messages, raw metrics or management actions. Append `data` to the
+link for JSON. Responses use no-store, no-referrer and noindex headers; only the token's
+SHA-256 digest is stored.
+
+Keep public links private until you intend to share them, and rotate a link if exposed
+accidentally. Application logs redact bearer paths and Uvicorn access logging is
+disabled. A reverse proxy must also suppress or redact logs for `/status/`.
+
+### Operating the panel
+
+Keep one web process and one scheduler per database. `/healthz` checks database/schema
+readability, not worker activity or site health. The overview and public pages can
+refresh every minute; refresh pauses for a filter draft, open disclosure or status
+popup. Edit/settings/login pages never refresh automatically.
+
+For viewing only, use `sitewatcher web --read-only`. Monitoring and preference changes
+are rejected; password changes, sessions and login-attempt tracking still write to the
+database. History, private CSV downloads and theme switching remain available. Global
+YAML, API credentials and scheduler configuration are deployment settings.
+
+The server binds to IPv4 loopback by default. To use a remote installation, forward its
+port from your computer:
 
 ```bash
 ssh -N -L 8080:127.0.0.1:8080 your-server
 ```
 
-Then open the same local URL. Port `0` selects an available port and prints the actual URL. No Telegram token is required for the dashboard. Owner monitoring pages and APIs require the configured owner login, including over an SSH tunnel; explicitly enabled public links grant only the selected aggregate view. Changes require POST forms protected by Django session and CSRF checks. Forms reject duplicate fields and bodies larger than 1 MiB. Browser sessions and CSRF tokens remain valid across restarts using the persistent private web secret. Keep CSV backups private: they can include proxy credentials.
+Then open the same local URL. Port `0` selects an available port and prints its URL.
+Owner routes require login even through a tunnel. Management forms use session/CSRF
+protection and reject duplicate fields or bodies over 1 MiB. Back up the database and
+its private `.web-secret`/`.telegram-token` files before upgrading; upgrades add workspace
+language and domain favorite fields. Sessions remain valid across restarts when the
+web secret is retained. See [operations and recovery](docs/operations.md).
 
 ## Run as a service
 
@@ -194,3 +281,9 @@ port private. `SITEWATCHER_WEB_BIND=0.0.0.0` is explicit container-internal bind
 Compose still maps only host loopback. Native launch defaults to `127.0.0.1`.
 See [operations and rollback](docs/operations.md) and the
 [release verification](docs/verification-owner-public-dashboard-2026-10-22.md).
+
+To update interface translations, edit `sitewatcher/webapp/locale/ru/LC_MESSAGES/django.po` and run `python -m django compilemessages -l ru`. GNU gettext tools are needed only when editing catalogs; compiled translations are included in the package and container.
+
+RKN sources: `https://antifilter.download/list/domains.lst`, `ip.lst` and `subnet.lst` are the primary bundle. The fallback uses `reestr_hostname.txt`, `reestr_ipban4.txt` and `reestr_resolved_ip4.txt` from one pinned commit of `bol-van/rulist`. These include exact IPv4 addresses and CIDR networks; no approximate `/24` summary lists are used. A broken, incomplete or stale primary bundle triggers the fallback as a whole. Results retain provider, source update time and GitHub revision where applicable.
+
+`rkn.cache_ttl_hours` controls index refresh (default 12). `rkn.max_source_age_hours` bounds the declared source age (default 168 hours / 7 days): Antifilter uses the oldest component Last-Modified date; bol-van uses the oldest last-change timestamp of the three required files at its pinned commit (an unrelated newer repository commit cannot refresh old lists). Missing, future or expired timestamps cannot confirm a clean result. This is a conservative file-age check, not proof that every registry entry is current. If both providers fail validation, the previous index stays intact and the check reports UNKNOWN. The legacy index is rebuilt automatically; old z-i results are retained in history but bypassed for current status, cache, notifications and scheduling. Legacy `rkn.source: z-i`/`rkn.z_i_url` settings are accepted for configuration compatibility but never contact Zapret-Info.

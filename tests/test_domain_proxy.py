@@ -43,7 +43,8 @@ def client_factory(monkeypatch):
 def test_dispatcher_target_checks_share_domain_proxy_client(client_factory):
     cfg = proxy_config()
     cfg.defaults.checks.whois = True
-    cfg.defaults.checks.rkn_block = True
+    cfg.defaults.checks.rkn_domain = True
+    cfg.defaults.checks.rkn_ip = True
     cfg.defaults.checks.malware = True
     async def scenario():
         async with Dispatcher(cfg) as dispatcher:
@@ -54,7 +55,7 @@ def test_dispatcher_target_checks_share_domain_proxy_client(client_factory):
             assert basic.client is checks['keywords'].client is checks['deface'].client
             assert basic.client is not dispatcher._client
             assert basic.proxy is None
-            for name in ('whois', 'rkn_block', 'malware'):
+            for name in ('whois', 'rkn_domain', 'rkn_ip', 'malware'):
                 assert checks[name].client is dispatcher._client
     asyncio.run(scenario())
     assert len(client_factory) == 2

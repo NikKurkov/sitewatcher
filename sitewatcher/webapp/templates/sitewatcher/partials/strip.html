@@ -1,4 +1,14 @@
-<svg class="history-strip" viewBox="0 0 1200 20" preserveAspectRatio="none" role="img" aria-label="HTTP observations: {{ item.totals.successful }} successful, {{ item.totals.failed }} failed, {{ item.totals.unknown }} unknown. Empty space means no observations.">
-<rect class="strip-background" width="1200" height="20" rx="3" />
-{% for bucket in item.buckets %}<rect class="strip-{{ bucket.state }}" x="{{ bucket.x }}" width="7" height="20" rx="2"><title>{{ bucket.label }}: {{ bucket.successful }} successful, {{ bucket.failed }} failed, {{ bucket.unknown }} unknown</title></rect>{% endfor %}
+{% load i18n %}
+<svg class="history-strip"
+    viewBox="0 0 1200 20"
+    preserveAspectRatio="none"
+    role="img"
+    aria-label="{% blocktranslate with successful=item.totals.successful failed=item.totals.failed unknown=item.totals.unknown %}HTTP observations: {{ successful }} successful, {{ failed }} failed, {{ unknown }} unknown. Empty space means no observations.{% endblocktranslate %}"
+>
+    <rect class="strip-background" width="1200" height="20" rx="3" />
+    {% for bucket in item.buckets %}
+        <rect class="strip-{{ bucket.state }}" x="{{ bucket.x }}" width="7" height="20" rx="2">
+        <title>{% blocktranslate with period=bucket.label successful=bucket.successful failed=bucket.failed unknown=bucket.unknown %}{{ period }}: {{ successful }} successful, {{ failed }} failed, {{ unknown }} unknown{% endblocktranslate %}</title>
+        </rect>
+    {% endfor %}
 </svg>

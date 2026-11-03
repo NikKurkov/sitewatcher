@@ -1,0 +1,21 @@
+{% load i18n %}
+{% if not read_only %}
+    <form method="post" action="/domains/favorite" class="favorite-form">
+        {% csrf_token %}
+        <input type="hidden" name="domain" value="{{ row.name }}">
+        <input type="hidden" name="favorite" value="{% if row.favorite %}off{% else %}on{% endif %}">
+        <input type="hidden" name="q" value="{{ query }}">
+        <input type="hidden" name="status" value="{{ status }}">
+        <input type="hidden" name="days" value="{{ report.days }}">
+        <button type="submit"
+            class="favorite-star{% if row.favorite %} is-favorite{% endif %}"
+            aria-pressed="{{ row.favorite|yesno:'true,false' }}"
+            title="{% if row.favorite %}{% translate 'Remove from favorites' %}{% else %}{% translate 'Add to favorites' %}{% endif %}"
+            aria-label="{% if row.favorite %}{% blocktranslate with domain=row.name %}Remove {{ domain }} from favorites{% endblocktranslate %}{% else %}{% blocktranslate with domain=row.name %}Add {{ domain }} to favorites{% endblocktranslate %}{% endif %}"
+        ><span aria-hidden="true">{% if row.favorite %}★{% else %}☆{% endif %}</span></button>
+    </form>
+{% else %}
+    <span class="favorite-star{% if row.favorite %} is-favorite{% endif %}"
+        {% if row.favorite %}role="img" aria-label="{% translate 'Favorite' %}"{% else %}aria-hidden="true"{% endif %}
+    >{% if row.favorite %}★{% endif %}</span>
+{% endif %}

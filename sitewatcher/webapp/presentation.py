@@ -2,16 +2,34 @@
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
+from django.utils.formats import date_format
+from django.utils.translation import gettext_lazy as _
+
 from sitewatcher.web_actions import NUMERIC_FIELDS
 
 
 _CHECK_LABELS = {
-    'http_basic': 'HTTP availability', 'tls_cert': 'TLS certificate',
-    'keywords': 'Required keywords', 'deface': 'Defacement markers',
-    'ping': 'Ping reachability', 'rkn_block': 'RKN blocking', 'ports': 'TCP ports',
-    'whois': 'Domain registration', 'ip_blacklist': 'IP blocklists',
-    'ip_change': 'IP address changes', 'malware': 'Malware detection',
+    'http_basic': _('Website availability'), 'tls_cert': _('TLS certificate'),
+    'keywords': _('Required keywords'), 'deface': _('Defacement markers'),
+    'ping': _('Ping reachability'), 'rkn_domain': _('RKN domain blocking'),
+    'rkn_ip': _('RKN IP listing'), 'rkn_block': _('Legacy RKN blocking'), 'ports': _('TCP ports'),
+    'whois': _('Domain registration'), 'ip_blacklist': _('IP blocklists'),
+    'ip_change': _('IP address changes'), 'malware': _('Malware detection'),
 }
+_CHECK_HELP = {
+    'rkn_domain': _('A domain or parent-domain listing is Critical.'),
+    'rkn_ip': _('An IPv4 listing is Warning; it may concern another domain on shared hosting.'),
+}
+_STATUS_LABELS = {'OK': _('OK'), 'WARN': _('WARN'), 'CRIT': _('CRIT'),
+                  'UNKNOWN': _('UNKNOWN')}
+
+
+def status_label(value):
+    return _STATUS_LABELS.get(value, value)
+
+
+def check_label(name):
+    return _CHECK_LABELS.get(name, name.replace('_', ' ').capitalize())
 
 
 def local_time(value, zone):
@@ -21,7 +39,8 @@ def local_time(value, zone):
         stamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
         if stamp.tzinfo is None:
             stamp = stamp.replace(tzinfo=timezone.utc)
-        label = stamp.astimezone(ZoneInfo(zone)).strftime('%d %b %Y, %H:%M %Z')
+        local = stamp.astimezone(ZoneInfo(zone))
+        label = date_format(local, 'd M Y, H:i') + ' ' + local.tzname()
     except (ValueError, TypeError, AttributeError, OverflowError):
         return None
     age = (datetime.now(timezone.utc) - stamp).total_seconds()
@@ -46,7 +65,7 @@ def chart_context(points, metric):
             current = []
         x, y = index * 1000 / 120, 150 - (value / maximum) * 132
         current.append(f'{x:.2f},{y:.2f}')
-        dots.append({'x': x, 'y': y})
+        dots.append({'x': x, 'y': y, 'value': value, 'label': point.get('label', '')})
         previous = index
     if current:
         segments.append(' '.join(current))
@@ -70,34 +89,36 @@ def report_context(report):
 def domain_form_context(context, error):
     values = context['values']
     messages = {
-        **dict.fromkeys(NUMERIC_FIELDS, 'Check this value.'),
-        'keywords': 'Enter a valid JSON list of keywords.',
-        'ports': 'Enter a valid JSON list of TCP ports (1–65535).',
-        'proxy': 'Enter a supported proxy URL with a host.',
-        'proxy_mode': 'Choose a valid proxy action.',
+        **dict.fromkeys(NUMERIC_FIELDS, _('Check this value.')),
+        'keywords': _('Enter keywords separated by commas; quote phrases containing commas.'),
+        'ports': _('Enter TCP ports (1–65535) or ranges, separated by commas.'),
+        'proxy': _('Enter a supported proxy URL with a host.'),
+        'proxy_mode': _('Choose a valid proxy action.'),
     }
     field_errors = {key: message for key, message in messages.items()
                     if key + ':' in error or key + '.' in error}
     if error in {'Invalid domain', 'Domain already exists'}:
-        field_errors['domain'] = ('This domain is already monitored.'
+        field_errors['domain'] = (_('This domain is already monitored.')
                                   if error == 'Domain already exists'
-                                  else 'Enter a valid hostname, such as example.com.')
+                                  else _('Enter a valid hostname, such as example.com.'))
+    if error == 'Enter at most 50 domains.':
+        field_errors['domain'] = _('Enter at most 50 domains.')
     context['field_errors'] = field_errors
     checks = []
     for name in context['check_names']:
         key = f'check.{name}'
-        checks.append({'name': key, 'label': 'Website availability' if name == 'http_basic'
-                       else _CHECK_LABELS.get(name, name), 'value': values.get(key, ''),
-                       'default': 'On' if context['effective']['checks'][name] else 'Off'})
+        checks.append({'name': key, 'label': check_label(name), 'value': values.get(key, ''),
+                       'help': _CHECK_HELP.get(name, ''),
+                       'default': _('On') if context['defaults']['checks'][name] else _('Off')})
     context['basic_checks'] = [c for c in checks if c['name'] in {'check.http_basic', 'check.tls_cert'}]
     context['advanced_checks'] = [c for c in checks if c not in context['basic_checks']]
-    labels = ['Check interval (minutes)', 'Request timeout (seconds)',
-              'Slow response warning (ms)', 'Slow response critical (ms)',
-              'Certificate warning (days before expiry)']
+    labels = [_('Check interval (minutes)'), _('Request timeout (seconds)'),
+              _('Slow response warning (ms)'), _('Slow response critical (ms)'),
+              _('Certificate warning (days before expiry)')]
     numeric = [{'name': key, 'label': label, 'value': values.get(key, ''),
                 'minimum': 1 if key == 'http_timeout_s' else 0,
                 'error': field_errors.get(key, ''),
-                'default': context['effective'].get(key)}
+                'default': context['defaults'].get(key)}
                for key, label in zip(NUMERIC_FIELDS, labels, strict=True)]
     context['interval'] = numeric[0]
     context['numeric_fields'] = numeric[1:]

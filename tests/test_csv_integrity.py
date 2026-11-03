@@ -146,3 +146,26 @@ def test_merge_import_rejects_settings_changed_after_validation(database, monkey
     assert storage.get_domain_override(1, 'example.com') == {
         'latency_warn_ms': 1000, 'latency_crit_ms': 1500,
     }
+
+
+@pytest.mark.parametrize('enabled', [True, False])
+def test_legacy_rkn_csv_merge_updates_existing_split_flags(database, enabled):
+    storage.set_domain_override(1, 'example.com', {
+        'checks': {'rkn_domain': not enabled, 'rkn_ip': not enabled},
+    })
+    report = import_domains_csv(1, csv_data(**{'checks.rkn_block': str(enabled).lower()}))
+    assert report.updated == 1 and not report.errors
+    checks = storage.get_domain_override(1, 'example.com')['checks']
+    assert checks['rkn_domain'] is enabled and checks['rkn_ip'] is enabled
+
+
+def test_explicit_rkn_csv_flag_overrides_legacy_flag_in_same_row(database):
+    storage.set_domain_override(1, 'example.com', {
+        'checks': {'rkn_domain': True, 'rkn_ip': False},
+    })
+    report = import_domains_csv(1, csv_data(**{
+        'checks.rkn_block': 'true', 'checks.rkn_domain': 'false',
+    }))
+    assert report.updated == 1 and not report.errors
+    checks = storage.get_domain_override(1, 'example.com')['checks']
+    assert checks['rkn_domain'] is False and checks['rkn_ip'] is True

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from .. import storage
-from ..config import AppConfig, validate_domain_override, validation_message
+from ..config import AppConfig, ChecksModel, validate_domain_override, validation_message
 from .domains import normalize_domain
 
 __all__ = ["HEADERS", "RowResult", "ImportReport", "export_domains_csv", "import_domains_csv"]
@@ -36,6 +36,8 @@ HEADERS: Tuple[str, ...] = (
     "proxy",
     "interval_minutes",
 )
+LEGACY_HEADERS = HEADERS
+HEADERS = (*HEADERS, 'checks.rkn_domain', 'checks.rkn_ip')
 
 
 @dataclass
@@ -150,6 +152,8 @@ def _flatten_for_export(override: Dict) -> Dict[str, str]:
         "checks.keywords": b(checks.get("keywords")),
         "checks.deface": b(checks.get("deface")),
         "checks.rkn_block": b(checks.get("rkn_block")),
+        "checks.rkn_domain": b(checks.get("rkn_domain")),
+        "checks.rkn_ip": b(checks.get("rkn_ip")),
         "checks.whois": b(checks.get("whois")),
         "checks.ip_blacklist": b(checks.get("ip_blacklist")),
         "checks.ip_change": b(checks.get("ip_change")),
@@ -203,7 +207,8 @@ def _build_override_from_row(row: Dict[str, str], *, mode: str) -> Dict:
     for key in (
         "checks.http_basic", "checks.tls_cert", "checks.ping", "checks.keywords",
         "checks.deface",
-        "checks.rkn_block", "checks.whois", "checks.ip_blacklist", "checks.ip_change",
+        "checks.rkn_block", "checks.rkn_domain", "checks.rkn_ip",
+        "checks.whois", "checks.ip_blacklist", "checks.ip_change",
         "checks.malware",
         "checks.ports"
     ):
@@ -235,7 +240,7 @@ def _build_override_from_row(row: Dict[str, str], *, mode: str) -> Dict:
     # Assemble override; include only provided values in merge mode
     ov: Dict = {}
     if checks:
-        ov["checks"] = checks
+        ov["checks"] = ChecksModel.model_validate(checks).model_dump(exclude_unset=True)
     if mode == "replace":
         ov["keywords"] = kws if kws is not None else []
         ov["ports"] = ports if ports is not None else []
@@ -280,7 +285,7 @@ def import_domains_csv(owner_id: int, data: bytes, *, mode: str = "merge", cfg: 
     has_header = len(first) >= 1 and first[0] == "domain"
     if has_header:
         header = first
-        if tuple(header[:len(HEADERS)]) != HEADERS:
+        if tuple(header) not in (HEADERS, LEGACY_HEADERS):
             # Enforce exact header match to avoid accidental misalignment
             return ImportReport(errors=["invalid header; expected exact predefined header"], added=0, updated=0, skipped=0)
     else:
@@ -296,7 +301,9 @@ def import_domains_csv(owner_id: int, data: bytes, *, mode: str = "merge", cfg: 
         # Skip empty lines
         if not row or (len(row) == 1 and (row[0] or "").strip() == ""):
             continue
-        if len(row) < len(HEADERS):
+        columns = tuple(header) if has_header else (
+            HEADERS if len(row) >= len(HEADERS) else LEGACY_HEADERS)
+        if len(row) < len(columns):
             report.skipped += 1
             msg = f"line {line_no}: not enough columns"
             report.details.append(RowResult(domain="", status="skipped", error=msg))
@@ -304,7 +311,7 @@ def import_domains_csv(owner_id: int, data: bytes, *, mode: str = "merge", cfg: 
             continue
 
         # Map columns by fixed positions
-        data_map = {HEADERS[i]: (row[i] if i < len(row) else "") for i in range(len(HEADERS))}
+        data_map = dict(zip(columns, row, strict=False))
         raw_domain = data_map["domain"]
         try:
             domain = _normalize_domain(raw_domain)

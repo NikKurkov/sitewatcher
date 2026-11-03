@@ -1,4 +1,3 @@
-import json
 import sqlite3
 
 import pytest
@@ -35,7 +34,7 @@ def test_new_context_and_create_normalizes_full_form():
     }
     context = web_actions.settings_context(cfg, OWNER, DOMAIN)
     assert context['values']['interval_minutes'] == '0'
-    assert json.loads(context['values']['ports']) == [80, {'port': 443}]
+    assert context['values']['ports'] == '80, 443'
     assert context['values']['check.ping'] == 'off'
 
 
@@ -200,3 +199,71 @@ def test_resume_does_not_replace_an_existing_positive_interval():
 def test_new_settings_preview_does_not_inherit_an_unrelated_yaml_domain():
     cfg = AppConfig.model_validate({'domains': [{'name': DOMAIN, 'interval_minutes': 0}]})
     assert web_actions.settings_context(cfg, OWNER)['effective']['interval_minutes'] is None
+
+
+def test_plain_lists_and_port_ranges_round_trip_without_losing_port_options():
+    cfg = AppConfig()
+    web_actions.save_domain(cfg, OWNER, {
+        'domain': DOMAIN, 'keywords': '"welcome", "Hello, world"',
+        'ports': '1-1024, 2205',
+    }, create=True)
+    override = storage.get_domain_override(OWNER, DOMAIN)
+    assert override['keywords'] == ['welcome', 'Hello, world']
+    assert override['ports'] == [*range(1, 1025), 2205]
+    storage.set_domain_override(OWNER, DOMAIN, {
+        'ports': [80, {'port': 443, 'tls': True, 'timeout_s': 2}],
+    })
+    form = web_actions.settings_context(cfg, OWNER, DOMAIN)['values']
+    assert form['ports'] == '80, 443'
+    assert '[' not in form['keywords']
+    edit(cfg, OWNER, form)
+    override = storage.get_domain_override(OWNER, DOMAIN)
+    assert override['keywords'] == ['welcome', 'Hello, world']
+    assert override['ports'] == [80, {'port': 443, 'tls': True, 'timeout_s': 2}]
+
+
+@pytest.mark.parametrize('ports', ['0', '65536', '1024-1', '1-65536', '80,,443', '80-no'])
+def test_invalid_plain_port_lists_do_not_create_a_domain(ports):
+    with pytest.raises(ValueError, match='ports'):
+        web_actions.save_domain(AppConfig(), OWNER, {'domain': DOMAIN, 'ports': ports},
+                                create=True)
+    assert not storage.domain_exists(OWNER, DOMAIN)
+
+
+def test_overlapping_port_ranges_save_each_port_once():
+    web_actions.save_domain(AppConfig(), OWNER, {
+        'domain': DOMAIN, 'ports': '80-82, 81-83, 443, 80-82',
+    }, create=True)
+    assert storage.get_domain_override(OWNER, DOMAIN)['ports'] == [80, 81, 82, 83, 443]
+
+
+def test_plain_list_clear_and_inherit_are_distinct():
+    cfg = AppConfig.model_validate({'defaults': {'keywords': ['welcome']}})
+    web_actions.save_domain(cfg, OWNER, {'domain': DOMAIN, 'keywords': '-', 'ports': '-'},
+                            create=True)
+    assert storage.get_domain_override(OWNER, DOMAIN) == {'keywords': [], 'ports': []}
+    form = web_actions.settings_context(cfg, OWNER, DOMAIN)['values']
+    assert form['keywords'] == form['ports'] == '-'
+    edit(cfg, OWNER, {**form, 'keywords': '', 'ports': ''})
+    assert storage.get_domain_override(OWNER, DOMAIN) == {}
+
+
+@pytest.mark.parametrize('keyword', ['-', '[bracket', '{brace', ' leading', 'trailing ',
+                                     'a\nb', 'quote"test', ''])
+def test_keyword_list_edit_preserves_literal_punctuation_and_whitespace(keyword):
+    cfg = AppConfig()
+    storage.add_domain(OWNER, DOMAIN)
+    storage.set_domain_override(OWNER, DOMAIN, {'keywords': [keyword]})
+    form = web_actions.settings_context(cfg, OWNER, DOMAIN)['values']
+    edit(cfg, OWNER, form)
+    assert storage.get_domain_override(OWNER, DOMAIN)['keywords'] == [keyword]
+
+
+def test_unchanged_port_list_preserves_multiple_probes_for_one_port():
+    cfg = AppConfig()
+    ports = [{'port': 443, 'host': 'one.example', 'tls': True},
+             {'port': 443, 'host': 'two.example', 'tls': True}]
+    storage.add_domain(OWNER, DOMAIN)
+    storage.set_domain_override(OWNER, DOMAIN, {'ports': ports})
+    edit(cfg, OWNER, web_actions.settings_context(cfg, OWNER, DOMAIN)['values'])
+    assert storage.get_domain_override(OWNER, DOMAIN)['ports'] == ports

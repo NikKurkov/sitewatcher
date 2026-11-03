@@ -9,7 +9,7 @@ import sqlite3
 
 from . import storage
 from .config import AppConfig, ChecksModel, resolve_settings
-from .utils.results import overall_from_statuses, status_text
+from .utils.results import current_rkn_result, overall_from_statuses, status_text
 
 
 class SnapshotError(RuntimeError):
@@ -51,6 +51,10 @@ def _domain_snapshot(cfg, name, raw_override, histories, now):
         if not enabled:
             continue
         saved = histories.get((name, check_name))
+        if saved is not None and not current_rkn_result(
+                check_name, saved['metrics_json'], cfg.rkn.max_source_age_hours,
+                status=saved['status']):
+            saved = None
         checked_at = _timestamp(saved['created_at']) if saved is not None else None
         due_at = now
         if checked_at is not None:
@@ -97,8 +101,11 @@ def build_snapshot(cfg: AppConfig, owner_id: int, *, now: datetime | None = None
         with closing(sqlite3.connect(uri, uri=True, timeout=3)) as conn:
             conn.row_factory = sqlite3.Row
             conn.execute('BEGIN')
+            domain_columns = {column['name'] for column in conn.execute('PRAGMA table_info(domains)')}
+            favorite = 'd.favorite' if 'favorite' in domain_columns else '0'
             domains = conn.execute(
-                'SELECT d.name, o.data_json FROM domains d LEFT JOIN domain_overrides o '
+                f'SELECT d.name, {favorite} AS favorite, o.data_json '
+                'FROM domains d LEFT JOIN domain_overrides o '
                 'ON o.owner_id=d.owner_id AND o.domain=d.name '
                 'WHERE d.owner_id=? ORDER BY d.name', (owner_id,),
             ).fetchall()
@@ -111,7 +118,7 @@ def build_snapshot(cfg: AppConfig, owner_id: int, *, now: datetime | None = None
                 history = conn.execute(
                     'WITH checks(name) AS (VALUES '
                     + ','.join('(?)' for _ in check_names) + ') '
-                    'SELECT h.domain, h.check_name, h.status, h.message, h.created_at '
+                    'SELECT h.domain, h.check_name, h.status, h.message, h.created_at, h.metrics_json '
                     'FROM domains d CROSS JOIN checks c JOIN history h ON h.id=('
                     'SELECT id FROM history WHERE owner_id=d.owner_id '
                     'AND domain=d.name AND check_name=c.name ORDER BY id DESC LIMIT 1'
@@ -120,7 +127,7 @@ def build_snapshot(cfg: AppConfig, owner_id: int, *, now: datetime | None = None
             else:
                 # Legacy databases remain readable until the monitoring process initializes them.
                 history = conn.execute(
-                    'SELECT h.domain, h.check_name, h.status, h.message, h.created_at '
+                    'SELECT h.domain, h.check_name, h.status, h.message, h.created_at, h.metrics_json '
                     'FROM history h JOIN ('
                     'SELECT MAX(id) AS latest_id FROM history WHERE owner_id=? '
                     'GROUP BY domain, check_name'
@@ -131,7 +138,8 @@ def build_snapshot(cfg: AppConfig, owner_id: int, *, now: datetime | None = None
         raise SnapshotError('Monitoring database is unavailable') from None
 
     histories = {(row['domain'], row['check_name']): row for row in history}
-    rows = [_domain_snapshot(cfg, row['name'], row['data_json'], histories, now) for row in domains]
+    rows = [{**_domain_snapshot(cfg, row['name'], row['data_json'], histories, now),
+             'favorite': bool(row['favorite'])} for row in domains]
     summary = dict.fromkeys(('total', 'ok', 'warn', 'crit', 'unknown', 'paused', 'stale'), 0)
     summary['total'] = len(rows)
     for row in rows:

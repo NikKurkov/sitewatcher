@@ -1,6 +1,8 @@
 """Owner settings share the existing delivery preferences and UTC monitoring data."""
 import asyncio
 
+from django.utils.translation import gettext as _
+
 from django.conf import settings
 from django.http import HttpResponse
 from django.shortcuts import render
@@ -36,6 +38,7 @@ def _render(request, form=None, *, error='', notice='', chats=None, status=200, 
     destination, source = _destination(settings.SITEWATCHER_CONFIG, owner_id)
     if form is None:
         form = WorkspacePreferencesForm(initial={
+            'language': request.workspace.language,
             'timezone': request.workspace.timezone,
             'enabled': 'on' if storage.is_user_alerts_enabled(owner_id) else 'off',
             'chat_id': storage.get_user_alert_chat_id(owner_id),
@@ -45,7 +48,7 @@ def _render(request, form=None, *, error='', notice='', chats=None, status=200, 
         token_present = bool(token)
     except (OSError, ValueError):
         token_present = False
-        error = error or 'The saved Telegram connection could not be read. Save a new bot token.'
+        error = error or _('The saved Telegram connection could not be read. Save a new bot token.')
     import os
     response = render(request, 'sitewatcher/preferences.html', {
         'form': form, 'read_only': settings.SITEWATCHER_READ_ONLY,
@@ -68,16 +71,16 @@ def _render(request, form=None, *, error='', notice='', chats=None, status=200, 
 def preferences(request):
     if request.method != 'POST':
         if set(request.GET) - {'saved'} or any(len(v) != 1 for _, v in request.GET.lists()):
-            return HttpResponse('Invalid request', status=400)
-        return _render(request, notice='Settings saved.' if request.GET.get('saved') == '1' else '')
+            return HttpResponse(_('Invalid request'), status=400)
+        return _render(request, notice=_('Settings saved.') if request.GET.get('saved') == '1' else '')
     if settings.SITEWATCHER_READ_ONLY:
-        return HttpResponse('Read-only workspace', status=405, headers={'Allow': 'GET, HEAD'})
+        return HttpResponse(_('Read-only workspace'), status=405, headers={'Allow': 'GET, HEAD'})
     fields = dict(request.management_form)
     fields.pop('csrfmiddlewaretoken', None)
     action = fields.pop('action', 'save')
     if (request.GET or set(fields) - set(WorkspacePreferencesForm.base_fields)
             or action not in {'save', 'test', 'find_chats'} or action != 'save' and fields):
-        return HttpResponse('Invalid request', status=400)
+        return HttpResponse(_('Invalid request'), status=400)
     if action == 'save':
         form = WorkspacePreferencesForm(fields)
         if not form.is_valid():
@@ -95,31 +98,39 @@ def preferences(request):
             if 'timezone' in fields:
                 request.workspace.timezone = form.cleaned_data['timezone']
                 request.workspace.save(update_fields=['timezone'])
+            if 'language' in fields:
+                request.workspace.language = form.cleaned_data['language']
+                request.workspace.save(update_fields=['language'])
         except Exception:
-            return _render(request, form, error='Settings could not be saved. Reload and check before retrying.',
+            return _render(request, form, error=_('Settings could not be saved. Reload and check before retrying.'),
                            status=503)
-        return HttpResponse(status=303, headers={'Location': '/settings?saved=1'})
+        response = HttpResponse(status=303, headers={'Location': '/settings?saved=1'})
+        if 'language' in fields:
+            response.set_cookie(settings.LANGUAGE_COOKIE_NAME, request.workspace.language,
+                                max_age=31536000, httponly=True, samesite='Lax',
+                                secure=settings.SESSION_COOKIE_SECURE)
+        return response
     try:
         token = load_bot_token()
     except (OSError, ValueError):
-        return _render(request, error='The saved Telegram connection could not be read. Save a new bot token.',
+        return _render(request, error=_('The saved Telegram connection could not be read. Save a new bot token.'),
                        status=400)
     if not token:
-        return _render(request, error='Add a bot token before connecting to Telegram.', status=400)
+        return _render(request, error=_('Add a bot token before connecting to Telegram.'), status=400)
     try:
         if action == 'find_chats':
             chats = asyncio.run(find_chats(token))
-            notice = ('Choose a chat below, then save it as your destination.' if chats else
-                      'No chats found. Send /start to your bot and try again, or enter a chat ID in Advanced.')
+            notice = (_('Choose a chat below, then save it as your destination.') if chats else
+                      _('No chats found. Send /start to your bot and try again, or enter a chat ID in Advanced.'))
             return _render(request, chats=chats, notice=notice)
-        destination, _ = _destination(settings.SITEWATCHER_CONFIG, request.workspace.owner_id)
+        destination = _destination(settings.SITEWATCHER_CONFIG, request.workspace.owner_id)[0]
         if destination is None:
-            return _render(request, error='Choose a chat destination before sending a test.', status=400)
+            return _render(request, error=_('Choose a chat destination before sending a test.'), status=400)
         asyncio.run(send_test_notification(token, destination))
-        return _render(request, notice='Test notification sent to the effective destination shown below.')
+        return _render(request, notice=_('Test notification sent to the effective destination shown below.'))
     except Exception:
         # Never echo an exception: client errors can contain the credential-bearing URL.
         return _render(request, error=(
-            'Telegram could not complete the request. Check the token and destination. '
+            _('Telegram could not complete the request. Check the token and destination. '
             'If finding chats, another process may be polling or a webhook may be enabled; '
-            'enter a chat ID in Advanced, or stop polling before trying again.'), status=400)
+            'enter a chat ID in Advanced, or stop polling before trying again.')), status=400)

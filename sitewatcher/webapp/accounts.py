@@ -12,11 +12,12 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, transaction
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.debug import sensitive_variables
+from django.utils.translation import gettext_lazy as _
 
 from sitewatcher import storage
 from .models import Workspace
 
-AUTH_ERROR = 'Unable to sign in with these credentials.'
+AUTH_ERROR = _('Unable to sign in with these credentials.')
 
 
 def require_workspace(request) -> Workspace:

@@ -48,10 +48,11 @@ def _new_run_id() -> str:
 
 # Optional RKN plugin (kept soft to avoid import-time failures)
 try:  # pragma: no cover
-    from .checks.rkn_block_sqlite import RknBlockCheck  # type: ignore
+    from .checks.rkn_block_sqlite import RknBlockCheck, RknIpCheck  # type: ignore
     log.debug("RKN plugin loaded: rkn_block_sqlite")
 except Exception as e:  # pragma: no cover
     RknBlockCheck = None  # type: ignore
+    RknIpCheck = None  # type: ignore
     # We deliberately do not fail at import time to keep core functionality running.
     log.warning("RKN plugin unavailable: %s", e.__class__.__name__, extra={"event": "rkn.import_failed"})
 
@@ -415,8 +416,10 @@ class Dispatcher:
         if getattr(settings.checks, "ping", False):
             out.append(PingCheck(settings.name))
 
-        if getattr(settings.checks, "rkn_block", False) and RknBlockCheck is not None:
+        if settings.checks.rkn_domain and RknBlockCheck is not None:
             out.append(RknBlockCheck(settings.name, client=self._client, rkn_cfg=self.cfg.rkn))
+        if settings.checks.rkn_ip and RknIpCheck is not None:
+            out.append(RknIpCheck(settings.name, client=self._client, rkn_cfg=self.cfg.rkn))
 
         if getattr(settings.checks, "ports", False):
             targets = settings.ports if settings.ports is not None else self.cfg.ports.targets
@@ -498,9 +501,8 @@ class Dispatcher:
         """
         Return cached CheckOutcome if fresh enough, otherwise None. (owner-aware)
 
-        Special rule: for 'whois' we *do not* serve cached UNKNOWN by default,
-        to avoid sticking on "no expiry info". Can be overridden via
-        schedules.whois.cache_unknown: true
+        For WHOIS and RKN we do not serve cached UNKNOWN by default,
+        to allow recovery from missing evidence. Override per check with cache_unknown: true.
         """
         ttl = ttl_fn(check_name)
         if ttl <= 0:
@@ -510,13 +512,13 @@ class Dispatcher:
         if not row:
             return None
 
-        # For whois: skip caching UNKNOWN unless explicitly allowed by config
-        if check_name == "whois":
+        # WHOIS/RKN failures are cached only when explicitly allowed by configuration.
+        if check_name in {'whois', 'rkn_domain', 'rkn_ip'}:
             try:
                 status_str = str(row["status"]).upper()
             except Exception:
                 status_str = "UNKNOWN"
-            sc = getattr(self.cfg.schedules, "whois", None)
+            sc = getattr(self.cfg.schedules, check_name, None)
             cache_unknown = bool(getattr(sc, "cache_unknown", False)) if sc is not None else False
             if status_str == "UNKNOWN" and not cache_unknown:
                 log.info(
@@ -526,7 +528,7 @@ class Dispatcher:
                         "owner_id": owner_id,
                         "domain": domain,
                         "check": check_name,
-                        "reason": "unknown_whois",
+                        "reason": "unknown_result",
                     },
                 )
                 return None
@@ -539,6 +541,11 @@ class Dispatcher:
             metrics = json.loads(row["metrics_json"] or "{}")
         except Exception:
             metrics = {}
+
+        from .utils.results import current_rkn_result
+        if not current_rkn_result(check_name, metrics, self.cfg.rkn.max_source_age_hours,
+                                  status=row['status']):
+            return None
 
         base_msg = strip_cached_suffix(row["message"] or "")
         return CheckOutcome(
@@ -554,4 +561,6 @@ class Dispatcher:
         if not only_checks:
             return checks
         allowed = {str(x) for x in only_checks}
+        if 'rkn_block' in allowed:
+            allowed.update(('rkn_domain', 'rkn_ip'))
         return [c for c in checks if getattr(c, "name", "") in allowed]

@@ -51,3 +51,24 @@ def test_two_databases_are_initialized_only_once(tmp_path, monkeypatch):
 
     assert len(storage.last_results(1, "example.com")) == 1
     storage._ensure_initialized(whois)
+
+
+def test_favorite_migration_preserves_existing_domains_and_is_owner_scoped(tmp_path, monkeypatch):
+    import sqlite3
+    path = tmp_path / 'legacy-favorites.db'
+    monkeypatch.setattr(storage, 'DEFAULT_DB', path)
+    with sqlite3.connect(path) as conn:
+        conn.executescript('''
+            CREATE TABLE users (telegram_id INTEGER PRIMARY KEY);
+            CREATE TABLE domains (owner_id INTEGER NOT NULL, name TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')), PRIMARY KEY(owner_id,name));
+            INSERT INTO users VALUES(1), (2);
+            INSERT INTO domains(owner_id,name) VALUES(1,'example.com'), (2,'example.com');
+        ''')
+    storage._ensure_initialized()
+    storage._ensure_initialized()
+    assert storage.set_domain_favorite(1, 'example.com', True)
+    assert not storage.set_domain_favorite(1, 'missing.example', True)
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute('SELECT owner_id,name,favorite FROM domains ORDER BY owner_id').fetchall()
+    assert rows == [(1, 'example.com', 1), (2, 'example.com', 0)]

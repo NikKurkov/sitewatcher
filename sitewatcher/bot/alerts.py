@@ -21,6 +21,7 @@ from .formatting import _format_check
 from .html import split_html
 from ..utils.results import status_emoji as _status_emoji
 from ..utils.results import (
+    current_rkn_result,
     overall_from_results as _overall_from_results,
     status_text as _status_text,
     status_weight as _status_weight,
@@ -156,6 +157,9 @@ def _complete_results(cfg: AppConfig, owner_id: int, domain: str, current: list)
     by_check = {result.check: result for result in current}
     enabled = set(_enabled_checks_for(cfg, owner_id, domain))
     for name, row in storage.latest_check_results(owner_id, domain).items():
+        if not current_rkn_result(name, row['metrics_json'], cfg.rkn.max_source_age_hours,
+                                  status=row['status']):
+            continue
         if name not in by_check and name in enabled:
             by_check[name] = CheckOutcome(name, row["status"], row["message"], {}, cached=True)
     for name in enabled - by_check.keys():

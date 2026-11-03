@@ -126,6 +126,8 @@ def test_period_boundaries_buckets_owner_isolation_and_settings_do_not_rewrite_h
     observation({'final_code': 503}, at='2026-10-22 12:00:01')
     observation({'final_code': 200}, at='2026-10-22 11:59:59')
     storage.save_history(2, 'example.com', 'http_basic', 'CRIT', 'PRIVATE', {'final_code': 503})
+    with storage._connect() as conn:
+        conn.execute("UPDATE history SET created_at='2026-10-22 11:59:59' WHERE owner_id=2")
     storage.set_domain_override(1, 'example.com', {'checks': {'http_basic': False}})
     result = report(zone='Europe/Moscow')
     assert result['totals']['sample_count'] == 2

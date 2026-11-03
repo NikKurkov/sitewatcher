@@ -8,7 +8,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client
 
 from sitewatcher import storage
-from sitewatcher.config import AppConfig
+from sitewatcher.config import AppConfig, ChecksModel
 from sitewatcher.utils.domains_csv import export_domains_csv
 from sitewatcher.web_actions import settings_context
 
@@ -319,3 +319,243 @@ def test_current_warning_explanation_survives_recent_history_limit(owner, client
     response = post(client, '/settings/public', {'action': 'enable', 'domain.one.example': 'on'})
     link = re.search(rb'id="public-link"[^>]*value="([^"]+)"', response.content).group(1).decode()
     assert b'private-current-detail' not in Client().get(link, HTTP_HOST='localhost').content
+
+
+def test_add_multiple_domains_with_shared_settings(owner, client):
+    response = post(client, '/domains/add', {
+        'domain': 'BATCH.example, private.example, last.example',
+        'interval_minutes': '17', 'keywords': 'welcome, shop', 'ports': '80, 443',
+        'check.tls_cert': 'off',
+    })
+    assert response.status_code == 303
+    overrides = [storage.get_domain_override(31, name) for name in
+                 ('batch.example', 'private.example', 'last.example')]
+    assert overrides[0] == overrides[1] == overrides[2]
+    assert overrides[0]['interval_minutes'] == 17
+    assert overrides[0]['keywords'] == ['welcome', 'shop']
+    assert overrides[0]['checks']['tls_cert'] is False
+    assert storage.get_domain_override(99, 'private.example') is None
+
+
+@pytest.mark.parametrize('second', ['bad/path', 'one.example', 'FIRST.example'])
+def test_bulk_add_failure_preserves_draft_and_creates_nothing(owner, client, second):
+    response = post(client, '/domains/add', {
+        'domain': f'first.example, {second}', 'interval_minutes': '19',
+    })
+    assert response.status_code == 400
+    assert storage.list_domains(31) == ['one.example']
+    assert f'first.example, {second}'.encode() in response.content
+    assert second.encode() in response.content
+    assert b'value="19"' in response.content
+
+
+def test_bulk_add_storage_failure_rolls_back_whole_batch(owner, client, monkeypatch):
+    original = storage._store_domain_override
+
+    def fail_second(conn, owner_id, domain, data):
+        if domain == 'second.example':
+            raise ValueError('injected failure')
+        return original(conn, owner_id, domain, data)
+
+    monkeypatch.setattr(storage, '_store_domain_override', fail_second)
+    response = post(client, '/domains/add', {
+        'domain': 'first.example, second.example',
+    })
+    assert response.status_code in {400, 503}
+    assert storage.list_domains(31) == ['one.example']
+
+
+def test_old_extra_domain_fields_are_rejected_and_plus_button_is_removed(owner, client):
+    assert post(client, '/domains/save', {
+        'domain': 'one.example', 'domain.1': 'second.example',
+    }).status_code == 400
+    assert post(client, '/domains/add', {
+        'domain': 'first.example', 'domain.10': 'second.example',
+    }).status_code == 400
+    response = client.get('/domains/new', HTTP_HOST='localhost')
+    assert b'data-add-domain' not in response.content
+    assert b'example.com, example.org' in response.content
+    response = client.get('/domains/edit?domain=one.example', HTTP_HOST='localhost')
+    assert b'data-add-domain' not in response.content
+
+
+def test_bulk_add_fifty_domains_using_full_native_form(owner, client):
+    from html import unescape
+    response = client.get('/domains/new', HTTP_HOST='localhost')
+    html = re.search(r'<form\b[^>]*class="panel domain-form"[^>]*>(.*?)</form>',
+                     response.content.decode(), re.S).group(1)
+    fields = {name: unescape(value) for name, value in re.findall(
+        r'<input[^>]*name="([^"]+)"[^>]*value="([^"]*)"', html)}
+    fields.update({f'check.{name}': '' for name in ChecksModel.model_fields})
+    fields.update(keywords='welcome', ports='80', proxy_mode='keep', proxy='')
+    fields['domain'] = ', '.join(f'batch{i}.example' for i in range(50))
+    assert post(client, '/domains/add', fields).status_code == 303
+    assert len(storage.list_domains(31)) == 51
+
+
+def test_bulk_add_ignores_empty_separators_but_requires_a_domain(owner, client):
+    assert post(client, '/domains/add', {
+        'domain': 'first.example,  ,last.example,',
+    }).status_code == 303
+    assert storage.list_domains(31) == ['first.example', 'last.example', 'one.example']
+    assert post(client, '/domains/add', {
+        'domain': ' , , ',
+    }).status_code == 400
+    assert not storage.domain_exists(31, 'second.example')
+
+
+def test_bulk_add_invalid_shared_settings_redacts_proxy_and_creates_nothing(owner, client):
+    response = post(client, '/domains/add', {
+        'domain': 'first.example, second.example',
+        'ports': '99999', 'proxy_mode': 'set', 'proxy': 'http://hidden:secret@example.com',
+    })
+    assert response.status_code == 400
+    assert b'secret' not in response.content
+    assert b'second.example' in response.content
+    assert storage.list_domains(31) == ['one.example']
+
+
+def test_bulk_add_marks_invalid_list_and_preserves_it(owner, client):
+    response = post(client, '/domains/add', {'domain': 'first.example, one.example'})
+    assert response.status_code == 400
+    html = response.content.decode()
+    field = re.search(r'<input id="domain"[^>]*>', html).group()
+    assert 'aria-invalid="true"' in field
+    assert 'value="first.example, one.example"' in field
+    assert 'name="domain.1"' not in html
+
+
+def test_comma_separated_domain_count_is_bounded(owner, client):
+    response = post(client, '/domains/add', {
+        'domain': ','.join(f'batch{i}.example' for i in range(51)),
+    })
+    assert response.status_code == 400
+    assert storage.list_domains(31) == ['one.example']
+
+
+def test_history_filters_apply_before_limit_and_use_workspace_dates(owner, client):
+    storage.save_history(31, 'one.example', 'tls_cert', 'CRIT', 'matching older result', {})
+    with storage._write_connection() as conn:
+        conn.execute("UPDATE history SET created_at='2026-11-02 21:30:00'")
+    for _ in range(105):
+        storage.save_history(31, 'one.example', 'http_basic', 'OK', 'newer other result', {})
+    response = client.get('/domains/history', {'domain': 'one.example', 'days': '7',
+        'history_from': '2026-11-03', 'history_to': '2026-11-03',
+        'history_check': 'tls_cert', 'history_status': 'CRIT'}, HTTP_HOST='localhost')
+    assert response.status_code == 200
+    rows = response.context['history']
+    assert len(rows) == 1 and rows[0]['message'] == 'matching older result'
+    assert response.context['report']['days'] == 7
+    assert b'name="history_from"' in response.content
+    assert b'name="history_check"' in response.content
+    assert b'name="history_status"' in response.content
+    response = client.get('/domains/history', {'domain': 'one.example',
+        'history_to': '2026-11-02', 'history_check': 'tls_cert'}, HTTP_HOST='localhost')
+    assert response.status_code == 200
+    assert response.context['history'] == []
+
+
+@pytest.mark.parametrize('filters', [
+    {'history_from': 'bad'}, {'history_status': 'INVALID'}, {'history_check': 'injected'},
+    {'history_from': '2026-11-04', 'history_to': '2026-11-03'},
+])
+def test_history_filters_reject_invalid_values(owner, client, filters):
+    response = client.get('/domains/history', {'domain': 'one.example', **filters},
+                          HTTP_HOST='localhost')
+    assert response.status_code == 400
+    assert response.context['history'] == []
+
+
+def test_history_filter_midnight_boundaries_and_owner_domain_isolation(owner, client):
+    storage.add_domain(99, 'one.example')
+    storage.add_domain(31, 'other.example')
+    with storage._write_connection() as conn:
+        for owner_id, domain, stamp, check, state, message in [
+            (31, 'one.example', '2026-11-02 20:59:59', 'tls_cert', 'CRIT', 'before'),
+            (31, 'one.example', '2026-11-02 21:00:00', 'tls_cert', 'CRIT', 'start'),
+            (31, 'one.example', '2026-11-03 20:59:59', 'tls_cert', 'CRIT', 'end'),
+            (31, 'one.example', '2026-11-03 21:00:00', 'tls_cert', 'CRIT', 'after'),
+            (31, 'one.example', '2026-11-03 12:00:00', 'tls_cert', 'OK', 'other state'),
+            (31, 'one.example', '2026-11-03 12:00:00', 'ping', 'CRIT', 'other check'),
+            (31, 'other.example', '2026-11-03 12:00:00', 'tls_cert', 'CRIT', 'other domain'),
+            (99, 'one.example', '2026-11-03 12:00:00', 'tls_cert', 'CRIT', 'other owner'),
+        ]:
+            conn.execute('INSERT INTO history(owner_id,domain,created_at,check_name,status,message)'
+                         ' VALUES(?,?,?,?,?,?)', (owner_id, domain, stamp, check, state, message))
+    response = client.get('/domains/history', {'domain': 'one.example', 'days': '7',
+        'history_from': '2026-11-03', 'history_to': '2026-11-03',
+        'history_check': 'tls_cert', 'history_status': 'CRIT'}, HTTP_HOST='localhost')
+    assert response.status_code == 200
+    assert [item['message'] for item in response.context['history']] == ['end', 'start']
+    from html import unescape
+    from urllib.parse import parse_qs, urlsplit
+    html = unescape(response.content.decode())
+    nav = html.split('<nav class="periods"', 1)[1].split('</nav>', 1)[0]
+    for href in re.findall('href="([^"]+)"', nav):
+        query = parse_qs(urlsplit(href).query)
+        assert query['domain'] == ['one.example']
+        assert query['history_from'] == query['history_to'] == ['2026-11-03']
+        assert query['history_check'] == ['tls_cert'] and query['history_status'] == ['CRIT']
+
+
+@pytest.mark.parametrize(('day', 'hours'), [('2026-03-29', 23), ('2026-10-25', 25)])
+def test_history_dates_follow_dst(day, hours):
+    from sitewatcher.webapp.forms import HistoryFiltersForm
+    form = HistoryFiltersForm({'history_from': day, 'history_to': day}, zone='Europe/Berlin')
+    assert form.is_valid(), form.errors
+    duration = form.cleaned_data['until'] - form.cleaned_data['since']
+    assert duration.total_seconds() == hours * 3600
+
+
+def test_favorites_persist_sort_first_and_toggle_without_changing_monitoring(owner, client):
+    storage.add_domain(31, 'z-favorite.example')
+    storage.save_history(31, 'one.example', 'http_basic', 'CRIT', 'down', {})
+    before = storage.get_domain_override(31, 'z-favorite.example')
+    fields = {'domain': 'z-favorite.example', 'favorite': 'on', 'q': '', 'status': 'all', 'days': '7'}
+    response = post(client, '/domains/favorite', fields)
+    assert response.status_code == 303
+    assert 'days=7' in response['Location']
+    response = client.get('/', HTTP_HOST='localhost')
+    assert response.context['rows'][0]['name'] == 'z-favorite.example'
+    assert response.context['rows'][0]['favorite'] is True
+    assert b'aria-pressed="true"' in response.content
+    assert storage.get_domain_override(31, 'z-favorite.example') == before
+    # Explicit state is idempotent; a repeated submission must not toggle it off.
+    assert post(client, '/domains/favorite', fields).status_code == 303
+    assert client.get('/', HTTP_HOST='localhost').context['rows'][0]['favorite'] is True
+    assert post(client, '/domains/favorite', {**fields, 'favorite': 'off'}).status_code == 303
+    rows = client.get('/', HTTP_HOST='localhost').context['rows']
+    assert rows[0]['name'] == 'one.example'
+    assert not any(row['favorite'] for row in rows)
+
+
+def test_favorites_obey_owner_isolation_csrf_readonly_and_validate_return_filters(owner, client,
+                                                                               settings):
+    secure = Client(enforce_csrf_checks=True)
+    secure.force_login(owner.user)
+    fields = {'domain': 'one.example', 'favorite': 'on'}
+    assert post(secure, '/domains/favorite', fields).status_code == 403
+    html = secure.get('/', HTTP_HOST='localhost').content
+    token = re.search(rb'name="csrfmiddlewaretoken" value="([^"]+)"', html).group(1).decode()
+    assert post(secure, '/domains/favorite', {**fields, 'csrfmiddlewaretoken': token}).status_code == 303
+    assert client.get('/domains/favorite', HTTP_HOST='localhost').status_code == 405
+    assert post(client, '/domains/favorite', {**fields, 'domain': 'private.example'}).status_code == 404
+    for patch in ({'favorite': 'invalid'}, {'owner_id': '99'}, {'days': '0'}, {'status': 'invalid'}):
+        assert post(client, '/domains/favorite', {**fields, **patch}).status_code == 400
+    assert post(client, '/domains/favorite', {**fields, 'q': 'one', 'days': '30',
+                                            'status': 'problems'}).status_code == 303
+    settings.SITEWATCHER_READ_ONLY = True
+    assert post(client, '/domains/favorite', {**fields, 'favorite': 'off'}).status_code == 405
+    html = client.get('/', HTTP_HOST='localhost').content
+    assert b'action="/domains/favorite"' not in html
+
+
+def test_same_hostname_favorite_is_owner_scoped_and_delete_clears_it(owner, client):
+    storage.add_domain(99, 'one.example')
+    storage.set_domain_favorite(99, 'one.example', True)
+    rows = client.get('/', HTTP_HOST='localhost').context['rows']
+    assert rows[0]['favorite'] is False
+    assert post(client, '/domains/favorite', {'domain': 'one.example', 'favorite': 'on'}).status_code == 303
+    storage.remove_domain(31, 'one.example')
+    storage.add_domain(31, 'one.example')
+    assert client.get('/', HTTP_HOST='localhost').context['rows'][0]['favorite'] is False

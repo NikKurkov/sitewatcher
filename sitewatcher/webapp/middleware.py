@@ -29,7 +29,7 @@ class ManagementBodyMiddleware:
         if request.method == 'POST' and request.path in {
             '/domains/new', '/domains/edit', '/domains/add', '/domains/save',
             '/domains/delete', '/domains/pause', '/domains/resume', '/domains/reset',
-            '/domains/check', '/workspace', '/settings', '/settings/public', '/alerts', '/import',
+            '/domains/check', '/domains/favorite', '/workspace', '/settings', '/settings/public', '/alerts', '/import',
         }:
             try:
                 length = request.META.get('CONTENT_LENGTH', '')
@@ -97,4 +97,30 @@ class PublicStatusMiddleware:
         response['Referrer-Policy'] = 'no-referrer'
         response['X-Robots-Tag'] = 'noindex, nofollow, noarchive'
         response['X-Frame-Options'] = 'DENY'
+        return response
+
+
+class WorkspaceLanguageMiddleware:
+    """Activate an explicit account preference; browser headers never change the default."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from django.conf import settings
+        from django.utils import translation
+        from django.utils.cache import patch_vary_headers
+        from .models import Workspace
+
+        language = request.COOKIES.get(settings.LANGUAGE_COOKIE_NAME, 'en')
+        if request.user.is_authenticated:
+            language = Workspace.objects.filter(user_id=request.user.pk).values_list(
+                'language', flat=True).first() or 'en'
+        if language not in {'en', 'ru'}:
+            language = 'en'
+        request.LANGUAGE_CODE = language
+        with translation.override(language):
+            response = self.get_response(request)
+        response['Content-Language'] = language
+        patch_vary_headers(response, ('Cookie',))
         return response

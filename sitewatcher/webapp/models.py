@@ -7,6 +7,8 @@ class Workspace(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     owner_id = models.PositiveBigIntegerField(unique=True)
     timezone = models.CharField(max_length=64, default='Europe/Moscow')
+    language = models.CharField(max_length=2, choices=[('en', 'English'), ('ru', 'Русский')],
+                                default='en')
     public_enabled = models.BooleanField(default=False)
     public_token_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
     public_domains = models.JSONField(default=list)

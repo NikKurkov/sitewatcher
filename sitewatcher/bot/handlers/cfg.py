@@ -104,7 +104,7 @@ async def cmd_cfg_set(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # Build patch based on key type
     if key.startswith("checks."):
         check_name = key.split(".", 1)[1]
-        if check_name not in ChecksModel.model_fields:
+        if check_name not in ChecksModel.model_fields and check_name != 'rkn_block':
             if msg:
                 await msg.reply_text(f"Unknown check: {check_name}")
             return
@@ -114,7 +114,7 @@ async def cmd_cfg_set(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 await msg.reply_text("For checks.* use true/false")
             log.warning("cfg.set.invalid_bool", extra={"event": "cfg.set.invalid_bool", "key": key})
             return
-        patch = {"checks": {check_name: b}}
+        patch = {"checks": ChecksModel.model_validate({check_name: b}).model_dump(exclude_unset=True)}
 
     elif key in ("http_timeout_s", "latency_warn_ms", "latency_crit_ms", "tls_warn_days"):
         try:
