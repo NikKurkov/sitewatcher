@@ -1,0 +1,18 @@
+{% load i18n %}
+    <a class="button icon-button" href="" title="{% translate 'Refresh now' %}" aria-label="{% translate 'Refresh now' %}">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 7a9 9 0 1 0 1 8 M20 3v5h-5"/></svg>
+    </a>
+    {% if refresh_available %}
+    <button class="icon-button auto-refresh-toggle" type="button" data-refresh-option data-refresh-enabled hidden aria-pressed="true"
+        aria-label="{% translate 'Refresh every minute' %}" title="{% translate 'Disable automatic refresh' %}"
+        data-enabled-label="{% translate 'Disable automatic refresh' %}" data-disabled-label="{% translate 'Enable automatic refresh' %}"
+    >
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg>
+    </button>
+    {% else %}
+        <button class="icon-button auto-refresh-toggle" type="button" disabled aria-pressed="false"
+            aria-label="{% translate 'Refresh every minute' %}" title="{% translate 'Automatic refresh is available on the overview' %}"
+        >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg>
+        </button>
+    {% endif %}
