@@ -318,7 +318,7 @@ def test_overview_shows_per_domain_latency_and_reading_order(owner, client):
     storage.save_history(41, 'fast.example', 'http_basic', 'OK', '',
                          {'final_code': 200, 'response_latency_ms': 125})
     body = get(client, '/').content.decode()
-    assert body.index('<h1>Overview') < body.index('data-auto-refresh')
+    assert body.index('data-auto-refresh') < body.index('<h1 class="sr-only">Overview')
     table = body[body.index('<tbody>'):body.index('</tbody>')]
     assert 'Average response: 125 ms' in table
     assert 'No latency data' in table
@@ -384,3 +384,20 @@ def test_dashboard_tooltip_explains_overdue_success_as_warning():
     assert row['state'] == 'warn'
     assert row['problems'][0]['stale'] is True
     assert row['problems'][0]['observed']['label'] == '03 Nov 2026, 13:00 MSK'
+
+
+def test_overview_actions_are_accessible_header_icons_without_intro(owner, client, settings):
+    storage.add_domain(41, 'one.example')
+    body = get(client, '/').content.decode()
+    header = body.split('<header class="topbar">', 1)[1].split('</header>', 1)[0]
+    assert 'class="topbar-actions"' in header
+    assert 'href="/domains/new"' in header and 'action="/domains/check"' in header
+    assert 'aria-label="Refresh now"' in header
+    assert 'data-refresh-enabled' in header and 'aria-pressed="true"' in header
+    assert 'Your workspace' not in body and 'Keep an eye on the sites that matter.' not in body
+    assert '<h1>Overview</h1>' not in body
+    assert 'class="refresh-controls"' not in body
+    settings.SITEWATCHER_READ_ONLY = True
+    header = get(client, '/').content.decode().split('</header>', 1)[0]
+    assert 'href="/domains/new"' not in header and 'action="/domains/check"' not in header
+    assert 'data-refresh-enabled' in header and 'aria-label="Refresh now"' in header

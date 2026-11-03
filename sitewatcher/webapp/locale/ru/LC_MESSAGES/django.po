@@ -3,8 +3,8 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: SiteWatcher 0.3.0\n"
-"Report-Msgid-Bugs-To: https://github.com/NikKurkov/sitewatcher/issues\n"
-"POT-Creation-Date: 2026-11-03 15:41+0300\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-11-03 16:02+0300\n"
 "PO-Revision-Date: 2026-11-03 11:00+0300\n"
 "Last-Translator: SiteWatcher contributors\n"
 "Language-Team: Russian\n"
@@ -744,28 +744,6 @@ msgstr ""
 msgid "Overview · SiteWatcher"
 msgstr "Обзор · SiteWatcher"
 
-msgid "Your workspace"
-msgstr "Ваше рабочее пространство"
-
-msgid "Keep an eye on the sites that matter."
-msgstr "Следите за важными для вас сайтами."
-
-msgid ""
-"Run fresh checks for every domain and save the results. This can take a "
-"while."
-msgstr ""
-"Запустить новые проверки всех доменов и сохранить результаты. Это может "
-"занять некоторое время."
-
-msgid "Check all domains now"
-msgstr "Проверить все домены сейчас"
-
-msgid "Refresh now"
-msgstr "Обновить сейчас"
-
-msgid "Refresh every minute"
-msgstr "Обновлять каждую минуту"
-
 msgid "Monitoring summary"
 msgstr "Сводка мониторинга"
 
@@ -955,6 +933,21 @@ msgstr "Добавить %(domain)s в избранное"
 msgid "Favorite"
 msgstr "Избранный домен"
 
+msgid "Check all domains now"
+msgstr "Проверить все домены сейчас"
+
+msgid "Refresh now"
+msgstr "Обновить сейчас"
+
+msgid "Refresh every minute"
+msgstr "Обновлять каждую минуту"
+
+msgid "Disable automatic refresh"
+msgstr "Выключить автообновление"
+
+msgid "Enable automatic refresh"
+msgstr "Включить автообновление"
+
 msgid "History period"
 msgstr "Период истории"
 
@@ -1015,6 +1008,9 @@ msgstr "Изменение пароля · SiteWatcher"
 
 msgid "← Settings"
 msgstr "← Настройки"
+
+msgid "Your workspace"
+msgstr "Ваше рабочее пространство"
 
 msgid "Choose how you see your monitoring and where to receive alerts."
 msgstr "Настройте отображение мониторинга и получение уведомлений."

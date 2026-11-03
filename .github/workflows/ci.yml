@@ -26,7 +26,7 @@ jobs:
       - name: Check browser scripts
         run: |
           node --check sitewatcher/webapp/static/sitewatcher/theme.js
-          node tests/test_filter_autosubmit.cjs
+          node tests/test_web_controls.cjs
       - run: pytest
       - run: python -m sitewatcher.main --help
 

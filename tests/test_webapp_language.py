@@ -45,7 +45,8 @@ def test_language_save_translates_panel_and_preserves_other_settings(owner, clie
     assert storage.get_user_alert_chat_id(73) == -100123
     body = get(client, '/settings?saved=1').content.decode()
     assert '<html lang="ru"' in body and 'Настройки' in body and 'Язык' in body
-    assert 'Добавить в избранное' in get(client, '/').content.decode()
+    overview = get(client, '/').content.decode()
+    assert 'Добавить в избранное' in overview and 'Выключить автообновление' in overview
     assert 'Настройки сохранены.' in body
     assert 'Включены' in body and 'Выключены' in body
     body = get(client, '/domains/new').content.decode()

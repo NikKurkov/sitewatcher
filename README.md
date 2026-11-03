@@ -142,8 +142,9 @@ The chart data table is also available without JavaScript. Current state, histor
 percentages and manual/scheduled observation counts remain separate.
 
 Use the icon buttons at the top of a domain page to edit, check, pause/resume or remove
-it. Removal requires typed confirmation. **Check all domains now** is at the top of the
-overview. Manual checks save fresh results without sending Telegram messages; the
+it. Removal requires typed confirmation. The overview header contains icon buttons for adding a domain, checking all domains,
+refreshing the page and toggling automatic refresh. Hover for labels; the automatic
+refresh button is highlighted when enabled. Manual checks save fresh results without sending Telegram messages; the
 worker evaluates saved state on its next tick. One manual run is allowed at a time in
 the web process, with the configured per-domain timeout (120 seconds by default).
 

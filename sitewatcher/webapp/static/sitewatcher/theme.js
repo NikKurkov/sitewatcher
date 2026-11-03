@@ -76,15 +76,27 @@ const refresh = document.querySelector('[data-auto-refresh]');
 if (refresh) {
   const enabled = refresh.querySelector('[data-refresh-enabled]');
   refresh.querySelector('[data-refresh-option]').hidden = false;
-  try { enabled.checked = sessionStorage.getItem('refresh') !== 'off'; } catch {}
-  enabled.addEventListener('change', () => {
-    try { sessionStorage.setItem('refresh', enabled.checked ? 'on' : 'off'); } catch {}
+  const isToggle = enabled.tagName === 'BUTTON';
+  const isEnabled = () => isToggle ? enabled.getAttribute('aria-pressed') === 'true' : enabled.checked;
+  const setEnabled = (value) => {
+    if (isToggle) {
+      enabled.setAttribute('aria-pressed', String(value));
+      enabled.title = value ? enabled.dataset.enabledLabel : enabled.dataset.disabledLabel;
+    } else {
+      enabled.checked = value;
+    }
+  };
+  try { setEnabled(sessionStorage.getItem('refresh') !== 'off'); } catch {}
+  enabled.addEventListener(isToggle ? 'click' : 'change', () => {
+    const value = isToggle ? !isEnabled() : enabled.checked;
+    setEnabled(value);
+    try { sessionStorage.setItem('refresh', value ? 'on' : 'off'); } catch {}
   });
   let draft = false;
   document.querySelector('.filter-form')?.addEventListener('input', () => { draft = true; });
   document.querySelector('.filter-form')?.addEventListener('change', () => { draft = true; });
   setInterval(() => {
-    if (enabled.checked && !document.hidden && !draft && !document.querySelector('details[open]')
+    if (isEnabled() && !document.hidden && !draft && !document.querySelector('details[open]')
         && !document.querySelector('.status-tooltip:not([hidden])')
         && !document.activeElement.matches('input,select,textarea,button,[contenteditable]')) {
       location.reload();

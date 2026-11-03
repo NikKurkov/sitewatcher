@@ -1,32 +1,9 @@
 {% extends 'sitewatcher/base.html' %}
 {% load i18n %}
 {% block title %}{% translate 'Overview · SiteWatcher' %}{% endblock %}
+{% block header_actions %}{% include 'sitewatcher/partials/overview_actions.html' %}{% endblock %}
 {% block content %}
-    <div class="page-heading">
-        <div>
-            <p class="eyebrow">{% translate 'Your workspace' %}</p>
-            <h1>{% translate 'Overview' %}</h1>
-            <p class="subtitle">{% translate 'Keep an eye on the sites that matter.' %}</p>
-        </div>
-        {% if not read_only %}
-            <div class="overview-actions">
-                <a class="button primary" href="/domains/new"><span aria-hidden="true">＋</span> {% translate 'Add domain' %}</a>
-                {% if total %}
-                    <form method="post" action="/domains/check">
-                        {% csrf_token %}
-                        <input type="hidden" name="domain" value="*">
-                        <button type="submit"
-                            title="{% translate 'Run fresh checks for every domain and save the results. This can take a while.' %}"
-                        >{% translate 'Check all domains now' %}</button>
-                    </form>
-                {% endif %}
-            </div>
-        {% endif %}
-    </div>
-    <div class="refresh-controls" data-auto-refresh>
-        <a class="button" href="">{% translate 'Refresh now' %}</a>
-        <label hidden data-refresh-option><input type="checkbox" checked data-refresh-enabled> {% translate 'Refresh every minute' %}</label>
-    </div>
+    <h1 class="sr-only">{% translate 'Overview' %}</h1>
     {% if notice %}
         <p class="notice" role="status">{{ notice }}</p>
     {% endif %}

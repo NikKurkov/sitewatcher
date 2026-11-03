@@ -95,3 +95,49 @@ assert.equal(p.document.activeElement, p.fields.id_history_from);
 p = page({id: 'q', value: 'different query', path: '/', cursor: 4});
 assert.equal(p.fields.q.selection, undefined);
 console.log('Automatic filters: debounce, immediate changes, IME, focus and disclosure restoration passed.');
+
+function refreshPage(tagName, stored) {
+  const values = new Map([['refresh', stored]]);
+  const attributes = {'aria-pressed': 'true'};
+  const handlers = {};
+  const option = {hidden: true};
+  const control = {tagName, checked: true, dataset: {enabledLabel: 'Disable', disabledLabel: 'Enable'},
+    getAttribute: name => attributes[name], setAttribute: (name, value) => { attributes[name] = value; },
+    addEventListener: (name, fn) => { handlers[name] = fn; }};
+  const refresh = {querySelector: selector => selector === '[data-refresh-enabled]' ? control : option};
+  let interval;
+  let reloads = 0;
+  vm.runInNewContext(script, {
+    document: {hidden: false, activeElement: {matches: () => false}, addEventListener() {},
+      querySelector: selector => selector === '[data-auto-refresh]' ? refresh : null,
+      querySelectorAll: () => []},
+    sessionStorage: {getItem: key => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key)},
+    location: {pathname: '/', reload: () => { reloads++; }},
+    setInterval: fn => { interval = fn; },
+  });
+  return {control, option, handlers, attributes, values, tick: () => interval(), reloads: () => reloads};
+}
+
+let refresh = refreshPage('BUTTON', 'off');
+assert.equal(refresh.option.hidden, false);
+assert.equal(refresh.attributes['aria-pressed'], 'false');
+assert.equal(refresh.control.title, 'Enable');
+refresh.tick();
+assert.equal(refresh.reloads(), 0);
+refresh.handlers.click();
+assert.equal(refresh.attributes['aria-pressed'], 'true');
+assert.equal(refresh.control.title, 'Disable');
+assert.equal(refresh.values.get('refresh'), 'on');
+refresh.tick();
+assert.equal(refresh.reloads(), 1);
+refresh = refreshPage('INPUT', 'on');
+assert.equal(refresh.control.checked, true);
+refresh.tick();
+assert.equal(refresh.reloads(), 1);
+refresh.control.checked = false;
+refresh.handlers.change();
+refresh.tick();
+assert.equal(refresh.values.get('refresh'), 'off');
+assert.equal(refresh.reloads(), 1);
+console.log('Header refresh toggle and public-page checkbox preserve saved state and refresh behavior.');

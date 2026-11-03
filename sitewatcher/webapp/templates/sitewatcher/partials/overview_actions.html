@@ -1,0 +1,26 @@
+{% load i18n %}
+<div class="topbar-actions" data-auto-refresh>
+    {% if not read_only %}
+        <a class="button icon-button" href="/domains/new" title="{% translate 'Add domain' %}" aria-label="{% translate 'Add domain' %}">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14 M5 12h14"/></svg>
+        </a>
+        {% if total %}
+            <form method="post" action="/domains/check">
+                {% csrf_token %}
+                <input type="hidden" name="domain" value="*">
+                <button class="icon-button" type="submit" title="{% translate 'Check all domains now' %}" aria-label="{% translate 'Check all domains now' %}">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m4 6 2 2 4-4 M13 6h7 M4 13l2 2 4-4 M13 13h7 M4 20h16"/></svg>
+                </button>
+            </form>
+        {% endif %}
+    {% endif %}
+    <a class="button icon-button" href="" title="{% translate 'Refresh now' %}" aria-label="{% translate 'Refresh now' %}">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 7a9 9 0 1 0 1 8 M20 3v5h-5"/></svg>
+    </a>
+    <button class="icon-button auto-refresh-toggle" type="button" data-refresh-option data-refresh-enabled hidden aria-pressed="true"
+        aria-label="{% translate 'Refresh every minute' %}" title="{% translate 'Disable automatic refresh' %}"
+        data-enabled-label="{% translate 'Disable automatic refresh' %}" data-disabled-label="{% translate 'Enable automatic refresh' %}"
+    >
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg>
+    </button>
+</div>

@@ -29,6 +29,7 @@
                         >{% translate 'Settings' %}</a>
                     </nav>
                 {% endif %}
+                {% block header_actions %}{% endblock %}
                 <form class="theme-controls" method="get" action="{% if public_view %}{% else %}/theme{% endif %}">
                     <span aria-hidden="true">☀</span>
                     {% if public_view %}
