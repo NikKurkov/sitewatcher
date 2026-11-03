@@ -639,3 +639,21 @@ def test_domain_reorder_detects_another_tabs_saved_order(owner, client, monkeypa
     assert response.status_code == 409
     owner.refresh_from_db()
     assert owner.domain_order == ['two.example', 'one.example']
+
+
+def test_row_actions_keep_list_filters_and_check_only_the_selected_domain(owner, client, monkeypatch):
+    from urllib.parse import parse_qs, urlsplit
+    from sitewatcher.webapp import domains
+    calls = []
+    monkeypatch.setattr(domains, 'run_manual_checks', lambda cfg, identity, names:
+                        calls.append((identity, names)))
+    fields = {'domain': 'one.example', 'q': 'one', 'status': 'all', 'days': '7'}
+    for action in ('check', 'pause', 'resume'):
+        response = post(client, '/domains/' + action, fields)
+        assert response.status_code == 303
+        query = parse_qs(urlsplit(response['Location']).query)
+        assert query['q'] == ['one'] and query['status'] == ['all'] and query['days'] == ['7']
+    assert calls == [(31, ['one.example'])]
+    for action in ('check', 'pause', 'resume'):
+        assert post(client, '/domains/' + action, {**fields, 'days': '0'}).status_code == 400
+    assert calls == [(31, ['one.example'])]

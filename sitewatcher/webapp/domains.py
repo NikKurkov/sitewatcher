@@ -271,21 +271,32 @@ def status(request):
     return _private(JsonResponse({'owner_id': request.workspace.owner_id, **snapshot}))
 
 
-def _redirect(notice):
-    return _private(HttpResponse(status=303, headers={'Location': '/?' + urlencode({'notice': notice})}))
+def _redirect(notice, filters=None):
+    return _private(HttpResponse(status=303, headers={
+        'Location': '/?' + urlencode({'notice': notice, **(filters or {})}),
+    }))
+
+
+def _list_filters(form):
+    days, status = form.get('days', '1'), form.get('status', 'all')
+    if days not in {'1', '7', '30'} or status not in FILTERS:
+        raise ValueError('Invalid list filters')
+    return {'days': days, 'status': status, 'q': form.get('q', '')}
 
 
 def _act(request, action, form):
     cfg, owner_id = settings.SITEWATCHER_CONFIG, request.workspace.owner_id
+    filters = (_list_filters(form) if action in {'check', 'pause', 'resume'}
+               and any(key in form for key in ('q', 'status', 'days')) else {})
     if action == 'favorite':
         state = form.get('favorite')
-        days, status = form.get('days', '1'), form.get('status', 'all')
-        if state not in {'on', 'off'} or days not in {'1', '7', '30'} or status not in FILTERS:
+        filters = _list_filters(form)
+        if state not in {'on', 'off'}:
             raise ValueError('Invalid favorite setting')
         domain = _existing(owner_id, form.get('domain', ''))
         if not storage.set_domain_favorite(owner_id, domain, state == 'on'):
             raise Http404('Domain not found')
-        query = urlencode({'days': days, 'status': status, 'q': form.get('q', '')})
+        query = urlencode(filters)
         return _private(HttpResponse(status=303, headers={'Location': '/?' + query}))
     if action == 'add':
         count = add_domains(cfg, owner_id, form)
@@ -309,11 +320,11 @@ def _act(request, action, form):
                 run_manual_checks(cfg, owner_id, names)
             finally:
                 _check_lock.release()
-            return _redirect(_('Checks completed; results saved'))
+            return _redirect(_('Checks completed; results saved'), filters)
         if action == 'reset' and not form.get('revision'):
             raise ValueError('Reset requires the current settings revision')
         act_on_domain(cfg, owner_id, action, domain, revision=form.get('revision'))
-        return _redirect(_('Domain updated'))
+        return _redirect(_('Domain updated'), filters)
     if action == 'alerts':
         if form.get('enabled') not in {'on', 'off'}:
             raise ValueError('Invalid alert setting')
@@ -345,6 +356,8 @@ def _mutate(request, action):
         allowed.update(f'check.{name}' for name in ChecksModel.model_fields)
     elif action == 'favorite':
         allowed.update({'favorite', 'q', 'status', 'days'})
+    elif action in {'check', 'pause', 'resume'}:
+        allowed.update({'q', 'status', 'days'})
     elif action == 'delete':
         allowed.add('confirm')
     elif action == 'reset':

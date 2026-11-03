@@ -105,13 +105,35 @@
                                 <div class="last-checked">{% include 'sitewatcher/partials/time.html' with stamp=row.observed compact=True %}</div>
                             </td>
                             <td class="row-action">
-                                {% if not read_only %}
-                                    <a href="/domains/edit?domain={{ row.name|urlencode }}"
-                                        aria-label="{% blocktranslate with domain=row.name %}Edit {{ domain }}{% endblocktranslate %}"
-                                    >{% translate 'Edit' %}</a>
-                                {% else %}
-                                    <a href="/domains/history?domain={{ row.name|urlencode }}">{% translate 'History' %}</a>
-                                {% endif %}
+                                <div class="domain-actions row-domain-actions">
+                                    {% if not read_only %}
+                                        <a class="button icon-button" href="/domains/edit?domain={{ row.name|urlencode }}"
+                                            title="{% translate 'Edit domain' %}"
+                                            aria-label="{% blocktranslate with domain=row.name %}Edit {{ domain }}{% endblocktranslate %}"
+                                        ><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m16 3 5 5-12 12-6 1 1-6Z M14 5l5 5"/></svg></a>
+                                        <form method="post" action="/domains/check">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="domain" value="{{ row.name }}">
+                                            <input type="hidden" name="q" value="{{ query }}">
+                                            <input type="hidden" name="status" value="{{ status }}">
+                                            <input type="hidden" name="days" value="{{ report.days }}">
+                                            <button class="icon-button" type="submit" title="{% translate 'Check now' %}" aria-label="{% translate 'Check now' %}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 7a9 9 0 1 0 1 8 M20 3v5h-5"/></svg></button>
+                                        </form>
+                                        <form method="post" action="{% if row.paused %}/domains/resume{% else %}/domains/pause{% endif %}">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="domain" value="{{ row.name }}">
+                                            <input type="hidden" name="q" value="{{ query }}">
+                                            <input type="hidden" name="status" value="{{ status }}">
+                                            <input type="hidden" name="days" value="{{ report.days }}">
+                                            <button class="icon-button" type="submit"
+                                                title="{% if row.paused %}{% translate 'Resume monitoring' %}{% else %}{% translate 'Pause monitoring' %}{% endif %}"
+                                                aria-label="{% if row.paused %}{% translate 'Resume monitoring' %}{% else %}{% translate 'Pause monitoring' %}{% endif %}"
+                                            ><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">{% if row.paused %}<path d="m8 4 12 8-12 8Z"/>{% else %}<path d="M8 5v14 M16 5v14"/>{% endif %}</svg></button>
+                                        </form>
+                                    {% else %}
+                                        <a class="button icon-button" href="/domains/history?domain={{ row.name|urlencode }}" title="{% translate 'History' %}" aria-label="{% translate 'History' %}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></a>
+                                    {% endif %}
+                                </div>
                             </td>
                         </tr>
                     {% empty %}
