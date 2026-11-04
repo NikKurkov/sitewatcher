@@ -42,17 +42,35 @@ if (disclosureRoot) {
   const domains = [...disclosureRoot.querySelectorAll('[data-domain-key]')];
   const toggles = [...disclosureRoot.querySelectorAll('[data-domain-toggle]')];
   const panelFor = (button) => document.getElementById(button.getAttribute('aria-controls'));
+  const nameFor = (button) => button.closest('[data-domain-key]')?.querySelector('.domain-name');
   const setOpen = (button, open) => {
     const panel = panelFor(button);
     if (!panel) return;
     panel.hidden = !open;
     button.setAttribute('aria-expanded', String(open));
+    nameFor(button)?.setAttribute('aria-expanded', String(open));
   };
   toggles.forEach((button) => {
     button.hidden = false;
     button.addEventListener('click', () => {
       setOpen(button, button.getAttribute('aria-expanded') !== 'true');
     });
+    const name = nameFor(button);
+    if (name) {
+      name.setAttribute('role', 'button');
+      name.setAttribute('aria-controls', button.getAttribute('aria-controls'));
+      name.setAttribute('aria-expanded', button.getAttribute('aria-expanded'));
+      name.addEventListener('click', (event) => {
+        if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button > 0) return;
+        event.preventDefault();
+        button.click();
+      });
+      name.addEventListener('keydown', (event) => {
+        if (event.key !== ' ') return;
+        event.preventDefault();
+        name.click();
+      });
+    }
   });
   disclosureRoot.querySelectorAll('[data-domain-summary]').forEach((row) => {
     row.addEventListener('click', (event) => {

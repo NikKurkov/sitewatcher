@@ -4,8 +4,9 @@ All six recommendations approved in conversation on 2026-11-04.
 
 Owner and public pages use compact closed domain rows. Each domain has one
 expandable area containing current checks and the HTTP chart. The graph comes first across the full width. Checks follow below in two desktop
-columns and one mobile column, per the approved follow-up. Keep owner favorites, reorder,
-edit, manual check, pause and full history links outside the expandable area.
+columns and one mobile column, per the approved follow-up. Keep owner favorites, reorder, edit, manual check and pause outside the expandable
+area. The domain name also expands details; full history is linked inside, with a
+native name-link fallback when JavaScript is unavailable.
 Multiple domains may be open. Interactive controls must not toggle the row.
 
 Public header follows the owner header (logo, separated summary, relative latest

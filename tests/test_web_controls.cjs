@@ -199,8 +199,14 @@ function disclosurePage(storage, {scope = 'owner-1', pathname = '/', activeInput
     click: () => buttonEvents.click(), focus: () => { document.activeElement = button; },
     closest: selector => selector === '[data-domain-key]' ? domain : null};
   const nested = {open: false};
+  const nameEvents = {};
+  const nameAttrs = {};
+  const name = {setAttribute: (key, value) => { nameAttrs[key] = value; },
+    addEventListener: (key, fn) => { nameEvents[key] = fn; },
+    click: () => nameEvents.click({preventDefault() {}})};
   const domain = {dataset: {domainKey: '1'},
-    querySelector: selector => selector === '[data-domain-toggle]' ? button : null,
+    querySelector: selector => selector === '[data-domain-toggle]' ? button
+      : selector === '.domain-name' ? name : null,
     querySelectorAll: selector => selector === 'details' ? [nested] : [button]};
   const row = {addEventListener: (key, fn) => { rowEvents[key] = fn; }, querySelector: () => button};
   const root = {dataset: {disclosureScope: scope}, contains: target => target === button,
@@ -223,9 +229,19 @@ function disclosurePage(storage, {scope = 'owner-1', pathname = '/', activeInput
     sessionStorage: {getItem: key => storage.get(key) ?? null,
       setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key)},
     setInterval: fn => { interval = fn; }});
-  return {button, attrs, panel, nested, rowEvents, handlers, windowEvents, document,
+  return {button, attrs, panel, nested, nameEvents, nameAttrs, rowEvents, handlers, windowEvents, document,
     tick: () => interval(), reloads: () => reloads, scroll: () => scroll};
 }
+const nameDisclosure = disclosurePage(new Map());
+let nameNavigationPrevented = false;
+nameDisclosure.nameEvents.click({preventDefault() { nameNavigationPrevented = true; }});
+assert.equal(nameNavigationPrevented, true);
+assert.equal(nameDisclosure.attrs['aria-expanded'], 'true');
+assert.equal(nameDisclosure.nameAttrs['aria-expanded'], 'true');
+nameDisclosure.nameEvents.keydown({key: ' ', preventDefault() {}});
+assert.equal(nameDisclosure.attrs['aria-expanded'], 'false', 'Space activates the domain disclosure');
+nameDisclosure.nameEvents.click({ctrlKey: true, preventDefault() { throw Error('Modified navigation must remain native'); }});
+assert.equal(nameDisclosure.attrs['aria-expanded'], 'false');
 const savedDisclosures = new Map();
 let disclosure = disclosurePage(savedDisclosures);
 assert.equal(disclosure.button.hidden, false);
