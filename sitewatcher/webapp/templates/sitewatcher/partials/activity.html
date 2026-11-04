@@ -18,7 +18,7 @@
     <div class="activity-heading">
         <div class="activity-title-group">
             <span class="activity-signal-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-            <h2 id="live-checks-title">{% translate 'Live checks' %}</h2>
+            <h2 id="live-checks-title">{% translate 'Signal room' %}</h2>
             <span class="activity-mode" data-scene-mode>{% translate 'Connecting…' %}</span>
         </div>
         <div class="activity-controls" role="group" aria-label="{% translate 'Visualization controls' %}">
@@ -47,6 +47,10 @@
         </div>
     </div>
     <div class="activity-stage">
+    <div class="activity-console">
+        <div class="activity-console-heading"><h3><span aria-hidden="true">›_</span> {% translate 'Event console' %} <span class="activity-console-count" data-console-count>0</span></h3><button type="button" class="activity-console-follow" data-console-follow aria-pressed="true">{% translate 'Follow latest' %}</button></div>
+        <div class="activity-console-scroll" data-console-scroll role="log" aria-live="off" tabindex="0" aria-label="{% translate 'Recent check events' %}"><ol data-activity-console></ol></div>
+    </div>
         <div class="activity-stage-topline" aria-hidden="true"><span>SiteWatcher <b>/</b> {% translate 'Signal room' %}</span><span class="activity-stage-direction">{% translate 'Probe' %}<i></i>{% translate 'Response' %}</span></div>
         <div class="activity-field">
         <div class="activity-canvas" data-scene-scroll tabindex="0">
@@ -97,9 +101,5 @@
     </div>
     <p class="activity-playback-note">{% translate 'Animation follows recorded events; probe durations are shown in the log.' %}</p>
     {% if not public_view %}{% include 'sitewatcher/partials/route_controls.html' %}{% endif %}
-    <div class="activity-console">
-        <div class="activity-console-heading"><h3><span aria-hidden="true">›_</span> {% translate 'Event console' %} <span class="activity-console-count" data-console-count>0</span></h3><button type="button" class="activity-console-follow" data-console-follow aria-pressed="true">{% translate 'Follow latest' %}</button></div>
-        <div class="activity-console-scroll" data-console-scroll role="log" aria-live="off" tabindex="0" aria-label="{% translate 'Recent check events' %}"><ol data-activity-console></ol></div>
-    </div>
     <ul class="sr-only" data-activity-accessible aria-label="{% translate 'Latest checks' %}"></ul>
 </section>

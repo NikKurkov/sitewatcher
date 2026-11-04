@@ -135,13 +135,22 @@
     state.className = 'console-status';
     state.dataset.level = level(event);
     state.textContent = event.phase === 'running' ? '→' : event.phase === 'interrupted' ? '×' : '←';
-    const text = document.createElement('span');
+    const check = document.createElement('span');
+    check.className = 'console-check';
+    check.textContent = event.label;
     const domain = document.createElement(publicView ? 'span' : 'a');
+    domain.className = 'console-domain';
     if (!publicView) domain.href = `/domains/history?domain=${encodeURIComponent(event.domain)}`;
     domain.textContent = event.domain;
-    text.append(`[${event.label}] `, domain, ` — ${stateText(event)}`);
-    if (event.elapsed_ms !== null && event.phase === 'finished') text.append(` · ${event.elapsed_ms} ${panel.dataset.milliseconds}`);
-    row.append(time, state, text);
+    const result = document.createElement('span');
+    result.className = 'console-result';
+    result.dataset.level = level(event);
+    result.textContent = stateText(event);
+    const duration = document.createElement('span');
+    duration.className = 'console-duration';
+    duration.textContent = event.elapsed_ms !== null && event.phase === 'finished'
+      ? `${event.elapsed_ms} ${panel.dataset.milliseconds}` : '—';
+    row.append(time, check, domain, state, result, duration);
     const oldHeight = scroll.scrollHeight;
     const oldTop = scroll.scrollTop;
     log.append(row);
@@ -236,10 +245,10 @@
   };
 
   const layoutNode = node => {
-    const ys = compact ? [96, 245, 395, 544] : [68, 138, 208, 278, 348, 418];
+    const ys = compact ? [96, 245, 395, 544] : [85, 171, 257, 343, 429, 515];
     const focused = routeView?.active && node.domain === selectedName ? routeView.geometry : null;
-    const center = focused ? focused.hub : compact ? {x: 80, y: 320, scale: .65} : {x: 180, y: 240, scale: 1};
-    const x = focused ? focused.target.x : compact ? 350 : 930;
+    const center = focused ? focused.hub : compact ? {x: 80, y: 320, scale: .65} : {x: 170, y: 300, scale: 1};
+    const x = focused ? focused.target.x : compact ? 350 : 730;
     const y = focused ? focused.target.y : ys[node.slot];
     const start = center.x + 95 * center.scale;
     const end = x - 20;
@@ -458,7 +467,7 @@
   const layout = () => {
     routeView?.resize(canvas.clientWidth);
     const focused = routeView?.active ? routeView.geometry : null;
-    const next = focused ? focused.compact : canvas.clientWidth < 950;
+    const next = focused ? focused.compact : canvas.clientWidth < 620;
     svg.style.width = focused ? '100%' : '';
     svg.style.height = focused ? `${focused.compact ? 400 : 420}px` : '';
     if (compact !== next) {
@@ -481,12 +490,13 @@
     }
     panel.dataset.sceneLayout = compact ? 'compact' : 'wide';
     svg.setAttribute('viewBox', focused ? `0 0 ${focused.width} ${focused.height}`
-      : compact ? '0 0 620 640' : '0 0 1200 480');
+      : compact ? '0 0 620 640' : '0 0 1000 600');
     if (selectedName && roster.has(selectedName) && !nodes.has(selectedName)) {
       ensureNode(snapshotEvent(roster.get(selectedName)));
     }
     nodes.forEach(node => { layoutNode(node); updateNode(node, node.last); });
     flights.forEach(drawFlight);
+    if (following) scroll.scrollTop = scroll.scrollHeight;
     paintMap();
   };
   function changeRouteView() {

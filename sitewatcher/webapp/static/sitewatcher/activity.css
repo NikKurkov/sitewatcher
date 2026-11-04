@@ -322,3 +322,70 @@
 
 .scene-route-hit { fill: transparent; pointer-events: all; }
 [data-scene-pulses], [data-scene-links] { pointer-events: none; }
+
+/* A shared stage keeps the event stream beside the probe map, including fullscreen. */
+.activity-stage > .activity-console {
+  position: absolute; z-index: 2; inset: 55px auto 48px 0;
+  width: 34%; display: flex; flex-direction: column; min-height: 0;
+  border: 0; background: linear-gradient(90deg, #0b151ef5 82%, #0b151e00);
+  padding: 0 24px;
+}
+.activity-stage > .activity-console .activity-console-heading {
+  flex-wrap: wrap; gap: 6px 12px; padding: 0 0 14px; border: 0;
+}
+.activity-stage > .activity-console .activity-console-heading h3 {
+  color: #c7dce5; font: 600 14px/1.5 system-ui, sans-serif;
+}
+.activity-stage > .activity-console .activity-console-follow { padding: 0; }
+.activity-stage > .activity-console .activity-console-scroll {
+  flex: 1; height: auto; min-height: 0; padding: 0 8px 0 0;
+  background: transparent; mask-image: linear-gradient(transparent, #000 18px);
+}
+.activity-console li {
+  display: grid; grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: baseline; gap: 5px 10px; padding: 14px 0;
+  border-bottom: 1px solid #29445180; white-space: normal;
+  font: 12px/1.6 system-ui, sans-serif;
+}
+.activity-console .console-check { grid-column: 2 / 4; color: #a5bfcc; }
+.activity-console .console-domain { grid-column: 2 / 4; font-weight: 550; color: #d3e4ec; }
+.activity-console .console-status { grid-column: 1; grid-row: 2 / 4; font-size: 13px; }
+.activity-console .console-result { grid-column: 2; font-size: 11px; }
+.activity-console .console-duration { grid-column: 3; color: #8da8b7; white-space: nowrap; }
+.activity-console time, .console-duration { font: 11px/1.6 ui-monospace, monospace; }
+.activity-console li:nth-last-child(n+7) { opacity: .65; }
+.activity-console li:hover, .activity-console li:focus-within { opacity: 1; }
+.activity-stage .activity-field { margin-left: 34%; min-height: 510px; }
+.activity-stage .activity-map { flex-basis: 126px; padding-left: 12px; }
+.activity-stage .activity-scene { min-height: 460px; height: 510px; }
+.activity-stage-topline > span:first-child { margin-left: 34%; }
+.activity-stage .activity-scene-empty { left: 40%; }
+.activity-panel.is-expanded .activity-stage { min-height: 0; }
+.activity-panel.is-expanded .activity-field { flex: 1; min-height: 0; width: 66%; }
+.activity-panel.is-expanded .activity-canvas { align-self: stretch; display: flex; align-items: center; }
+.activity-panel.is-expanded .activity-scene { height: 100%; min-height: 350px; }
+.activity-panel.is-expanded .activity-stage > .activity-console .activity-console-scroll { height: auto; }
+.activity-panel.is-expanded .activity-playback-note { padding-bottom: 8px; }
+@media (min-width: 1400px) {
+  .activity-stage .activity-map { flex-basis: 150px; }
+  .activity-stage > .activity-console { padding-left: 30px; padding-right: 30px; }
+}
+@media (max-width: 900px) {
+  .activity-stage > .activity-console { position: relative; inset: auto; width: 100%; height: 310px; padding: 20px 24px 0; }
+  .activity-stage .activity-field { margin-left: 0; }
+  .activity-stage-topline { display: none; }
+  .activity-stage .activity-scene-empty { top: 360px; left: 24px; }
+  .activity-panel.is-expanded .activity-stage { flex: none; min-height: 760px; }
+  .activity-panel.is-expanded .activity-field { flex: none; width: 100%; }
+}
+@media (max-width: 600px) {
+  .activity-stage > .activity-console { padding-inline: 16px; }
+  .activity-console ol { min-width: 0; }
+  .activity-stage .activity-map { flex-basis: auto; }
+  .activity-stage .activity-field { min-height: 0; }
+}
+
+.activity-panel[data-scene-layout=wide]:not([data-route-active=true]) .scene-node-name { font-size: 18px; }
+.activity-panel[data-scene-layout=wide]:not([data-route-active=true]) .scene-node-meta { font-size: 14px; }
+.activity-panel[data-scene-layout=wide]:not([data-route-active=true]) .scene-node-status { font-size: 13px; }
+.activity-panel[data-scene-layout=wide]:not([data-route-active=true]) .scene-hub-caption { font-size: 15px; }

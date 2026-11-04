@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Place the signal-room event console on the map beside the monitoring hub and
+  domain cards. Show time, check, domain, result and duration as readable fields;
+  preserve follow/pause/replay and use a stacked layout on narrow screens.
+
 - Align signal-room speed selection with adjacent controls on desktop and mobile.
 
 - Include all check types for selected domains in the public signal room, while

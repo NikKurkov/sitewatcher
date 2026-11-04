@@ -156,11 +156,11 @@ async function journey() {
   const start = p.position()[0];
   p.advance(1960);
   const halfway = p.position()[0];
-  assert.ok(halfway > start + 100 && halfway < 850, 'slow outbound takes seconds, following the SVG curve');
+  assert.ok(halfway > start + 100 && halfway < 700, 'slow outbound takes seconds, following the SVG curve');
   assert.equal(p.count('returned'), 0);
   p.advance(2200);
   const destination = p.position()[0];
-  assert.ok(destination > 850, 'outbound reaches the remote station');
+  assert.ok(destination > 700, 'outbound reaches the remote station');
   p.advance(10000);
   assert.equal(p.position()[0], destination, 'a running check waits at its station until a finish event');
   assert.equal(p.count('returned'), 0, 'elapsed animation time cannot invent a completed check');
@@ -261,7 +261,9 @@ async function reducedMotionAndSafety() {
   assert.equal(p.get('scene-speed').disabled, true);
   const row = p.get('activity-console').children[0];
   assert.ok(row.textContent.includes(unsafe) && row.textContent.includes(label));
-  const domainLink = row.children[2].children.find(child => child.tag === 'a');
+  const domainLink = row.children.find(child => child.tag === 'a');
+  assert.ok(row.children.some(child => child.className === 'console-check'), 'check has its own field');
+  assert.ok(row.children.some(child => child.className === 'console-duration'), 'duration has its own field');
   assert.equal(domainLink.href, `/domains/history?domain=${encodeURIComponent(unsafe)}`);
   assert.ok(p.get('activity-accessible').textContent.includes(unsafe));
   assert.ok(p.get('domain-map').children[0].attrs['aria-label'].includes(unsafe), 'static map retains full domain as accessible text');

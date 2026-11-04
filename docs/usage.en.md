@@ -345,3 +345,9 @@ CI covers Python 3.12, 3.13 and 3.14, JavaScript, installed-package smoke checks
 Russian translations are in `sitewatcher/webapp/locale/ru/LC_MESSAGES/django.po`. After edits, run `python -m django compilemessages -l ru`. GNU gettext is needed to regenerate catalogs; compiled translations are shipped.
 
 The existing [brand kit](../assets/brand/README.txt) contains light/dark logos and icons. Development and historical verification notes remain in [operations](operations.md) and the dated reports beside it.
+
+The signal-room console blends into the left of the map on wide screens, with the
+monitoring hub in the center and domain cards on the right. Each entry shows time,
+check, domain, result and duration. Fullscreen uses the available viewport height;
+narrow screens stack the log above the map. Manual scrolling suspends following
+until Follow latest is selected.
