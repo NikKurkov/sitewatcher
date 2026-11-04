@@ -40,6 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - run: docker compose config --quiet
+      - run: docker compose -f compose.yaml -f compose.host-network.yaml config --quiet
       - name: Seed synthetic build-context canaries
         run: |
           touch sitewatcher/data/docker-probe.yaml sitewatcher/data/docker-probe.sqlite
@@ -47,6 +48,7 @@ jobs:
           touch sitewatcher/data/docker-probe.web-secret sitewatcher/data/docker-probe.telegram-token
           touch sitewatcher/data/docker-probe.telegram-proxy sitewatcher/data/.telegram-proxy-docker-probe
           touch sitewatcher/data/docker-probe.virustotal-key sitewatcher/data/.virustotal-key-docker-probe
+          touch sitewatcher/data/docker-probe.virustotal-proxy sitewatcher/data/.virustotal-proxy-docker-probe
       - run: docker compose build web
       - name: Verify unprivileged loopback route
         run: >-

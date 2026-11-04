@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from urllib.parse import urlsplit
 
 from .utils.domains import normalize_domain, normalize_site_url
+from .virustotal_settings import validate_vt_proxy
 
 
 # -------------------------- Checks & Schedules --------------------------
@@ -386,6 +387,8 @@ class VTLimits(ConfigModel):
 
 class MalwareConfig(ConfigModel):
     """Malware reputation check (MVP: VirusTotal passive lookup)."""
+    vt_proxy: Optional[str] = Field(None, repr=False)
+    _vt_proxy = field_validator("vt_proxy")(validate_vt_proxy)
     vt_api_key: Optional[str] = None  # VirusTotal API key (if unset -> provider unavailable)
     timeout_s: float = Field(10.0, gt=0)           # per-provider timeout
     follow_redirects: bool = True     # reserved for future URL resolution step

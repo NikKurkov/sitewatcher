@@ -462,3 +462,40 @@ def test_virustotal_key_reveal_requires_owner_csrf_and_safe_storage(
     assert response.status_code == 503 and key.encode() not in response.content
     settings.SITEWATCHER_READ_ONLY = True
     assert post(client, {'action': 'reveal_virustotal_key'}).status_code == 405
+
+
+def test_virustotal_proxy_save_keep_remove_and_validation_are_private(owner, client, monkeypatch):
+    from sitewatcher.virustotal_settings import load_vt_proxy, vt_proxy_path
+
+    monkeypatch.delenv("VIRUSTOTAL_PROXY", raising=False)
+    secret = "http://private-user:private-pass@proxy.example:3128"
+    response = post(client, {"virustotal_proxy": secret})
+    assert response.status_code == 303 and load_vt_proxy() == secret
+    assert stat.S_IMODE(vt_proxy_path().stat().st_mode) == 0o600
+    page = client.get("/settings", HTTP_HOST="localhost")
+    assert b"VirusTotal proxy configured." in page.content
+    assert b"private-user" not in page.content and b"private-pass" not in page.content
+    assert post(client, {"virustotal_proxy": ""}).status_code == 303
+    assert load_vt_proxy() == secret
+    assert post(client, {"virustotal_proxy": "invalid-private-proxy"}).status_code == 400
+    assert load_vt_proxy() == secret
+    assert (
+        post(client, {"virustotal_proxy": secret, "remove_virustotal_proxy": "on"}).status_code
+        == 400
+    )
+    assert load_vt_proxy() == secret
+    assert post(client, {"remove_virustotal_proxy": "on"}).status_code == 303
+    assert load_vt_proxy() is None
+
+
+def test_virustotal_proxy_respects_auth_csrf_and_read_only(owner, client, settings):
+    from sitewatcher.virustotal_settings import load_vt_proxy
+
+    fields = {"virustotal_proxy": "http://proxy.example:3128"}
+    assert post(Client(), fields).status_code in (302, 401)
+    secure = Client(enforce_csrf_checks=True)
+    secure.force_login(owner.user)
+    assert post(secure, fields).status_code == 403
+    settings.SITEWATCHER_READ_ONLY = True
+    assert post(client, fields).status_code == 405
+    assert load_vt_proxy() is None

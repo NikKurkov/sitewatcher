@@ -3,6 +3,7 @@ x-runtime: &runtime
   build: .
   environment: &environment
     DATABASE_PATH: /data/sitewatcher.db
+    VIRUSTOTAL_PROXY: ${VIRUSTOTAL_PROXY:-}
   volumes:
     - sitewatcher-data:/data
 

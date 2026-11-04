@@ -154,6 +154,20 @@
                     <label class="checkbox-field">{{ form.remove_virustotal_api_key }} {{ form.remove_virustotal_api_key.label }}</label>
                     <p class="field-help">{% translate 'This key is shared by this installation. Removing the saved key keeps environment and installation overrides. VirusTotal only reads existing URL reports; no URL is submitted for analysis.' %}</p>
                 </div>
+                <div class="field">
+                    <label for="{{ form.virustotal_proxy.id_for_label }}">{{ form.virustotal_proxy.label }}</label>
+                    {{ form.virustotal_proxy }}
+                    {% for error in form.virustotal_proxy.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+                    <p class="field-help">{% translate 'Optional HTTP(S) or SOCKS5 proxy used only by VirusTotal. Leave blank to keep the saved proxy. Changes apply on the next check.' %}</p>
+                    <p class="field-help">{% if virustotal_proxy_present %}{% translate 'VirusTotal proxy configured.' %}{% else %}{% translate 'No dedicated VirusTotal proxy configured; the common HTTP client is used.' %}{% endif %}</p>
+                    {% if virustotal_proxy_environment_override %}
+                        <p class="notice">{% translate 'VIRUSTOTAL_PROXY takes priority over the saved proxy.' %}</p>
+                    {% elif virustotal_proxy_config_override %}
+                        <p class="notice">{% translate 'malware.vt_proxy takes priority over the saved proxy.' %}</p>
+                    {% endif %}
+                    <label class="checkbox-field">{{ form.remove_virustotal_proxy }} {{ form.remove_virustotal_proxy.label }}</label>
+                    <p class="field-help">{% translate 'Proxy credentials are never displayed. In Docker, 127.0.0.1 refers to the container; a proxy on the host needs a reachable address or the optional host-network configuration.' %}</p>
+                </div>
             {% if not read_only %}
                 <div class="form-actions">
                     <button class="primary" type="submit">{% translate 'Save settings' %}</button>

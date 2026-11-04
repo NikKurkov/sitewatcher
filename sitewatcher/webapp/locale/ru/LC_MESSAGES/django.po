@@ -1695,3 +1695,87 @@ msgstr "Выберите HTTP или HTTPS."
 #: sitewatcher/templates/sitewatcher/partials/route_controls.html
 msgid "Hostname unavailable"
 msgstr "Имя узла не определено"
+
+#: sitewatcher/webapp/preferences.py
+msgid "VirusTotal connection timed out. Check network or proxy settings."
+msgstr "Истекло время подключения к VirusTotal. Проверьте сеть или настройки прокси."
+
+#: sitewatcher/webapp/preferences.py
+msgid "VirusTotal response timed out. Try again later."
+msgstr "Истекло время ожидания ответа VirusTotal. Повторите позже."
+
+#: sitewatcher/webapp/preferences.py
+msgid "Could not connect to the VirusTotal proxy. Check proxy settings."
+msgstr "Не удалось подключиться к прокси VirusTotal. Проверьте настройки прокси."
+
+#: sitewatcher/webapp/preferences.py
+msgid "Could not connect to VirusTotal. Check network or proxy settings."
+msgstr "Не удалось подключиться к VirusTotal. Проверьте сеть или настройки прокси."
+
+#: sitewatcher/webapp/preferences.py
+msgid "VirusTotal rejected the API key. Check your API key."
+msgstr "VirusTotal отклонил API-ключ. Проверьте ключ."
+
+#: sitewatcher/webapp/preferences.py
+msgid "VirusTotal denied access. Check the API key permissions."
+msgstr "VirusTotal отказал в доступе. Проверьте права API-ключа."
+
+#: sitewatcher/webapp/preferences.py
+msgid "VirusTotal request quota exceeded. Try again later."
+msgstr "Превышен лимит запросов VirusTotal. Повторите позже."
+
+#: sitewatcher/webapp/preferences.py
+msgid "VirusTotal is temporarily unavailable. Try again later."
+msgstr "VirusTotal временно недоступен. Повторите позже."
+
+#: sitewatcher/webapp/preferences.py
+msgid "VirusTotal returned an HTTP error. Try again later."
+msgstr "VirusTotal вернул ошибку HTTP. Повторите позже."
+
+#: sitewatcher/webapp/preferences.py
+msgid "VirusTotal returned an invalid response. Try again later."
+msgstr "VirusTotal вернул некорректный ответ. Повторите позже."
+
+#: sitewatcher/webapp/preferences.py
+msgid "VirusTotal request failed. Try again later."
+msgstr "Не удалось выполнить запрос к VirusTotal. Повторите позже."
+
+#: sitewatcher/webapp/preferences.py
+msgid "VirusTotal proxy"
+msgstr "Прокси VirusTotal"
+
+#: sitewatcher/webapp/preferences.py
+msgid "Remove saved VirusTotal proxy"
+msgstr "Удалить сохранённый прокси VirusTotal"
+
+#: sitewatcher/webapp/preferences.py
+msgid "Enter an HTTP(S) or SOCKS5 proxy URL."
+msgstr "Укажите адрес HTTP(S)- или SOCKS5-прокси."
+
+#: sitewatcher/webapp/preferences.py
+msgid "The VirusTotal proxy could not be read. Save a new proxy or remove it."
+msgstr "Не удалось прочитать прокси VirusTotal. Сохраните новый прокси или удалите прежний."
+
+#: sitewatcher/webapp/preferences.py
+msgid "Optional HTTP(S) or SOCKS5 proxy used only by VirusTotal. Leave blank to keep the saved proxy. Changes apply on the next check."
+msgstr "Необязательный HTTP(S)- или SOCKS5-прокси только для VirusTotal. Пустое поле оставляет сохранённое значение. Изменения применяются при следующей проверке."
+
+#: sitewatcher/webapp/preferences.py
+msgid "VirusTotal proxy configured."
+msgstr "Прокси VirusTotal настроен."
+
+#: sitewatcher/webapp/preferences.py
+msgid "No dedicated VirusTotal proxy configured; the common HTTP client is used."
+msgstr "Отдельный прокси VirusTotal не задан — используется общий HTTP-клиент."
+
+#: sitewatcher/webapp/preferences.py
+msgid "VIRUSTOTAL_PROXY takes priority over the saved proxy."
+msgstr "VIRUSTOTAL_PROXY имеет приоритет над сохранённым прокси."
+
+#: sitewatcher/webapp/preferences.py
+msgid "malware.vt_proxy takes priority over the saved proxy."
+msgstr "malware.vt_proxy имеет приоритет над сохранённым прокси."
+
+#: sitewatcher/webapp/preferences.py
+msgid "Proxy credentials are never displayed. In Docker, 127.0.0.1 refers to the container; a proxy on the host needs a reachable address or the optional host-network configuration."
+msgstr "Учётные данные прокси не отображаются. В Docker адрес 127.0.0.1 относится к контейнеру. Прокси на компьютере должен иметь доступный адрес либо использоваться с дополнительной конфигурацией host-network."

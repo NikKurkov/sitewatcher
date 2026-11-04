@@ -6,6 +6,7 @@ from django.utils.formats import date_format
 from django.utils.translation import gettext_lazy as _
 
 from sitewatcher.web_actions import NUMERIC_FIELDS
+from sitewatcher.checks.malware_scan import VT_FAILURE_MESSAGES
 
 
 _CHECK_LABELS = {
@@ -33,6 +34,7 @@ _DIAGNOSTIC_MESSAGES = {
         _('VirusTotal configuration could not be read securely'),
     'VT: not_found': _('VT: not_found'),
 }
+_DIAGNOSTIC_MESSAGES.update({message: _(message) for message in VT_FAILURE_MESSAGES.values()})
 
 
 def diagnostic_message(value):
