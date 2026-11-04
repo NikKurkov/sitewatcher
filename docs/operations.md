@@ -133,3 +133,17 @@ install the previous release. Verify with `doctor` before restarting. Do not mer
 downgrade code over a live migrated database. The release rehearsal used two owners with
 identical domain names, corrupt overrides, legacy history, idempotent migrations and
 both old-schema and current-schema restore; see the dated verification report.
+
+## RKN refresh on small servers
+
+Registry components are streamed to a private temporary directory beside the index,
+then validated into a temporary SQLite index with a bounded page cache. Domain rows
+and IP ranges are not collected into Python sets. A complete, dated bundle with the
+expected distinct entry counts is published in one transaction; malformed, stale,
+truncated or suspiciously reduced bundles leave the previous index intact. Allow
+space for the downloads, staging index and the previous index during refresh.
+
+The source's 150-second network deadline is separate from parsing/publication.
+Cancellation drains an active disk operation before removing temporary files; it
+does not start an overlapping fallback parser. The unchanged SQLite index remains
+rebuildable cache, separate from monitoring history.
