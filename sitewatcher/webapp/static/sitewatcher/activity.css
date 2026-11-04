@@ -26,6 +26,7 @@
 .activity-mode { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #39515e; border-radius: 4px; padding: 3px 7px; color: #b8cdd8; font-size: 11px; font-weight: 550; line-height: 1.5; }
 .activity-mode::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--signal-cyan); }
 .activity-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.activity-controls .activity-speed { display: flex; align-items: center; margin: 0; }
 .activity-panel .activity-control, .activity-panel .activity-speed select { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; margin: 0; padding: 7px 10px; border: 1px solid #364b5a; border-radius: 5px; background: #1b2b38; color: #cedde5; font: inherit; font-size: 12px; line-height: 1.4; box-shadow: none; cursor: pointer; }
 .activity-panel .activity-control:hover, .activity-panel .activity-speed select:hover { border-color: #64818e; background: #213643; color: #f1fafb; }
 .activity-panel .activity-control[aria-pressed=true] { border-color: #00cfb0; color: var(--signal-cyan); background: #143b3c; }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Align signal-room speed selection with adjacent controls on desktop and mobile.
+
 - Include all check types for selected domains in the public signal room, while
   keeping diagnostic messages, metrics and private domains out of the public feed.
 
