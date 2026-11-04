@@ -1,0 +1,13 @@
+# Opt-in Linux access to a proxy listening on the host loopback interface.
+# Use together with compose.yaml; the web UI stays bound to localhost.
+services:
+  web:
+    network_mode: host
+    ports: !reset []
+    command: [sitewatcher, web, --port, "${SITEWATCHER_PORT:-8080}"]
+    environment:
+      SITEWATCHER_WEB_BIND: 127.0.0.1
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:${SITEWATCHER_PORT:-8080}/healthz", timeout=3)']
+  worker:
+    network_mode: host

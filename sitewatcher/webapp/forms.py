@@ -83,6 +83,24 @@ class WorkspacePreferencesForm(forms.Form):
     remove_virustotal_api_key = forms.BooleanField(
         label=_('Remove saved VirusTotal API key'), required=False)
 
+    virustotal_proxy = forms.CharField(
+        label=_('VirusTotal proxy'), required=False, max_length=2048,
+        widget=forms.PasswordInput(render_value=False, attrs={
+            'autocomplete': 'new-password', 'spellcheck': 'false',
+        }))
+    remove_virustotal_proxy = forms.BooleanField(
+        label=_('Remove saved VirusTotal proxy'), required=False)
+
+    def clean_virustotal_proxy(self):
+        from sitewatcher.virustotal_settings import validate_vt_proxy
+        value = self.cleaned_data['virustotal_proxy']
+        if value:
+            try:
+                return validate_vt_proxy(value)
+            except ValueError as error:
+                raise ValidationError(_(str(error))) from None
+        return ''
+
     def clean_virustotal_api_key(self):
         from sitewatcher.virustotal_settings import validate_api_key
         value = self.cleaned_data['virustotal_api_key']
@@ -110,6 +128,8 @@ class WorkspacePreferencesForm(forms.Form):
         if data.get('virustotal_api_key') and data.get('remove_virustotal_api_key'):
             self.add_error('virustotal_api_key',
                            _('Choose a new VirusTotal key or remove the saved key.'))
+        if data.get('virustotal_proxy') and data.get('remove_virustotal_proxy'):
+            self.add_error('virustotal_proxy', _('Choose a new proxy or remove the saved proxy.'))
         return data
 
     def clean_timezone(self):

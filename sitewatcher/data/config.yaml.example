@@ -45,6 +45,7 @@ alerts:
 #   max_response_bytes: 8388608     # cumulative wire/decoded page limit, including redirects
 # malware:
 #   vt_api_key: "your-key"
+#   vt_proxy: "http://proxy.example:3128"  # optional; VirusTotal only
 # rkn:
 #   source: antifilter             # primary; bol-van is the automatic fallback
 #   cache_ttl_hours: 12

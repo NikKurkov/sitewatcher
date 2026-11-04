@@ -487,7 +487,7 @@ class Dispatcher:
                 vt_key = getattr(self.cfg.malware, "vt_api_key", None)
             except Exception:
                 vt_key = None
-            vt_cfg = _VTConfig(api_key=vt_key)
+            vt_cfg = _VTConfig(api_key=vt_key, proxy=self.cfg.malware.vt_proxy)
 
             mcfg = getattr(self.cfg, "malware", object())
             timeout_s = getattr(mcfg, "timeout_s", 10.0)

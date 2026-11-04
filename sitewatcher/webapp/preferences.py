@@ -16,7 +16,9 @@ from sitewatcher.telegram_connection import (
     find_chats, load_bot_token, save_bot_token, send_test_notification,
 )
 from sitewatcher.telegram_proxy import load_proxy, save_proxy, remove_proxy
-from sitewatcher.virustotal_settings import load_api_key, save_api_key, remove_api_key
+from sitewatcher.virustotal_settings import (
+    load_api_key, save_api_key, remove_api_key, load_vt_proxy, save_vt_proxy, remove_vt_proxy,
+)
 from .accounts import owner_required
 from .forms import WorkspacePreferencesForm
 
@@ -35,7 +37,7 @@ def _destination(cfg, owner_id):
     return chat_id, source
 
 
-@sensitive_variables('token', 'proxy', 'api_key', 'configured_key', 'form')
+@sensitive_variables('token', 'proxy', 'api_key', 'configured_key', 'configured_proxy', 'vt_proxy', 'form')
 def _render(request, form=None, *, error='', notice='', chats=None, status=200, public_link=''):
     owner_id = request.workspace.owner_id
     destination, source = _destination(settings.SITEWATCHER_CONFIG, owner_id)
@@ -65,12 +67,22 @@ def _render(request, form=None, *, error='', notice='', chats=None, status=200, 
     except (OSError, ValueError):
         virustotal_present = False
         error = error or _('The VirusTotal key could not be read. Save a new key or remove it.')
+    configured_proxy = settings.SITEWATCHER_CONFIG.malware.vt_proxy
+    try:
+        vt_proxy = load_vt_proxy(configured_proxy)
+        virustotal_proxy_present = bool(vt_proxy)
+    except (OSError, ValueError):
+        virustotal_proxy_present = False
+        error = error or _('The VirusTotal proxy could not be read. Save a new proxy or remove it.')
     response = render(request, 'sitewatcher/preferences.html', {
         'form': form, 'read_only': settings.SITEWATCHER_READ_ONLY,
         'token_present': token_present, 'environment_override': bool(os.getenv('TELEGRAM_TOKEN', '').strip()),
         'virustotal_present': virustotal_present,
         'virustotal_environment_override': bool(os.getenv('VIRUSTOTAL_API_KEY', '').strip()),
         'virustotal_config_override': bool(configured_key),
+        'virustotal_proxy_present': virustotal_proxy_present,
+        'virustotal_proxy_environment_override': bool(os.getenv('VIRUSTOTAL_PROXY', '').strip()),
+        'virustotal_proxy_config_override': bool(configured_proxy),
         'proxy_present': proxy_present,
         'proxy_environment_override': bool(os.getenv('TELEGRAM_PROXY', '').strip()),
         'destination': destination, 'destination_source': source,
@@ -86,7 +98,7 @@ def _render(request, form=None, *, error='', notice='', chats=None, status=200, 
 
 @owner_required
 @require_http_methods(['GET', 'HEAD', 'POST'])
-@sensitive_post_parameters('bot_token', 'telegram_proxy', 'virustotal_api_key')
+@sensitive_post_parameters('bot_token', 'telegram_proxy', 'virustotal_api_key', 'virustotal_proxy')
 @sensitive_variables('token', 'fields', 'form', 'api_key')
 def preferences(request):
     if request.method != 'POST':
@@ -118,6 +130,10 @@ def preferences(request):
                 remove_api_key()
             elif form.cleaned_data['virustotal_api_key']:
                 save_api_key(form.cleaned_data['virustotal_api_key'])
+            if form.cleaned_data['remove_virustotal_proxy']:
+                remove_vt_proxy()
+            elif form.cleaned_data['virustotal_proxy']:
+                save_vt_proxy(form.cleaned_data['virustotal_proxy'])
             if form.cleaned_data['remove_telegram_proxy']:
                 remove_proxy()
             elif form.cleaned_data['telegram_proxy']:

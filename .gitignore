@@ -56,3 +56,8 @@ sitewatcher.zip
 # Private VirusTotal API key and atomic-write temporary files.
 *.virustotal-key
 .virustotal-key-*
+
+# Private VirusTotal proxy settings and local Compose choice.
+*.virustotal-proxy
+.virustotal-proxy-*
+compose.override.yaml
