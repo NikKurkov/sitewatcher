@@ -439,7 +439,6 @@ def test_public_activity_is_filtered_before_limit_and_never_exposes_owner_data(o
     finish(selected, 'OK', 120)
     for _ in range(105):
         finish(start(731, 'hidden-sentinel.example', 'http_basic'), 'CRIT', 999)
-        finish(start(731, 'shared.example', 'malware'), 'CRIT', 999)
     finish(start(973, 'shared.example', 'http_basic'), 'CRIT', 999)
     guest = Client()
     response = get(guest, path + 'activity')
@@ -464,6 +463,32 @@ def test_public_activity_is_filtered_before_limit_and_never_exposes_owner_data(o
     assert guest.post(path + 'activity', HTTP_HOST='localhost').status_code == 405
     assert get(guest, path).cookies.get('sessionid') is None
 
+
+
+def test_public_activity_includes_all_check_types_without_diagnostics(owner, client):
+    from sitewatcher.check_activity import start, finish
+    path, _, _ = publish(client)
+    checks = ('http_basic', 'tls_cert', 'keywords', 'deface', 'ping', 'rkn_domain',
+              'rkn_ip', 'rkn_block', 'ports', 'whois', 'ip_blacklist', 'ip_change',
+              'malware', 'traceroute')
+    for name in checks:
+        finish(start(731, 'shared.example', name), 'OK', 12)
+        finish(start(731, 'hidden-sentinel.example', name), 'CRIT', 99)
+        finish(start(973, 'shared.example', name), 'CRIT', 99)
+    storage.save_history(731, 'shared.example', 'tls_cert', 'WARN',
+                         'private-diagnostic-sentinel', {'secret': 'private-metrics-sentinel'})
+    payload = get(Client(), path + 'activity').json()
+    assert payload['domains'][0]['label'] == 'TLS certificate'
+    assert payload['domains'][0]['status'] == 'WARN'
+    assert len(payload['events']) == len(checks)
+    assert len({event['label'] for event in payload['events']}) == len(checks)
+    assert all(event['domain'] == 'shared.example' and event['status'] == 'OK'
+               for event in payload['events'])
+    assert all(set(event) == {'id', 'domain', 'started_at', 'finished_at', 'status',
+                             'elapsed_ms', 'label', 'phase', 'status_label'}
+               for event in payload['events'])
+    serialized = json.dumps(payload)
+    assert 'hidden-sentinel' not in serialized and 'private-' not in serialized
 
 def test_public_map_markup_and_activity_follow_selection_rotation_and_disable(owner, client):
     from sitewatcher.check_activity import start

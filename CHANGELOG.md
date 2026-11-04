@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Include all check types for selected domains in the public signal room, while
+  keeping diagnostic messages, metrics and private domains out of the public feed.
+
 - Clarify expanded domain details in the workspace and public status page: compact
   response-time captions, labelled chart axes, shared check timestamps, neutral stale
   result indicators and lighter successful statuses.

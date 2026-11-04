@@ -1,4 +1,4 @@
-"""Revocable public capabilities with safe check statuses and HTTP analytics/activity."""
+"""Revocable public capabilities with safe check statuses and HTTP analytics and check activity."""
 import hashlib
 import logging
 import secrets
@@ -90,7 +90,7 @@ def public_report(workspace, *, days):
 
 
 def public_activity(workspace):
-    events, domains = check_activity.published_http(
+    events, domains = check_activity.published_activity(
         workspace.owner_id, sorted(set(workspace.public_domains)),
     )
     present_events(events)
@@ -102,7 +102,8 @@ def public_activity(workspace):
         ).hexdigest()[:24]
         event.pop('check_name')
     for domain in domains:
-        domain['label'] = str(check_label('http_basic'))
+        check = domain.pop('check_name')
+        domain['label'] = str(check_label(check)) if check else ''
         domain['status_label'] = str(status_label(domain['status']))
     return {'events': events, 'domains': domains}
 
