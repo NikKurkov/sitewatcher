@@ -47,7 +47,7 @@
                 <span>{% translate 'Domain' %}</span>
                 <span>{% translate 'Status' %}</span>
                 <span>{% translate 'HTTP history' %}</span>
-                <span>{% translate 'Successful HTTP checks' %}</span>
+                <span title="{% translate 'Successful HTTP observations as a percentage of known results.' %}">{% translate 'Successful HTTP checks' %}</span>
                 <span>{% translate 'Last checked' %}</span>
                 <span class="public-periods">{% include 'sitewatcher/partials/periods.html' %}</span>
             </div>
@@ -61,7 +61,7 @@
                                 <span class="public-service-history">
                                     {% include 'sitewatcher/partials/strip.html' with item=item %}
                                 </span>
-                                <span class="public-service-success"><span class="sr-only">{% translate 'Successful HTTP checks' %}: </span>{% if item.totals.success_percent != None %}{{ item.totals.success_percent|floatformat:1 }}%{% else %}{% translate 'No data' %}{% endif %}</span>
+                                <span class="public-service-success" title="{% translate 'Successful HTTP observations as a percentage of known results.' %}"><span class="sr-only">{% translate 'Successful HTTP checks' %}: </span>{% if item.totals.success_percent != None %}{{ item.totals.success_percent|floatformat:1 }}%{% else %}{% translate 'No data' %}{% endif %}</span>
                                 <span class="last-checked public-service-time"><span class="sr-only">{% translate 'Last checked' %}: </span>{% include 'sitewatcher/partials/time.html' with stamp=item.observed compact=True %}</span>
                                 <span class="public-service-expand" aria-hidden="true">⌄</span>
                                 <span class="sr-only">{% translate 'Response time and chart data' %}</span>

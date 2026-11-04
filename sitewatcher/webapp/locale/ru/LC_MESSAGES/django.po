@@ -1853,7 +1853,7 @@ msgid "HTTP availability"
 msgstr "Доступность по HTTP"
 
 msgid "Successful HTTP checks"
-msgstr "Успешные HTTP-проверки"
+msgstr "Аптайм"
 
 msgid "Full history"
 msgstr "Полная история"
@@ -1894,3 +1894,6 @@ msgid_plural "%(count)s of %(total)s sites are unavailable"
 msgstr[0] "%(count)s из %(total)s сайтов недоступен"
 msgstr[1] "%(count)s из %(total)s сайтов недоступны"
 msgstr[2] "%(count)s из %(total)s сайтов недоступны"
+
+msgid "Successful HTTP observations as a percentage of known results."
+msgstr "Доля успешных HTTP-проверок среди результатов с определённым статусом."
