@@ -21,8 +21,6 @@
   </tr>
 </table>
 
-<sub>The screenshots use made-up results with familiar domain names, not their current status. Click an image to take a closer look.</sub>
-
 ## What is it for?
 
 Keep an eye on an online shop, a company website or your own projects. SiteWatcher brings them together on one screen so you can see whether they open, how quickly they respond and whether anything needs attention.
