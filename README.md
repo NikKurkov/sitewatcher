@@ -35,9 +35,7 @@ It helps you:
 
 ## What does it check?
 
-**Roskomnadzor (RKN) blocking in Russia** — separate checks for the domain name and its IP address. A listing for the domain or a parent domain is a critical error. A listed IP produces a warning: on shared hosting, the listing may concern another website. SiteWatcher uses Antifilter lists with bol-van as a fallback; the result reflects those lists, rather than access through every internet provider.
-
-Other available checks:
+Available checks:
 
 - **Availability and speed** — whether the page opens, its response code and response time.
 - **HTTPS certificate and domain registration** — when they expire.
