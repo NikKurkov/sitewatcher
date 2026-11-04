@@ -18,6 +18,7 @@ from sitewatcher.telegram_connection import (
 from sitewatcher.telegram_proxy import load_proxy, save_proxy, remove_proxy
 from sitewatcher.virustotal_settings import (
     load_api_key, save_api_key, remove_api_key, load_vt_proxy, save_vt_proxy, remove_vt_proxy,
+    load_vt_proxy_enabled, save_vt_proxy_enabled,
 )
 from .accounts import owner_required
 from .forms import WorkspacePreferencesForm
@@ -71,9 +72,14 @@ def _render(request, form=None, *, error='', notice='', chats=None, status=200, 
     try:
         vt_proxy = load_vt_proxy(configured_proxy)
         virustotal_proxy_present = bool(vt_proxy)
+        proxy_switch = load_vt_proxy_enabled()
+        proxy_enabled = virustotal_proxy_present if proxy_switch is None else proxy_switch
     except (OSError, ValueError):
         virustotal_proxy_present = False
+        proxy_enabled = False
         error = error or _('The VirusTotal proxy could not be read. Save a new proxy or remove it.')
+    if not form.is_bound:
+        form.initial['virustotal_proxy_enabled'] = proxy_enabled
     response = render(request, 'sitewatcher/preferences.html', {
         'form': form, 'read_only': settings.SITEWATCHER_READ_ONLY,
         'token_present': token_present, 'environment_override': bool(os.getenv('TELEGRAM_TOKEN', '').strip()),
@@ -99,7 +105,7 @@ def _render(request, form=None, *, error='', notice='', chats=None, status=200, 
 @owner_required
 @require_http_methods(['GET', 'HEAD', 'POST'])
 @sensitive_post_parameters('bot_token', 'telegram_proxy', 'virustotal_api_key', 'virustotal_proxy')
-@sensitive_variables('token', 'fields', 'form', 'api_key')
+@sensitive_variables('token', 'fields', 'form', 'api_key', 'address')
 def preferences(request):
     if request.method != 'POST':
         if set(request.GET) - {'saved'} or any(len(v) != 1 for _, v in request.GET.lists()):
@@ -124,6 +130,19 @@ def preferences(request):
         form = WorkspacePreferencesForm(fields)
         if not form.is_valid():
             return _render(request, form, status=400)
+        proxy_switch_present = (fields.get('virustotal_proxy_settings') == '1'
+                                or 'virustotal_proxy_enabled' in fields)
+        proxy_enabled = (form.cleaned_data['virustotal_proxy_enabled']
+                         and not form.cleaned_data['remove_virustotal_proxy'])
+        if proxy_switch_present and proxy_enabled:
+            try:
+                address = (form.cleaned_data['virustotal_proxy'] or
+                           load_vt_proxy(settings.SITEWATCHER_CONFIG.malware.vt_proxy))
+            except (OSError, ValueError):
+                address = None
+            if not address:
+                form.add_error('virustotal_proxy', _('Enter a proxy address to enable it.'))
+                return _render(request, form, status=400)
         try:
             # Empty connection fields retain the existing configuration.
             if form.cleaned_data['remove_virustotal_api_key']:
@@ -134,6 +153,8 @@ def preferences(request):
                 remove_vt_proxy()
             elif form.cleaned_data['virustotal_proxy']:
                 save_vt_proxy(form.cleaned_data['virustotal_proxy'])
+            if proxy_switch_present:
+                save_vt_proxy_enabled(proxy_enabled)
             if form.cleaned_data['remove_telegram_proxy']:
                 remove_proxy()
             elif form.cleaned_data['telegram_proxy']:

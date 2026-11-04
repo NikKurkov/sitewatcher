@@ -32,6 +32,8 @@ jobs:
           node tests/test_route_view.cjs
           node --check sitewatcher/webapp/static/sitewatcher/key_visibility.js
           node tests/test_key_visibility.cjs
+          node --check sitewatcher/webapp/static/sitewatcher/vt_proxy.js
+          node tests/test_vt_proxy_controls.cjs
       - run: pytest
       - run: python -m sitewatcher.main --help
 
@@ -47,6 +49,7 @@ jobs:
           touch sitewatcher/data/docker-probe.db-wal sitewatcher/data/.env.docker-probe
           touch sitewatcher/data/docker-probe.web-secret sitewatcher/data/docker-probe.telegram-token
           touch sitewatcher/data/docker-probe.telegram-proxy sitewatcher/data/.telegram-proxy-docker-probe
+          touch sitewatcher/data/docker-probe.virustotal-proxy-enabled sitewatcher/data/.vt-proxy-enabled-docker-probe
           touch sitewatcher/data/docker-probe.virustotal-key sitewatcher/data/.virustotal-key-docker-probe
           touch sitewatcher/data/docker-probe.virustotal-proxy sitewatcher/data/.virustotal-proxy-docker-probe
       - run: docker compose build web

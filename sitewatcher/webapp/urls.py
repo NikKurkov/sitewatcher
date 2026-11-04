@@ -11,6 +11,7 @@ from .network_routes import route
 
 ASSETS = {
     'workspace.css': 'text/css; charset=utf-8',
+    'vt_proxy.js': 'application/javascript; charset=utf-8',
     'key_visibility.js': 'application/javascript; charset=utf-8',
     'activity.css': 'text/css; charset=utf-8',
     'domain_order.js': 'application/javascript; charset=utf-8',

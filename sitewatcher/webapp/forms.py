@@ -83,6 +83,13 @@ class WorkspacePreferencesForm(forms.Form):
     remove_virustotal_api_key = forms.BooleanField(
         label=_('Remove saved VirusTotal API key'), required=False)
 
+    virustotal_proxy_settings = forms.ChoiceField(
+        required=False, choices=[('1', '1')], initial='1', widget=forms.HiddenInput)
+    virustotal_proxy_enabled = forms.BooleanField(
+        label=_('Use a proxy for VirusTotal'), required=False,
+        widget=forms.CheckboxInput(attrs={
+            'data-vt-proxy-toggle': '', 'aria-controls': 'virustotal-proxy-fields',
+        }))
     virustotal_proxy = forms.CharField(
         label=_('VirusTotal proxy'), required=False, max_length=2048,
         widget=forms.PasswordInput(render_value=False, attrs={

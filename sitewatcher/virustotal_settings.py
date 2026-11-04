@@ -122,3 +122,24 @@ def save_vt_proxy(value: str) -> None:
 
 def remove_vt_proxy() -> None:
     vt_proxy_path().unlink(missing_ok=True)
+    vt_proxy_enabled_path().unlink(missing_ok=True)
+
+
+def vt_proxy_enabled_path() -> Path:
+    return vt_proxy_path().with_name(vt_proxy_path().name + '-enabled')
+
+
+def _validate_proxy_switch(value: str) -> str:
+    if value not in {'0', '1'}:
+        raise ValueError(KEY_FILE_ERROR)
+    return value
+
+
+def load_vt_proxy_enabled() -> bool | None:
+    """An absent switch preserves older installations' configured-proxy behavior."""
+    state = _load_secret(vt_proxy_enabled_path(), _validate_proxy_switch)
+    return None if state is None else state == '1'
+
+
+def save_vt_proxy_enabled(enabled: bool) -> None:
+    _save_secret(vt_proxy_enabled_path(), '1' if enabled else '0', '.vt-proxy-enabled-')

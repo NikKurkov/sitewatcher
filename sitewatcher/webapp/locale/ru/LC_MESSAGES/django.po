@@ -1779,3 +1779,15 @@ msgstr "malware.vt_proxy имеет приоритет над сохранённ
 #: sitewatcher/webapp/preferences.py
 msgid "Proxy credentials are never displayed. In Docker, 127.0.0.1 refers to the container; a proxy on the host needs a reachable address or the optional host-network configuration."
 msgstr "Учётные данные прокси не отображаются. В Docker адрес 127.0.0.1 относится к контейнеру. Прокси на компьютере должен иметь доступный адрес либо использоваться с дополнительной конфигурацией host-network."
+
+msgid "Use a proxy for VirusTotal"
+msgstr "Использовать прокси для VirusTotal"
+
+msgid "Enter a proxy address to enable it."
+msgstr "Укажите адрес прокси, чтобы включить его."
+
+msgid "This proxy is used only for VirusTotal. Other checks keep their existing connection settings."
+msgstr "Этот прокси используется только для VirusTotal. Подключение остальных проверок не меняется."
+
+msgid "Enter an HTTP(S) or SOCKS5 URL, for example socks5://user:password@host:1080 or http://host:3128. Leave blank to keep the saved address. Disabling the proxy keeps its address and credentials."
+msgstr "Введите URL HTTP(S) или SOCKS5, например socks5://user:password@host:1080 или http://host:3128. Оставьте поле пустым, чтобы сохранить прежний адрес. При отключении прокси адрес и данные доступа сохраняются."

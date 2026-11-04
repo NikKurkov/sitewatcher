@@ -1,7 +1,7 @@
 {% extends 'sitewatcher/base.html' %}
 {% load i18n %}
 {% block title %}{% translate 'Settings · SiteWatcher' %}{% endblock %}
-{% block page_scripts %}<script defer src="{% url 'asset' 'key_visibility.js' %}"></script>{% endblock %}
+{% block page_scripts %}<script defer src="{% url 'asset' 'key_visibility.js' %}"></script><script defer src="{% url 'asset' 'vt_proxy.js' %}"></script>{% endblock %}
 {% block content %}
     <div class="page-heading">
         <div>
@@ -154,11 +154,14 @@
                     <label class="checkbox-field">{{ form.remove_virustotal_api_key }} {{ form.remove_virustotal_api_key.label }}</label>
                     <p class="field-help">{% translate 'This key is shared by this installation. Removing the saved key keeps environment and installation overrides. VirusTotal only reads existing URL reports; no URL is submitted for analysis.' %}</p>
                 </div>
-                <div class="field">
+                {{ form.virustotal_proxy_settings }}
+                <label class="checkbox-field">{{ form.virustotal_proxy_enabled }} {{ form.virustotal_proxy_enabled.label }}</label>
+                <p class="field-help">{% translate 'This proxy is used only for VirusTotal. Other checks keep their existing connection settings.' %}</p>
+                <div class="field" id="virustotal-proxy-fields" data-vt-proxy-fields{% if not form.virustotal_proxy_enabled.value %} hidden{% endif %}>
                     <label for="{{ form.virustotal_proxy.id_for_label }}">{{ form.virustotal_proxy.label }}</label>
                     {{ form.virustotal_proxy }}
                     {% for error in form.virustotal_proxy.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
-                    <p class="field-help">{% translate 'Optional HTTP(S) or SOCKS5 proxy used only by VirusTotal. Leave blank to keep the saved proxy. Changes apply on the next check.' %}</p>
+                    <p class="field-help">{% translate 'Enter an HTTP(S) or SOCKS5 URL, for example socks5://user:password@host:1080 or http://host:3128. Leave blank to keep the saved address. Disabling the proxy keeps its address and credentials.' %}</p>
                     <p class="field-help">{% if virustotal_proxy_present %}{% translate 'VirusTotal proxy configured.' %}{% else %}{% translate 'No dedicated VirusTotal proxy configured; the common HTTP client is used.' %}{% endif %}</p>
                     {% if virustotal_proxy_environment_override %}
                         <p class="notice">{% translate 'VIRUSTOTAL_PROXY takes priority over the saved proxy.' %}</p>

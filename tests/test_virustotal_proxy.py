@@ -87,7 +87,9 @@ def test_private_proxy_storage_precedence_and_symlink_safety(tmp_path, monkeypat
 
 
 def test_proxy_reload_is_isolated_from_shared_http_client(monkeypatch):
-    from sitewatcher.virustotal_settings import save_vt_proxy, remove_vt_proxy
+    from sitewatcher.virustotal_settings import (
+        save_vt_proxy, remove_vt_proxy, save_vt_proxy_enabled, load_vt_proxy,
+    )
 
     original_client = httpx.AsyncClient
     created = []
@@ -114,6 +116,10 @@ def test_proxy_reload_is_isolated_from_shared_http_client(monkeypatch):
             )
             save_vt_proxy("http://first.example:3128")
             assert (await probe.run()).message == "VirusTotal has no report for this URL"
+            save_vt_proxy_enabled(False)
+            await probe.run()
+            assert load_vt_proxy() == "http://first.example:3128"
+            save_vt_proxy_enabled(True)
             save_vt_proxy("socks5://second.example:1080")
             await probe.run()
             remove_vt_proxy()
@@ -121,7 +127,7 @@ def test_proxy_reload_is_isolated_from_shared_http_client(monkeypatch):
 
     asyncio.run(scenario())
     assert created == ["http://first.example:3128", "socks5://second.example:1080"]
-    assert len(shared_calls) == 1
+    assert len(shared_calls) == 2
 
 
 @pytest.mark.parametrize(

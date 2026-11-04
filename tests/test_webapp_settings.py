@@ -31,6 +31,44 @@ def post(client, fields, path='/settings'):
     return client.post(path, fields, HTTP_HOST='localhost')
 
 
+@pytest.fixture
+def clean_vt_switch(owner):
+    from sitewatcher.virustotal_settings import remove_vt_proxy
+    remove_vt_proxy()
+    yield
+    remove_vt_proxy()
+
+
+def test_virustotal_proxy_switch_retains_address_and_applies_next_probe(clean_vt_switch, client):
+    from sitewatcher.virustotal_settings import load_vt_proxy
+
+    secret = 'socks5://user:private-pass@proxy.example:1080'
+    response = post(client, {'virustotal_proxy_settings': '1',
+                             'virustotal_proxy_enabled': 'on', 'virustotal_proxy': secret})
+    assert response.status_code == 303
+    page = client.get('/settings', HTTP_HOST='localhost')
+    assert page.context['form']['virustotal_proxy_enabled'].value() is True
+    assert secret.encode() not in page.content
+    assert post(client, {'virustotal_proxy_settings': '1'}).status_code == 303
+    page = client.get('/settings', HTTP_HOST='localhost')
+    assert page.context['form']['virustotal_proxy_enabled'].value() is False
+    assert load_vt_proxy() == secret
+    assert post(client, {'timezone': 'UTC'}).status_code == 303
+    assert client.get('/settings', HTTP_HOST='localhost').context['form'][
+        'virustotal_proxy_enabled'].value() is False
+    assert post(client, {'virustotal_proxy_settings': '1',
+                         'virustotal_proxy_enabled': 'on'}).status_code == 303
+    assert client.get('/settings', HTTP_HOST='localhost').context['form'][
+        'virustotal_proxy_enabled'].value() is True
+
+
+def test_virustotal_proxy_switch_requires_an_address_before_saving(clean_vt_switch, client):
+    response = post(client, {'virustotal_proxy_settings': '1',
+                             'virustotal_proxy_enabled': 'on'})
+    assert response.status_code == 400
+    assert response.context['form']['virustotal_proxy'].errors
+
+
 def test_timezone_save_preserves_owner_destination_history_and_omitted_preferences(owner, client):
     assert owner.timezone == 'Europe/Moscow'
     storage.set_user_alert_chat_id(31, -100123)

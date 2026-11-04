@@ -147,3 +147,17 @@ The source's 150-second network deadline is separate from parsing/publication.
 Cancellation drains an active disk operation before removing temporary files; it
 does not start an overlapping fallback parser. The unchanged SQLite index remains
 rebuildable cache, separate from monitoring history.
+
+## Dedicated VirusTotal proxy switch
+
+Settings provides a checkbox for VirusTotal's dedicated proxy. When enabled, enter
+an HTTP(S) or SOCKS5 URL; an optional username/password can be included in that URL.
+The secret input stays blank on subsequent visits: blank means retain the saved
+address. Turning the checkbox off retains the saved address and forces VirusTotal
+to use its normal connection on the next probe. Other checks' clients are unchanged.
+The switch takes effect without restarting; environment/YAML still determine the
+proxy address when configured, but an explicitly disabled switch suppresses it.
+
+Keep `<database>.virustotal-proxy` and `<database>.virustotal-proxy-enabled` in
+restricted backups alongside the API key. Existing installations without a switch
+file keep their prior configured-proxy behavior.
