@@ -15,7 +15,7 @@ remain visible when the HTTP badge is green. No-report VirusTotal is information
 Public DTOs expose only safe statuses/times/attention flags, never messages,
 credentials, private domains or owner IDs. Counts are publication-scoped.
 
-Move repeated overall HTTP statistics into About these figures. Sort real problems
+Remove the About these figures panel and repeated portfolio HTTP statistics from the public page, per the approved follow-up. Sort real problems
 first in the detail list. Preserve empty, paused, stale and unavailable states.
 Refresh keeps open rows, period, filters, scroll and keyboard focus, and continues
 while merely reading details. It must not interrupt active input or dragging.

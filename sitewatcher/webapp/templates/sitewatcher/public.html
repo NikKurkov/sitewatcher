@@ -79,15 +79,5 @@
             <p class="muted">{% translate 'This page has no published services yet.' %}</p>
         </section>
     {% endif %}
-    <details class="public-notes">
-        <summary>{% translate 'About these figures' %}</summary>
-    <section class="panel public-totals" aria-label="{% translate 'Published services only' %}">
-        <span>{% translate 'Successful HTTP checks' %} <strong>{% if report.totals.success_percent != None %}{{ report.totals.success_percent|floatformat:1 }}%{% else %}{% translate 'No data' %}{% endif %}</strong></span>
-        <span>{% translate 'Failed checks' %} <strong>{% if report.totals.failure_percent != None %}{{ report.totals.failure_percent|floatformat:1 }}%{% else %}{% translate 'No data' %}{% endif %}</strong></span>
-        <span>{% translate 'Recorded checks' %} <strong>{{ report.totals.sample_count }}</strong> <span class="muted">({% blocktranslate with count=report.totals.unknown %}{{ count }} unknown{% endblocktranslate %})</span></span>
-    </section>
 
-        <p class="fine-print">{% translate 'Successful checks = successful ÷ (successful + failed). Failure percentage uses the same denominator. Unknown observations are excluded. These are recorded checks, not continuous uptime.' %}</p>
-        <p class="fine-print">{% blocktranslate with timezone=public_timezone %}Times in {{ timezone }}{% endblocktranslate %}. {% translate 'Empty history intervals mean no observations were recorded. Current availability uses the monitoring interval to detect overdue HTTP observations. Paused services and services with no recent data are not counted as available.' %}</p>
-    </details>
 {% endblock %}
