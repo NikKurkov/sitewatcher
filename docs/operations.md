@@ -1,5 +1,8 @@
 # Operations and recovery
 
+For installation and everyday use, start with the [English user guide](usage.en.md)
+or the [Russian user guide](usage.ru.md).
+
 See the [reliability report](verification-2026-10-21.md) for recovery/performance
 and the [web management report](verification-web-management-2026-10-22.md) for browser,
 security and installed-package verification.
@@ -37,13 +40,13 @@ Docker images include application code and packaged examples only. Private YAML,
 ## Web management
 
 - Choose the account binding during setup and use the same YAML as the worker. Existing settings are shared through SQLite; the next scheduler tick reads them.
-- Domain check selectors support inherit/on/off. Blank numeric/list fields inherit; `[]` explicitly clears keyword/port lists. `interval_minutes: 0` pauses a domain. Reset removes every per-domain override.
+- Domain check selectors support inherit/on/off. Blank numeric/list fields inherit; `-` clears keyword/port lists (`[]` remains accepted for older submissions). `interval_minutes: 0` pauses a domain. Reset removes every per-domain override.
 - A stale edit is rejected. Use “Reload saved settings” before editing again; repeated submission cannot silently overwrite concurrent changes.
 - Proxy input stays blank. “Clear domain override” selects the common HTTP client, which may still use a global proxy; global proxy configuration is not changed by the form.
 - CSV exports may contain proxy credentials. Imports apply valid rows independently, reject concurrently changed merge targets, retain domains absent from the file and display added/updated/skipped counts. On errors, reselect the file or paste again; private CSV content is not redisplayed.
 - One web manual-check batch can run at a time. Other requests remain available. No separate scheduler or notification sender runs in the web process. A running bot sees newly saved states on its next tick.
 - Light/dark theme is a non-sensitive browser cookie. A small optional script changes the theme without discarding drafts; without JavaScript, theme links reload the saved page.
-- Every owner route requires login. Django sessions and CSRF protect mutations; login attempts are throttled. HTTPS deployments require explicit allowed hosts, secure cookies and a trusted proxy as described in README. Public bearer links expose only selected HTTP observations and scoped HTTP lifecycle events; disabling or rotating them revokes access immediately.
+- Every owner route requires login. Django sessions and CSRF protect mutations; login attempts are throttled. HTTPS deployments require explicit allowed hosts, secure cookies and a trusted proxy as described in the [user guide](usage.en.md#remote-access-and-accounts). Public bearer links expose only selected HTTP observations and scoped HTTP lifecycle events; disabling or rotating them revokes access immediately.
 
 ## Back up and restore
 
@@ -65,9 +68,9 @@ with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) 
 PY
 ```
 
-Keep `.env`, custom YAML, `<database>.web-secret`, `<database>.telegram-token`, `<database>.telegram-proxy` and `<database>.virustotal-key` separately with restrictive permissions (private credential files require mode 0600). Stop writes to settings while taking a coordinated backup; for the simplest consistent full backup, stop web, worker and bot first. Never put runtime credentials in release archives. `/export_csv` backs up domain settings only; it does not include history, alert state, or shared caches. Its keyword/port cells use JSON when needed; ordinary comma-separated keyword input remains accepted.
+Keep `.env`, custom YAML, `<database>.web-secret`, `<database>.telegram-token`, `<database>.telegram-proxy`, `<database>.virustotal-key` and `<database>.virustotal-proxy` separately with restrictive permissions (private credential files require mode 0600). Stop writes to settings while taking a coordinated backup; for the simplest consistent full backup, stop web, worker and bot first. Never put runtime credentials in release archives. `/export_csv` backs up domain settings only; it does not include history, alert state, or shared caches. Its keyword/port cells use JSON when needed; ordinary comma-separated keyword input remains accepted.
 
-To restore, stop every worker, bot and web process, retain the current database **and its sidecars together** in a rollback directory, place the verified backup at `DATABASE_PATH`, restore its matching web-secret/token/proxy/VirusTotal key files, and restore file ownership and mode 0600. Do not reuse stale WAL/SHM files with a restored database. Start with `doctor`, then restart web and the single scheduler. Do not overlay an old database while a process still has it open. RKN indexes can be rebuilt; a configured standalone WHOIS/IP-change database needs its own backup if retaining that state matters.
+To restore, stop every worker, bot and web process, retain the current database **and its sidecars together** in a rollback directory, place the verified backup at `DATABASE_PATH`, restore its matching web-secret/token/proxy/VirusTotal key and proxy files, and restore file ownership and mode 0600. Do not reuse stale WAL/SHM files with a restored database. Start with `doctor`, then restart web and the single scheduler. Do not overlay an old database while a process still has it open. RKN indexes can be rebuilt; a configured standalone WHOIS/IP-change database needs its own backup if retaining that state matters.
 
 ## Live check activity
 
@@ -84,7 +87,7 @@ Stopping/restarting a worker can leave unfinished rows.
 The domain-row overdue notice waits for two configured check intervals. Saved-result
 freshness and scheduling still use the original interval.
 
-VirusTotal keys can be stored in Advanced settings. `VIRUSTOTAL_API_KEY` overrides
+VirusTotal keys and its dedicated proxy can be stored in Settings → VirusTotal. `VIRUSTOTAL_API_KEY` overrides
 YAML `malware.vt_api_key`, which overrides the private saved file. Every probe reloads
 the effective key. Missing configuration and missing passive reports remain UNKNOWN.
 
@@ -98,7 +101,7 @@ the effective key. Missing configuration and missing passive reports remain UNKN
 - Per-domain `interval_minutes: 0` pauses scheduled checks. Manual checks remain available. Explicit zero latency/alert thresholds are preserved.
 - `/history changes` finds transitions before applying the requested status filter, so recovery does not hide a later incident. It examines a bounded recent window of at most 1,000 rows; select a domain/check or increase `limit` (maximum 200) to inspect a more focused stream.
 - Unknown YAML keys and invalid combinations are errors. `/cfg_set` and CSV imports validate overrides before saving; `/cfg_unset` also validates the settings that will be inherited.
-- `http.proxy` (or the `http.proxies` scheme map) configures the common HTTP client. `defaults.proxy` and domain overrides select a separate client for HTTP status, keyword and defacement checks. External API calls retain the common client. Clearing a domain proxy returns to that common client; connection limits apply to mapped proxies too.
+- `http.proxy` (or the `http.proxies` scheme map) configures the common HTTP client. `defaults.proxy` and domain overrides select a separate client for HTTP status, keyword and defacement checks. External API calls retain the common client, except VirusTotal when its dedicated proxy is configured. Clearing a domain proxy returns to that common client; connection limits apply to mapped proxies too.
 - `http.max_response_bytes` limits page downloads for HTTP status, keyword and defacement checks (default 8 MiB). Both downloaded and decoded bytes count across redirects. Oversized, incomplete or unsupported compressed bodies are unknown rather than inspected partially; an observed HTTP error status remains an error. Gzip and deflate are supported. This setting does not limit external feeds or reputation APIs.
 - Invalid port banner regular expressions are rejected before saving. A storage read failure stops a probe rather than discarding the owner's overrides.
 - IP-change state defaults to the main database and is separate for each owner and ad hoc scans. Set `ipchange.db_path` to retain a legacy `ipchange_cache.sqlite` baseline: each scope copies the old baseline once, preserving its timestamp, then updates its own state. The old baseline and file are never deleted automatically.
