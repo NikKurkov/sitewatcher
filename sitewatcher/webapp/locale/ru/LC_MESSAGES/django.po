@@ -1777,8 +1777,8 @@ msgid "malware.vt_proxy takes priority over the saved proxy."
 msgstr "malware.vt_proxy имеет приоритет над сохранённым прокси."
 
 #: sitewatcher/webapp/preferences.py
-msgid "Proxy credentials are never displayed. In Docker, 127.0.0.1 refers to the container; a proxy on the host needs a reachable address or the optional host-network configuration."
-msgstr "Учётные данные прокси не отображаются. В Docker адрес 127.0.0.1 относится к контейнеру. Прокси на компьютере должен иметь доступный адрес либо использоваться с дополнительной конфигурацией host-network."
+msgid "The saved proxy address, including credentials, is visible in owner settings. In Docker, 127.0.0.1 refers to the container; a proxy on the host needs a reachable address or the optional host-network configuration."
+msgstr "Сохранённый адрес прокси, включая учётные данные, виден в настройках владельца. В Docker адрес 127.0.0.1 относится к контейнеру. Прокси на компьютере должен иметь доступный адрес либо использоваться с дополнительной конфигурацией host-network."
 
 msgid "Use a proxy for VirusTotal"
 msgstr "Использовать прокси для VirusTotal"

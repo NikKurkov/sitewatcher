@@ -169,7 +169,7 @@
                         <p class="notice">{% translate 'malware.vt_proxy takes priority over the saved proxy.' %}</p>
                     {% endif %}
                     <label class="checkbox-field">{{ form.remove_virustotal_proxy }} {{ form.remove_virustotal_proxy.label }}</label>
-                    <p class="field-help">{% translate 'Proxy credentials are never displayed. In Docker, 127.0.0.1 refers to the container; a proxy on the host needs a reachable address or the optional host-network configuration.' %}</p>
+                    <p class="field-help">{% translate 'The saved proxy address, including credentials, is visible in owner settings. In Docker, 127.0.0.1 refers to the container; a proxy on the host needs a reachable address or the optional host-network configuration.' %}</p>
                 </div>
             {% if not read_only %}
                 <div class="form-actions">

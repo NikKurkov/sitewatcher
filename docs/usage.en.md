@@ -186,7 +186,7 @@ Enable the malware check for a domain and save an API key in **Settings → Viru
 
 Key priority is `VIRUSTOTAL_API_KEY` → YAML `malware.vt_api_key` → saved key. VirusTotal only reads existing reports for the HTTPS home URL. It does not submit a scan. A missing key, missing report, invalid response, quota, network failure or proxy error remains an unknown result, not a clean verdict.
 
-Enable **Use a proxy for VirusTotal** in the same settings section to show the HTTP(S)/SOCKS5 address field. This proxy applies only to VirusTotal. Turning the checkbox off retains the saved address and credentials; other checks keep their existing connections. Proxy priority is `VIRUSTOTAL_PROXY` → YAML `malware.vt_proxy` → saved proxy. Without one, the common HTTP client is used. Blank retains a saved proxy; the separate removal checkbox deletes it. Both the key and proxy are reloaded on the next check. Credentials are not redisplayed.
+Enable **Use a proxy for VirusTotal** in the same settings section to show the HTTP(S)/SOCKS5 address field. This proxy applies only to VirusTotal. Turning the checkbox off retains the saved address and credentials; other checks keep their existing connections. Proxy priority is `VIRUSTOTAL_PROXY` → YAML `malware.vt_proxy` → saved proxy. Without one, the common HTTP client is used. Blank retains a saved proxy; the separate removal checkbox deletes it. Both the key and proxy are reloaded on the next check. The saved proxy address, including credentials, is visible in owner settings after reloading the page.
 
 In Docker, `127.0.0.1` means the container. A proxy must be reachable from it. If your proxy listens only on the Linux host's loopback interface, you can opt into host networking:
 

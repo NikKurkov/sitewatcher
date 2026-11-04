@@ -75,11 +75,14 @@ def _render(request, form=None, *, error='', notice='', chats=None, status=200, 
         proxy_switch = load_vt_proxy_enabled()
         proxy_enabled = virustotal_proxy_present if proxy_switch is None else proxy_switch
     except (OSError, ValueError):
+        vt_proxy = None
         virustotal_proxy_present = False
         proxy_enabled = False
         error = error or _('The VirusTotal proxy could not be read. Save a new proxy or remove it.')
     if not form.is_bound:
         form.initial['virustotal_proxy_enabled'] = proxy_enabled
+        form.initial['virustotal_proxy'] = vt_proxy or ''
+        form.fields['virustotal_proxy'].widget.render_value = True
     response = render(request, 'sitewatcher/preferences.html', {
         'form': form, 'read_only': settings.SITEWATCHER_READ_ONLY,
         'token_present': token_present, 'environment_override': bool(os.getenv('TELEGRAM_TOKEN', '').strip()),

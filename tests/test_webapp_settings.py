@@ -48,7 +48,7 @@ def test_virustotal_proxy_switch_retains_address_and_applies_next_probe(clean_vt
     assert response.status_code == 303
     page = client.get('/settings', HTTP_HOST='localhost')
     assert page.context['form']['virustotal_proxy_enabled'].value() is True
-    assert secret.encode() not in page.content
+    assert page.context['form']['virustotal_proxy'].value() == secret
     assert post(client, {'virustotal_proxy_settings': '1'}).status_code == 303
     page = client.get('/settings', HTTP_HOST='localhost')
     assert page.context['form']['virustotal_proxy_enabled'].value() is False
@@ -69,7 +69,7 @@ def test_virustotal_proxy_switch_requires_an_address_before_saving(clean_vt_swit
     assert response.context['form']['virustotal_proxy'].errors
 
 
-def test_virustotal_proxy_is_visible_input_without_redisplaying_saved_credentials(clean_vt_switch, client):
+def test_virustotal_proxy_prefills_saved_address_only_for_authenticated_owner(clean_vt_switch, client):
     from html.parser import HTMLParser
     from sitewatcher.virustotal_settings import save_vt_proxy
 
@@ -84,10 +84,13 @@ def test_virustotal_proxy_is_visible_input_without_redisplaying_saved_credential
     inputs = Inputs()
     inputs.feed(response.content.decode())
     assert inputs.proxy['type'] == 'text'
-    assert not inputs.proxy.get('value')
-    assert secret.encode() not in response.content
+    assert inputs.proxy['value'] == secret
+    assert response['Cache-Control'] == 'no-store'
     response = post(client, {'virustotal_proxy': secret, 'timezone': 'invalid-zone'})
     assert response.status_code == 400 and secret.encode() not in response.content
+    client.logout()
+    response = client.get('/settings', HTTP_HOST='localhost')
+    assert response.status_code == 302 and secret.encode() not in response.content
 
 
 def test_timezone_save_preserves_owner_destination_history_and_omitted_preferences(owner, client):
@@ -533,16 +536,14 @@ def test_virustotal_proxy_save_keep_remove_and_validation_are_private(owner, cli
     assert stat.S_IMODE(vt_proxy_path().stat().st_mode) == 0o600
     page = client.get("/settings", HTTP_HOST="localhost")
     assert b"VirusTotal proxy configured." in page.content
-    assert b"private-user" not in page.content and b"private-pass" not in page.content
+    assert page.context['form']['virustotal_proxy'].value() == secret
     assert post(client, {"virustotal_proxy": ""}).status_code == 303
     assert load_vt_proxy() == secret
     assert post(client, {"virustotal_proxy": "invalid-private-proxy"}).status_code == 400
     assert load_vt_proxy() == secret
-    assert (
-        post(client, {"virustotal_proxy": secret, "remove_virustotal_proxy": "on"}).status_code
-        == 400
-    )
-    assert load_vt_proxy() == secret
+    assert post(client, {"virustotal_proxy": secret,
+                         "remove_virustotal_proxy": "on"}).status_code == 303
+    assert load_vt_proxy() is None
     assert post(client, {"remove_virustotal_proxy": "on"}).status_code == 303
     assert load_vt_proxy() is None
 

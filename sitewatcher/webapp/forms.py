@@ -49,7 +49,7 @@ def parse_management_form(content_type: str, body: bytes) -> dict[str, str]:
 
 
 class ProxyAddressInput(forms.PasswordInput):
-    """Show typed URLs while keeping saved/rejected credentials out of HTML."""
+    """Show proxy URLs; the owner settings view opts in to prefilling saved values."""
     input_type = 'text'
 
 
@@ -140,8 +140,6 @@ class WorkspacePreferencesForm(forms.Form):
         if data.get('virustotal_api_key') and data.get('remove_virustotal_api_key'):
             self.add_error('virustotal_api_key',
                            _('Choose a new VirusTotal key or remove the saved key.'))
-        if data.get('virustotal_proxy') and data.get('remove_virustotal_proxy'):
-            self.add_error('virustotal_proxy', _('Choose a new proxy or remove the saved proxy.'))
         return data
 
     def clean_timezone(self):
