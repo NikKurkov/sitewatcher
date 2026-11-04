@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from django.utils.formats import date_format
-from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_lazy as _, ngettext
 
 from sitewatcher.web_actions import NUMERIC_FIELDS
 from sitewatcher.checks.malware_scan import VT_FAILURE_MESSAGES
@@ -49,6 +49,21 @@ def check_label(name):
     return _CHECK_LABELS.get(name, name.replace('_', ' ').capitalize())
 
 
+def _updated_label(age):
+    if age < 0:
+        return _('Timestamp is in the future')
+    if age < 60:
+        return _('Updated just now')
+    if age < 3600:
+        count = int(age // 60)
+        return ngettext('Updated %(count)s minute ago', 'Updated %(count)s minutes ago', count) % {'count': count}
+    if age < 86400:
+        count = int(age // 3600)
+        return ngettext('Updated %(count)s hour ago', 'Updated %(count)s hours ago', count) % {'count': count}
+    count = int(age // 86400)
+    return ngettext('Updated %(count)s day ago', 'Updated %(count)s days ago', count) % {'count': count}
+
+
 def local_time(value, zone):
     if not value:
         return None
@@ -63,6 +78,7 @@ def local_time(value, zone):
     age = (datetime.now(timezone.utc) - stamp).total_seconds()
     return {'iso': stamp.isoformat(), 'label': label,
             'compact_label': local.strftime('%Y-%m-%d %H:%M'), 'value': stamp,
+            'updated_label': _updated_label(age),
             'future': age < 0, 'just_now': 0 <= age < 60}
 
 

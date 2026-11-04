@@ -1682,7 +1682,7 @@ button.favorite-star:hover {
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 16px;
   margin-left: auto;
 }
 .topbar-actions form {
@@ -1701,27 +1701,6 @@ button.favorite-star:hover {
 }
 .topbar-actions [hidden] {
   display: none;
-}
-.auto-refresh-toggle {
-  position: relative;
-}
-.auto-refresh-toggle[aria-pressed="true"] {
-  color: var(--green);
-  background: var(--green-soft);
-  border-color: var(--green);
-}
-.auto-refresh-toggle::after {
-  content: '';
-  position: absolute;
-  right: 5px;
-  top: 5px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--muted);
-}
-.auto-refresh-toggle[aria-pressed="true"]::after {
-  background: var(--green);
 }
 @media (max-width: 720px) {
   .topbar-inner:has(.topbar-actions) {
@@ -2003,6 +1982,50 @@ button.favorite-star:hover {
     padding: 0;
   }
   .topbar-inner:has(.header-monitoring-summary) .topbar-actions { grid-column: 1 / -1; grid-row: 3; }
+}
+
+/* Separate working actions from view controls without reducing hit areas. */
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.toolbar-group .icon-button,
+.toolbar-group > .button,
+.toolbar-group > form > .icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+}
+.topbar .settings-button,
+.topbar-actions .activity-toggle,
+.topbar-actions .refresh-page,
+.topbar-actions .auto-refresh-toggle {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+}
+.topbar .settings-button:hover,
+.topbar-actions .activity-toggle:hover,
+.topbar-actions .refresh-page:hover,
+.topbar-actions .auto-refresh-toggle:hover {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+.topbar .settings-button[aria-current="page"],
+.topbar-actions .activity-toggle[aria-pressed="true"],
+.topbar-actions .auto-refresh-toggle[aria-pressed="true"] {
+  background: var(--green-soft);
+  border-color: transparent;
+  color: var(--text);
+}
+@media (max-width: 359px) {
+  .topbar-actions { gap: 12px; }
 }
 
 /* One readable scale and stable geometry for labels, filters and navigation. */

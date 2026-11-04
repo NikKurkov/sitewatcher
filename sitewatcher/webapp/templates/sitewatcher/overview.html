@@ -12,7 +12,7 @@
                 <h2>{% if attention %}{% blocktranslate count count=attention %}{{ count }} domain needs attention{% plural %}{{ count }} domains need attention{% endblocktranslate %}{% elif summary.unknown == total %}{% translate 'Waiting for first results' %}{% elif summary.paused == total %}{% translate 'Monitoring is paused' %}{% else %}{% translate 'No active warnings' %}{% endif %}</h2>
                 <p class="header-summary-meta">
                     <span>{% blocktranslate count count=total %}{{ count }} domain{% plural %}{{ count }} domains{% endblocktranslate %} <span aria-hidden="true">·</span> {% blocktranslate with count=healthy %}{{ count }} healthy{% endblocktranslate %}{% if summary.paused %} <span aria-hidden="true">·</span> {% blocktranslate with count=summary.paused %}{{ count }} paused{% endblocktranslate %}{% endif %}{% if summary.unknown %} <span aria-hidden="true">·</span> {% blocktranslate with count=summary.unknown %}{{ count }} without current results{% endblocktranslate %}{% endif %}</span>
-                    <span class="header-checked">{% translate 'Checked:' %} {% if observed %}<time datetime="{{ observed.iso }}" title="{{ observed.label }}">{{ observed.compact_label }}</time>{% else %}{% translate 'Not checked yet' %}{% endif %}</span>
+                    <span class="header-checked">{% if observed %}<time datetime="{{ observed.iso }}" tabindex="0" title="{% translate 'Latest saved check result' %}: {{ observed.label }}">{{ observed.updated_label }}</time>{% else %}{% translate 'Not checked yet' %}{% endif %}</span>
                 </p>
             </div>
         </section>

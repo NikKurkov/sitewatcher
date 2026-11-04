@@ -39,7 +39,9 @@ def test_overview_problem_first_and_real_measurement(owner, client):
     header, main = body.split('</header>', 1)
     assert header.index('class="brand"') < header.index('1 domain needs attention')
     assert header.index('1 domain needs attention') < header.index('class="topbar-actions"')
-    assert 'Checked:' in header and '<time datetime=' in header
+    assert 'Updated just now' in header and '<time datetime=' in header
+    assert 'Latest saved check result' in header
+    assert header.count('class="toolbar-group"') == 3
     assert 'class="overview-history-toolbar"' not in main
     table_header = main.split('<thead>', 1)[1].split('</thead>', 1)[0]
     assert table_header.index('Last checked') < table_header.index('class="periods"')
@@ -104,6 +106,20 @@ def test_chart_gaps_break_paths_and_unknown_latency():
     assert len(chart['dots']) == 5
     assert chart['dots'][2]['x'] == pytest.approx(3 * 1000 / 120)
     assert chart_context([], 'latency_ms')['segments'] == []
+
+
+@pytest.mark.parametrize('age,label', [
+    (0, 'Обновлено только что'), (60, 'Обновлено 1 минуту назад'),
+    (120, 'Обновлено 2 минуты назад'), (300, 'Обновлено 5 минут назад'),
+    (1260, 'Обновлено 21 минуту назад'), (3600, 'Обновлено 1 час назад'),
+    (86400, 'Обновлено 1 день назад'), (-1, 'Дата и время находятся в будущем'),
+])
+def test_relative_summary_time_uses_russian_plural_forms(age, label):
+    from django.utils import translation
+    from sitewatcher.webapp.presentation import _updated_label
+
+    with translation.override('ru'):
+        assert str(_updated_label(age)) == label
 
 
 def test_theme_native_fallback_and_forms(owner, client):

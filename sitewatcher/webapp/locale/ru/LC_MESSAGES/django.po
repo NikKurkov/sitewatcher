@@ -730,7 +730,7 @@ msgstr[2] "%(count)s доменов"
 
 #, python-format
 msgid "%(count)s healthy"
-msgstr "Без проблем — %(count)s"
+msgstr "%(count)s без проблем"
 
 #, python-format
 msgid "%(count)s paused"
@@ -1815,3 +1815,36 @@ msgstr "Дополнительная секретная ссылка показ�
 
 msgid "Checked:"
 msgstr "Проверено:"
+
+msgid "Monitoring actions"
+msgstr "Действия мониторинга"
+
+msgid "Page refresh"
+msgstr "Обновление страницы"
+
+msgid "Latest saved check result"
+msgstr "Последний сохранённый результат проверки"
+
+msgid "Updated just now"
+msgstr "Обновлено только что"
+
+#, python-format
+msgid "Updated %(count)s minute ago"
+msgid_plural "Updated %(count)s minutes ago"
+msgstr[0] "Обновлено %(count)s минуту назад"
+msgstr[1] "Обновлено %(count)s минуты назад"
+msgstr[2] "Обновлено %(count)s минут назад"
+
+#, python-format
+msgid "Updated %(count)s hour ago"
+msgid_plural "Updated %(count)s hours ago"
+msgstr[0] "Обновлено %(count)s час назад"
+msgstr[1] "Обновлено %(count)s часа назад"
+msgstr[2] "Обновлено %(count)s часов назад"
+
+#, python-format
+msgid "Updated %(count)s day ago"
+msgid_plural "Updated %(count)s days ago"
+msgstr[0] "Обновлено %(count)s день назад"
+msgstr[1] "Обновлено %(count)s дня назад"
+msgstr[2] "Обновлено %(count)s дней назад"
