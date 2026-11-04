@@ -16,6 +16,7 @@ from django.views.decorators.http import require_POST
 
 from sitewatcher import check_activity, storage
 from sitewatcher.reporting import build_snapshot
+from sitewatcher.utils.results import is_missing_malware_report
 from . import analytics
 from .accounts import owner_required
 from .models import Workspace
@@ -51,14 +52,22 @@ def public_report(workspace, *, days):
         report['latest_availability'] = (raw['latest_availability'] if raw['latest_availability']
                                         in {'available', 'unavailable'} else 'unknown')
         row = current.get(name, {})
-        report['checks'] = [{key: check[key] for key in
-                            ('name', 'status', 'checked_at', 'stale', 'missing')}
-                           for check in row.get('checks', [])]
-        for check in report['checks']:
+        report['checks'] = []
+        for private_check in row.get('checks', []):
+            check = {key: private_check[key] for key in
+                     ('name', 'status', 'checked_at', 'stale', 'missing')}
+            check['attention'] = bool(
+                not is_missing_malware_report(
+                    private_check['name'], private_check['status'], private_check['message'])
+                and (private_check['status'] != 'OK' or private_check['stale']
+                     or private_check['missing']))
             if check['status'] not in {'OK', 'WARN', 'CRIT', 'UNKNOWN'} or check['missing']:
                 check['status'] = 'UNKNOWN'
+            report['checks'].append(check)
+        report['checks'].sort(key=lambda check: not check['attention'])
+        report['attention_count'] = sum(check['attention'] for check in report['checks'])
         http = next((check for check in row.get('checks', []) if check['name'] == 'http_basic'), {})
-        report['last_checked_at'] = http.get('checked_at')
+        report['last_checked_at'] = row.get('last_checked_at')
         # Current state follows the latest owned HTTP observation, not the chart window.
         latest = storage.latest_check_results(workspace.owner_id, name).get('http_basic')
         classification, _ = analytics._classification(latest['metrics_json'] if latest else None)
@@ -157,6 +166,9 @@ def _status_page(request, workspace, *, data):
         'public_view': True, 'public_timezone': workspace.timezone, 'report': report,
         'public_activity_url': (workspace.public_path + '/activity'
                                 if getattr(request, 'public_alias', False) else 'activity'),
+        'attention': sum(bool(item['attention_count']) for item in report['domains']),
+        'paused': sum(item['current_state'] == 'paused' for item in report['domains']),
+        'unknown': sum(item['current_state'] == 'no_recent_data' for item in report['domains']),
         'available': available, 'unavailable': unavailable, 'observed': local_time(last, workspace.timezone),
     })
 

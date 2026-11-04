@@ -1,7 +1,7 @@
 {% extends 'sitewatcher/base.html' %}
 {% load i18n %}
 {% block title %}{% translate 'Overview · SiteWatcher' %}{% endblock %}
-{% block page_scripts %}<link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'route_view.js' %}"></script><script defer src="{% url 'asset' 'activity.js' %}"></script>{% if not read_only %}<script defer src="{% url 'asset' 'domain_order.js' %}"></script>{% endif %}{% endblock %}
+{% block page_scripts %}<link rel="stylesheet" href="{% url 'asset' 'domain_list.css' %}"><link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'route_view.js' %}"></script><script defer src="{% url 'asset' 'activity.js' %}"></script>{% if not read_only %}<script defer src="{% url 'asset' 'domain_order.js' %}"></script>{% endif %}{% endblock %}
 {% block header_summary %}
     {% if total %}
         <section class="header-monitoring-summary {% if attention %}needs-attention{% elif summary.unknown == total or summary.paused == total %}is-neutral{% endif %}"
@@ -26,7 +26,7 @@
     {% endif %}
     {% if total %}
         {% include 'sitewatcher/partials/activity.html' %}
-        <section class="panel domain-list" aria-label="{% translate 'Domains' %}">
+        <section class="panel domain-list" data-disclosure-scope="owner-{{ request.workspace.pk }}" aria-label="{% translate 'Domains' %}">
             <p class="sr-only" data-order-status role="status"></p>
             <table class="domains-table"{% if not read_only %} data-domain-order
                 data-saved="{% translate 'Domain order saved' %}"
@@ -67,9 +67,9 @@
                         </th>
                     </tr>
                 </thead>
-                <tbody>
                     {% for row in rows %}
-                        <tr data-domain-name="{{ row.name }}" data-favorite="{{ row.favorite|yesno:'true,false' }}">
+                    <tbody data-domain-key="{{ row.name }}" data-domain-name="{{ row.name }}" data-favorite="{{ row.favorite|yesno:'true,false' }}">
+                        <tr data-domain-summary>
                             <th scope="row" data-label="{% translate 'Domain' %}">
                                 <div class="domain-heading">
                                     {% if not read_only %}<button type="button" class="domain-reorder-handle" data-domain-drag draggable="true" hidden
@@ -135,18 +135,29 @@
                                     {% else %}
                                         <a class="button icon-button" href="/domains/history?domain={{ row.name|urlencode }}" title="{% translate 'History' %}" aria-label="{% translate 'History' %}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></a>
                                     {% endif %}
+                                    <button type="button" class="icon-button domain-expand" data-domain-toggle hidden
+                                        aria-expanded="false" aria-controls="domain-details-{{ forloop.counter }}"
+                                        aria-label="{% blocktranslate with domain=row.name %}Show checks and chart for {{ domain }}{% endblocktranslate %}"
+                                    ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
                                 </div>
                             </td>
                         </tr>
+                        <tr id="domain-details-{{ forloop.counter }}" class="domain-detail-row" hidden>
+                            <td colspan="6">
+                                {% include 'sitewatcher/partials/domain_details.html' with report=row.report checks=row.checks owner_detail=True domain_name=row.name settings_error=row.error %}
+                            </td>
+                        </tr>
+                    </tbody>
                     {% empty %}
+                    <tbody>
                         <tr>
                             <td colspan="6" class="empty-filter">
                                 {% translate 'No domains match this filter.' %}
                                 <a href="/?days={{ report.days }}">{% translate 'Show all domains' %}</a>
                             </td>
                         </tr>
+                    </tbody>
                     {% endfor %}
-                </tbody>
             </table>
         </section>
     {% else %}

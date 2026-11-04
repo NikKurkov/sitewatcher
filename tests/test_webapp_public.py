@@ -239,7 +239,7 @@ def test_public_shows_all_enabled_checks_without_private_diagnostics(owner, clie
     path, _, _ = publish(client)
     checks = get(Client(), path + 'data').json()['domains'][0]['checks']
     assert {check['name'] for check in checks} == set(enabled)
-    assert all(set(check) == {'name', 'status', 'checked_at', 'stale', 'missing'}
+    assert all(set(check) == {'name', 'status', 'checked_at', 'stale', 'missing', 'attention'}
                for check in checks)
     body = get(Client(), path).content.decode()
     assert 'TLS certificate' in body and 'Domain registration' in body
@@ -314,7 +314,7 @@ def test_native_publication_checkboxes_select_owned_domains(owner, client):
                    {'action': 'selection', 'domain.shared.example': 'unexpected'},
                    {'action': 'selection', 'domains': '', 'domain.shared.example': 'on'}):
         assert client.post('/settings/public', fields, HTTP_HOST='localhost').status_code == 400
-    assert b'<details class="public-component-chart">' in get(Client(), re.search(
+    assert b'<details class="public-component-chart" data-domain-disclosure>' in get(Client(), re.search(
         r'http://localhost(/status/[A-Za-z0-9_-]+/)', response.content.decode())[1]).content
 
 
@@ -459,3 +459,54 @@ def test_public_map_markup_and_activity_follow_selection_rotation_and_disable(ow
     assert get(Client(), next_path + 'activity').status_code == 200
     client.post('/settings/public', {'action': 'disable'}, HTTP_HOST='localhost')
     assert get(Client(), next_path + 'activity').status_code == 404
+
+
+def test_public_attention_is_safe_and_absent_passive_report_is_neutral(owner, client):
+    storage.set_domain_override(731, 'shared.example', {'checks': {
+        'http_basic': True, 'malware': True, 'tls_cert': True}})
+    storage.save_history(731, 'shared.example', 'malware', 'UNKNOWN',
+                         'VirusTotal has no report for this URL', {'secret': 'hidden'})
+    storage.save_history(731, 'shared.example', 'tls_cert', 'WARN',
+                         'private-warning-sentinel', {'secret': 'hidden'})
+    with storage._write_connection() as connection:
+        connection.execute("UPDATE history SET created_at='2099-01-01T00:00:00+00:00' "
+                           "WHERE owner_id=? AND domain=? AND check_name=?",
+                           (731, 'shared.example', 'tls_cert'))
+    path, _, _ = publish(client)
+    row = get(Client(), path + 'data').json()['domains'][0]
+    checks = {check['name']: check for check in row['checks']}
+    assert checks['malware']['attention'] is False
+    assert checks['tls_cert']['attention'] is True
+    assert row['last_checked_at'] == checks['tls_cert']['checked_at']
+    assert row['last_checked_at'] != checks['http_basic']['checked_at']
+    assert row['attention_count'] == sum(check['attention'] for check in row['checks'])
+    assert 'private-warning-sentinel' not in json.dumps(row)
+    body = get(Client(), path).content.decode()
+    assert 'data-disclosure-scope="public"' in body
+    assert 'data-domain-key="shared.example"' in body
+    assert 'data-domain-disclosure' in body
+    assert 'HTTP availability' in body
+    disclosure = body.split('data-domain-disclosure', 1)[1].split('</details>', 1)[0]
+    assert 'Latest monitoring checks' in disclosure
+    assert 'chart' in disclosure
+    assert '<details class="public-component-chart" open' not in body
+
+
+def test_public_unknown_failures_and_stale_success_still_need_attention(owner, client):
+    storage.set_domain_override(731, 'shared.example', {'checks': {
+        'http_basic': True, 'malware': True, 'tls_cert': True}})
+    storage.save_history(731, 'shared.example', 'malware', 'UNKNOWN',
+                         'Provider temporarily unavailable private-sentinel', {})
+    storage.save_history(731, 'shared.example', 'tls_cert', 'OK', 'private-sentinel', {})
+    from sitewatcher.storage import _write_connection
+    with _write_connection() as connection:
+        connection.execute("UPDATE history SET created_at='2000-01-01T00:00:00+00:00' "
+                           "WHERE owner_id=? AND domain=? AND check_name=?",
+                           (731, 'shared.example', 'tls_cert'))
+    path, _, _ = publish(client)
+    row = get(Client(), path + 'data').json()['domains'][0]
+    checks = {check['name']: check for check in row['checks']}
+    assert checks['malware']['attention'] is True
+    assert checks['tls_cert']['stale'] and checks['tls_cert']['attention'] is True
+    assert row['current_state'] == 'available'
+    assert row['attention_count'] >= 2

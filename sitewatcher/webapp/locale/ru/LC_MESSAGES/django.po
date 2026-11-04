@@ -1848,3 +1848,23 @@ msgid_plural "Updated %(count)s days ago"
 msgstr[0] "Обновлено %(count)s день назад"
 msgstr[1] "Обновлено %(count)s дня назад"
 msgstr[2] "Обновлено %(count)s дней назад"
+
+msgid "HTTP availability"
+msgstr "Доступность по HTTP"
+
+msgid "Successful HTTP checks"
+msgstr "Успешные HTTP-проверки"
+
+msgid "Full history"
+msgstr "Полная история"
+
+#, python-format
+msgid "Show checks and chart for %(domain)s"
+msgstr "Показать проверки и график %(domain)s"
+
+#, python-format
+msgid "%(count)s notice"
+msgid_plural "%(count)s notices"
+msgstr[0] "%(count)s замечание"
+msgstr[1] "%(count)s замечания"
+msgstr[2] "%(count)s замечаний"

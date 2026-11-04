@@ -1,0 +1,37 @@
+{% load i18n %}
+<div class="domain-detail-layout">
+    <section class="domain-detail-checks" aria-label="{% translate 'Latest monitoring checks' %}">
+        <h3>{% translate 'Latest monitoring checks' %}</h3>
+        {% if settings_error and owner_detail %}
+            <p class="notice error-notice">{% translate 'Checks unavailable until settings are recovered.' %}</p>
+        {% endif %}
+        <ul class="domain-check-list">
+            {% for check in checks %}
+                <li{% if check.attention %} class="check-needs-attention"{% endif %}>
+                    <div class="domain-check-heading">
+                        <strong>{{ check.label }}</strong>
+                        <span class="badge {{ check.status|lower }}">{{ check.status_label }}</span>
+                    </div>
+                    {% if owner_detail and check.message %}<p>{{ check.message }}</p>{% endif %}
+                    <div class="domain-check-time">
+                        {% if check.observed %}<time datetime="{{ check.observed.iso }}" title="{{ check.observed.label }}">{{ check.observed.updated_label }}</time>{% else %}{% translate 'Not checked yet' %}{% endif %}
+                        {% if check.stale %}<span>{% translate '· Overdue' %}</span>{% endif %}
+                    </div>
+                </li>
+            {% empty %}
+                <li>{% translate 'No data' %}</li>
+            {% endfor %}
+        </ul>
+        {% if owner_detail %}<a class="full-history-link" href="/domains/history?domain={{ domain_name|urlencode }}&amp;days={{ report.days }}">{% translate 'Full history' %}</a>{% endif %}
+    </section>
+    <section class="domain-detail-chart" aria-label="{% translate 'HTTP history' %}">
+        <h3>{% translate 'HTTP history' %}</h3>
+        {% if report %}
+            {% if not report.totals.sample_count %}<p class="no-data">{% translate 'No HTTP observations in this period.' %}</p>{% endif %}
+            {% include 'sitewatcher/partials/chart.html' with report=report %}
+            {% include 'sitewatcher/partials/chart_data.html' with report=report %}
+        {% else %}
+            <p class="no-data">{% translate 'No HTTP observations in this period.' %}</p>
+        {% endif %}
+    </section>
+</div>

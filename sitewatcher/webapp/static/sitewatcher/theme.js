@@ -26,6 +26,107 @@ document.addEventListener('click', async (event) => {
   }
 });
 
+// Native navigation preserves domain disclosures without replacing initialized DOM.
+const disclosureRoot = document.querySelector('[data-disclosure-scope]');
+let saveDisclosureState = () => {};
+if (disclosureRoot) {
+  const stateKey = 'sitewatcher_disclosures';
+  // Hash the address so a publication bearer URL is never copied into storage.
+  let addressHash = 2166136261;
+  let addressHash2 = 5381;
+  for (const character of location.pathname) {
+    addressHash = Math.imul(addressHash ^ character.charCodeAt(0), 16777619);
+    addressHash2 = Math.imul(addressHash2, 33) ^ character.charCodeAt(0);
+  }
+  const scope = `${disclosureRoot.dataset.disclosureScope}:${addressHash >>> 0}:${addressHash2 >>> 0}`;
+  const domains = [...disclosureRoot.querySelectorAll('[data-domain-key]')];
+  const toggles = [...disclosureRoot.querySelectorAll('[data-domain-toggle]')];
+  const panelFor = (button) => document.getElementById(button.getAttribute('aria-controls'));
+  const setOpen = (button, open) => {
+    const panel = panelFor(button);
+    if (!panel) return;
+    panel.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+  };
+  toggles.forEach((button) => {
+    button.hidden = false;
+    button.addEventListener('click', () => {
+      setOpen(button, button.getAttribute('aria-expanded') !== 'true');
+    });
+  });
+  disclosureRoot.querySelectorAll('[data-domain-summary]').forEach((row) => {
+    row.addEventListener('click', (event) => {
+      if (event.target.closest('a,button,form,input,select,textarea,details,summary,label,[contenteditable],[role="button"],[data-status-preview]')) return;
+      const button = row.querySelector('[data-domain-toggle]');
+      if (button) button.click();
+    });
+  });
+  const focusable = 'a,button,input,select,textarea,summary,[tabindex]';
+  const readStates = () => {
+    try {
+      const states = JSON.parse(sessionStorage.getItem(stateKey));
+      return Array.isArray(states) ? states.filter((entry) => entry &&
+        typeof entry.scope === 'string' && Date.now() - entry.time < 86400000) : [];
+    } catch { return []; }
+  };
+  const saved = readStates().find((entry) => entry.scope === scope);
+  if (saved) {
+    domains.forEach((domain) => {
+      const open = Array.isArray(saved.open) && saved.open.includes(domain.dataset.domainKey);
+      const button = domain.querySelector('[data-domain-toggle]');
+      const details = domain.querySelector('[data-domain-disclosure]');
+      if (button) setOpen(button, open);
+      if (details) details.open = open;
+      domain.querySelectorAll('details').forEach((nested, index) => {
+        if (nested !== details && Array.isArray(saved.nested)) {
+          nested.open = saved.nested.some((item) => item.key === domain.dataset.domainKey && item.index === index);
+        }
+      });
+    });
+    const focus = saved.focus;
+    if (focus) {
+      const domain = domains.find((item) => item.dataset.domainKey === focus.key);
+      const target = focus.id ? document.getElementById(focus.id)
+        : domain?.querySelectorAll(focusable)[focus.index];
+      if (target && disclosureRoot.contains(target) && !target.closest('[hidden]')) {
+        target.focus({preventScroll: true});
+      }
+    }
+    if (Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+      window.scrollTo(saved.x, saved.y);
+      window.addEventListener('pageshow', () => window.scrollTo(saved.x, saved.y), {once: true});
+    }
+  }
+  saveDisclosureState = () => {
+    const open = [];
+    const nested = [];
+    domains.forEach((domain) => {
+      const button = domain.querySelector('[data-domain-toggle]');
+      const details = domain.querySelector('[data-domain-disclosure]');
+      if (button?.getAttribute('aria-expanded') === 'true' || details?.open) open.push(domain.dataset.domainKey);
+      domain.querySelectorAll('details').forEach((item, index) => {
+        if (item !== details && item.open) nested.push({key: domain.dataset.domainKey, index});
+      });
+    });
+    const active = document.activeElement;
+    const domain = active?.closest('[data-domain-key]');
+    let focus = null;
+    if (active && disclosureRoot.contains(active)) {
+      if (active.id) focus = {id: active.id};
+      else if (domain) focus = {key: domain.dataset.domainKey,
+        index: [...domain.querySelectorAll(focusable)].indexOf(active)};
+    }
+    const state = {scope, time: Date.now(), open, nested, focus, x: window.scrollX, y: window.scrollY};
+    try {
+      sessionStorage.setItem(stateKey, JSON.stringify([
+        ...readStates().filter((entry) => entry.scope !== scope).slice(-7), state,
+      ]));
+    } catch {}
+  };
+  window.addEventListener('pagehide', saveDisclosureState);
+  window.addEventListener('beforeunload', saveDisclosureState);
+}
+
 // Submit native GET filters automatically, keeping focus across the resulting navigation.
 const filterFocusKey = 'sitewatcher_filter_focus';
 try {
@@ -84,7 +185,7 @@ document.querySelectorAll('[data-activity-navigation]').forEach((link) => {
   });
 });
 
-// Refresh only read pages, preserving scroll and never interrupting a draft or disclosure.
+// Refresh read pages while readers keep disclosures open; defer active edits and dragging.
 const refresh = document.querySelector('[data-auto-refresh]');
 if (refresh) {
   const enabled = refresh.querySelector('[data-refresh-enabled]');
@@ -106,6 +207,13 @@ if (refresh) {
     try { sessionStorage.setItem('refresh', value ? 'on' : 'off'); } catch {}
   });
   let draft = false;
+  document.addEventListener('input', (event) => {
+    const editable = 'input:not([type=hidden]):not([type=checkbox]):not([type=radio]),'
+      + 'textarea,[contenteditable]';
+    if (event.target.matches(editable)) {
+      draft = true;
+    }
+  });
   const filters = document.querySelector('.filter-form');
   if (filters) {
     [filters, ...filters.elements].forEach((target) => {
@@ -114,11 +222,12 @@ if (refresh) {
     });
   }
   setInterval(() => {
-    if (isEnabled() && !document.hidden && !draft && !document.querySelector('details[open]')
+    if (isEnabled() && !document.hidden && !draft
         && !document.querySelector('[data-live-activity]:not([hidden])')
         && !document.querySelector('.domains-table[aria-busy=true], .domains-table[data-dragging=true]')
         && !document.querySelector('.status-tooltip:not([hidden])')
-        && !document.activeElement.matches('input,select,textarea,button,[contenteditable]')) {
+        && !document.activeElement.matches('input,select,textarea,[contenteditable]')) {
+      saveDisclosureState();
       location.reload();
     }
   }, 60000);

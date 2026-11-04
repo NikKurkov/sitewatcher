@@ -46,6 +46,11 @@ def test_overview_problem_first_and_real_measurement(owner, client):
     table_header = main.split('<thead>', 1)[1].split('</thead>', 1)[0]
     assert table_header.index('Last checked') < table_header.index('class="periods"')
     assert 'class="status-overview' not in main
+    assert 'data-domain-key="z-failing.example"' in main
+    assert 'data-domain-summary' in main and 'data-domain-toggle' in main
+    assert 'class="domain-detail-row" hidden' in main
+    assert 'class="domain-detail-layout"' in main
+    assert 'Latest monitoring checks' in main and 'Response time' in main
 
 
 def test_empty_and_no_observation_states(owner, client):
@@ -365,7 +370,7 @@ def test_overview_shows_per_domain_latency_and_reading_order(owner, client):
                          {'final_code': 200, 'response_latency_ms': 125})
     body = get(client, '/').content.decode()
     assert body.index('data-auto-refresh') < body.index('<h1 class="sr-only">Overview')
-    table = body[body.index('<tbody>'):body.index('</tbody>')]
+    table = body[body.index('<tbody data-domain-key='):body.rindex('</tbody>')]
     assert 'Average response: 125 ms' in table
     assert 'No latency data' in table
     assert 'Just now' in table and '0 minutes ago' not in table

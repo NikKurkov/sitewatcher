@@ -93,7 +93,7 @@ On the edit page, choose HTTP or HTTPS on the left and enter the hostname and op
 | No data / unknown | There is not enough information to decide, for example because a provider did not respond. |
 | Paused | Scheduled checks are stopped. You can still run a manual check. |
 
-Hover over a warning or critical badge, or focus it with the keyboard, to see the checks and their times. Click a website to open its history, response-time chart and saved results. Chart points show their value on hover or focus.
+Hover over a warning or critical badge, or focus it with the keyboard, to see the checks and their times. Click the row or its arrow to reveal current checks and the HTTP chart together. Several domains can stay open for comparison. Click the website name for full history; edit, check, pause, favorites and reorder remain available outside the disclosure. [Inline details](screenshots/overview-inline-details.png). Chart points show their value on hover or focus.
 
 History can be filtered by dates, check and result. Dates include both selected days in your workspace timezone. The results list shows up to 100 matching entries; these filters do not change the chart's selected period. The success percentage describes saved HTTP checks, not a continuous measurement of uptime.
 
@@ -101,7 +101,7 @@ History can be filtered by dates, check and result. Dates include both selected 
 
 The overview summary sits between separators beside the SiteWatcher logo and shows the age of the latest saved check result. Hover over that age for the exact date and time. The history period is in the table header, to the right of Last checked. On narrow screens the summary wraps below the logo. Previews: [desktop](screenshots/overview-compact-header-desktop.png), [mobile](screenshots/overview-compact-header-mobile.png).
 
-Search is beside the **Domain** heading. The **Status** heading opens a filter; changes apply automatically. The 24-hour, 7-day and 30-day choices are beside the last-check summary.
+Search is beside the **Domain** heading. The **Status** heading opens a filter; changes apply automatically. The 24-hour, 7-day and 30-day choices sit in the list header.
 
 Click a star to keep a website in favorites. Drag its handle to move it within the favorites or regular group. Keyboard users can focus the handle and press **Alt + ↑ / ↓**. Order survives page reloads. When a filter is active, hidden rows retain their positions. A failed save restores the previous order.
 
@@ -227,6 +227,10 @@ WHOIS/RDAP availability depends on the zone; supported Russian zones can fall ba
 ## Public status page
 
 Enable publication in **Settings** and select domains. The persistent public address defaults to `/status`; change it in the public-page settings. The footer opens that address. Changing the address removes the old path, and disabling publication closes it. This is a publicly accessible page, not a secret URL. An additional private link can still be issued and rotated; that token is shown once and only its hash is stored. The page shares the selected sites' HTTP history, response times and scoped HTTP events, plus the latest status and observation time of every enabled check. Missing results are UNKNOWN and overdue observations are marked. The default theme is dark; a visitor's saved choice takes priority. It has no monitoring controls and does not expose private domains, raw diagnostics, internal routes or the owner ID.
+
+The public page uses the same compact header and domain-list layout as the owner workspace. Rows start closed and disclose check statuses plus the HTTP chart. A green HTTP badge means HTTP availability only; other check notices are shown separately. Overall observation statistics live under About these figures. Previews: [desktop](screenshots/public-unified-desktop.png), [mobile](screenshots/public-unified-mobile.png), [expanded](screenshots/public-inline-details.png).
+
+Automatic refresh retains open domains, nested chart data, scroll and keyboard focus, including across period and filter navigation. Reading an open domain does not stop refresh; focused input, unsaved input and dragging defer it. State is scoped to the account/page or public address. Without JavaScript, owner history links and public native disclosures remain usable.
 
 The public map has its own saved on/off setting. Changing the selected domains is reflected on its next poll. Disable publication to close both addresses, or rotate the additional private link to revoke only that token. Treat that private link as a bearer credential; configure reverse-proxy logs to omit or mask `/status/` paths.
 

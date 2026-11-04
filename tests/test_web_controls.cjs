@@ -180,3 +180,83 @@ for (const storageFails of [false, true]) {
   assert.equal(values.get('sitewatcher_live_activity'), storageFails ? undefined : 'on');
 }
 console.log('Shared toolbar: live navigation remembers the panel without form refresh or polling.');
+
+// Run navigation round trips against the actual shipped script and storage format.
+function disclosurePage(storage, {scope = 'owner-1', pathname = '/', activeInput = false,
+  dragging = false, missing = false} = {}) {
+  const handlers = {};
+  const windowEvents = {};
+  const rowEvents = {};
+  const buttonEvents = {};
+  let interval;
+  let reloads = 0;
+  let scroll;
+  const panel = {hidden: true};
+  const attrs = {'aria-controls': 'panel-1', 'aria-expanded': 'false'};
+  const button = {hidden: true, id: 'toggle-1', matches: () => false,
+    getAttribute: key => attrs[key], setAttribute: (key, value) => { attrs[key] = value; },
+    addEventListener: (key, fn) => { buttonEvents[key] = fn; },
+    click: () => buttonEvents.click(), focus: () => { document.activeElement = button; },
+    closest: selector => selector === '[data-domain-key]' ? domain : null};
+  const nested = {open: false};
+  const domain = {dataset: {domainKey: '1'},
+    querySelector: selector => selector === '[data-domain-toggle]' ? button : null,
+    querySelectorAll: selector => selector === 'details' ? [nested] : [button]};
+  const row = {addEventListener: (key, fn) => { rowEvents[key] = fn; }, querySelector: () => button};
+  const root = {dataset: {disclosureScope: scope}, contains: target => target === button,
+    querySelectorAll: selector => selector === '[data-domain-key]' ? (missing ? [] : [domain])
+      : selector === '[data-domain-toggle]' ? (missing ? [] : [button])
+      : selector === '[data-domain-summary]' ? [row] : []};
+  const enabled = {tagName: 'INPUT', checked: true, addEventListener() {}};
+  const refresh = {querySelector: selector => selector === '[data-refresh-enabled]' ? enabled : {}};
+  const document = {hidden: false, activeElement: {matches: () => activeInput},
+    addEventListener: (key, fn) => { handlers[key] = fn; },
+    querySelector: selector => selector === '[data-disclosure-scope]' ? root
+      : selector === '[data-auto-refresh]' ? refresh
+      : selector.includes('data-dragging') && dragging ? {} : null,
+    querySelectorAll: () => [],
+    getElementById: id => missing ? null : id === 'panel-1' ? panel : id === 'toggle-1' ? button : null};
+  vm.runInNewContext(script, {document,
+    window: {scrollX: 12, scrollY: 340, scrollTo: (x, y) => { scroll = [x, y]; },
+      addEventListener: (key, fn) => { windowEvents[key] = fn; }},
+    location: {pathname, reload: () => { reloads++; }},
+    sessionStorage: {getItem: key => storage.get(key) ?? null,
+      setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key)},
+    setInterval: fn => { interval = fn; }});
+  return {button, attrs, panel, nested, rowEvents, handlers, windowEvents, document,
+    tick: () => interval(), reloads: () => reloads, scroll: () => scroll};
+}
+const savedDisclosures = new Map();
+let disclosure = disclosurePage(savedDisclosures);
+assert.equal(disclosure.button.hidden, false);
+disclosure.button.click();
+disclosure.nested.open = true;
+disclosure.button.focus();
+disclosure.tick();
+assert.equal(disclosure.reloads(), 1, 'Reading open details permits an actual native reload');
+assert.equal(disclosure.panel.hidden, false);
+disclosure = disclosurePage(savedDisclosures);
+assert.equal(disclosure.attrs['aria-expanded'], 'true');
+assert.equal(disclosure.panel.hidden, false);
+assert.equal(disclosure.nested.open, true);
+assert.equal(disclosure.document.activeElement, disclosure.button);
+assert.deepEqual(disclosure.scroll(), [12, 340]);
+disclosure.rowEvents.click({target: {closest: () => ({})}});
+assert.equal(disclosure.attrs['aria-expanded'], 'true', 'Interactive descendants do not toggle rows');
+disclosure.rowEvents.click({target: {closest: () => null}});
+assert.equal(disclosure.attrs['aria-expanded'], 'false', 'Text and empty row areas toggle');
+disclosure.windowEvents.pagehide();
+assert.equal(disclosurePage(savedDisclosures).panel.hidden, true, 'Manual navigation captures closed state');
+for (const options of [{scope: 'owner-2'}, {pathname: '/public/other/'}, {missing: true}]) {
+  assert.equal(disclosurePage(savedDisclosures, options).panel.hidden, true);
+}
+for (const options of [{activeInput: true}, {dragging: true}]) {
+  const busy = disclosurePage(new Map(), options);
+  busy.tick();
+  assert.equal(busy.reloads(), 0);
+}
+disclosure = disclosurePage(new Map());
+disclosure.handlers.input({target: {matches: () => true}});
+disclosure.tick();
+assert.equal(disclosure.reloads(), 0, 'Unsaved input blocks refresh after leaving the field');
+console.log('Domain disclosures: native refresh, navigation, nested state, scroll, focus, scope and interaction guards passed.');
