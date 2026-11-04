@@ -36,16 +36,53 @@ def test_overview_problem_first_and_real_measurement(owner, client):
     assert 'data-label="Successful checks"' in body
     assert 'data-label="Last checked"' in body
     assert '/domains/new' in body and '1 domain needs attention' in body
+    header, main = body.split('</header>', 1)
+    assert header.index('class="brand"') < header.index('1 domain needs attention')
+    assert header.index('1 domain needs attention') < header.index('class="topbar-actions"')
+    assert 'Updated just now' in header and '<time datetime=' in header
+    assert 'Latest saved check result' in header
+    assert header.count('class="toolbar-group"') == 3
+    assert 'class="overview-history-toolbar"' not in main
+    table_header = main.split('<thead>', 1)[1].split('</thead>', 1)[0]
+    assert table_header.index('Last checked') < table_header.index('class="periods"')
+    assert 'class="status-overview' not in main
+    assert 'data-domain-key="z-failing.example"' in main
+    assert 'data-domain-summary' in main and 'data-domain-toggle' in main
+    assert 'class="domain-detail-row" hidden' in main
+    assert 'class="domain-detail-layout"' in main
+    assert 'Latest monitoring checks' in main and 'Response time' in main
 
 
 def test_empty_and_no_observation_states(owner, client):
-    assert 'Add your first domain' in get(client, '/').content.decode()
+    empty = get(client, '/').content.decode()
+    assert 'Add your first domain' in empty
+    assert 'header-monitoring-summary' not in empty
     storage.add_domain(41, 'new.example')
     body = get(client, '/domains/history?domain=new.example').content.decode()
     assert 'No HTTP observations in this period' in body
     assert '24h' in body and '7d' in body and '30d' in body
     assert 'Successful checks' in body and 'Response time' in body
     assert 'No data' in body and '100%' not in body
+
+
+@pytest.mark.parametrize('state,label', [
+    ('healthy', 'No active warnings'), ('paused', 'Monitoring is paused'),
+    ('waiting', 'Waiting for first results'),
+])
+def test_header_summary_preserves_monitoring_states(owner, client, state, label):
+    from sitewatcher.config import ChecksModel
+
+    storage.add_domain(41, 'one.example')
+    storage.set_domain_override(41, 'one.example', {
+        'checks': {key: key == 'http_basic' for key in ChecksModel.model_fields},
+        **({'interval_minutes': 0} if state == 'paused' else {}),
+    })
+    if state != 'waiting':
+        storage.save_history(41, 'one.example', 'http_basic', 'OK', 'up', {'final_code': 200})
+    header = get(client, '/').content.decode().split('</header>', 1)[0]
+    assert label in header
+    assert ('is-neutral' in header) == (state != 'healthy')
+    assert 'header-monitoring-summary' not in get(client, '/workspace').content.decode()
 
 
 def test_detail_percent_sources_timezone_and_bounded_chart(owner, client):
@@ -74,6 +111,20 @@ def test_chart_gaps_break_paths_and_unknown_latency():
     assert len(chart['dots']) == 5
     assert chart['dots'][2]['x'] == pytest.approx(3 * 1000 / 120)
     assert chart_context([], 'latency_ms')['segments'] == []
+
+
+@pytest.mark.parametrize('age,label', [
+    (0, 'Обновлено только что'), (60, 'Обновлено 1 минуту назад'),
+    (120, 'Обновлено 2 минуты назад'), (300, 'Обновлено 5 минут назад'),
+    (1260, 'Обновлено 21 минуту назад'), (3600, 'Обновлено 1 час назад'),
+    (86400, 'Обновлено 1 день назад'), (-1, 'Дата и время находятся в будущем'),
+])
+def test_relative_summary_time_uses_russian_plural_forms(age, label):
+    from django.utils import translation
+    from sitewatcher.webapp.presentation import _updated_label
+
+    with translation.override('ru'):
+        assert str(_updated_label(age)) == label
 
 
 def test_theme_native_fallback_and_forms(owner, client):
@@ -319,7 +370,7 @@ def test_overview_shows_per_domain_latency_and_reading_order(owner, client):
                          {'final_code': 200, 'response_latency_ms': 125})
     body = get(client, '/').content.decode()
     assert body.index('data-auto-refresh') < body.index('<h1 class="sr-only">Overview')
-    table = body[body.index('<tbody>'):body.index('</tbody>')]
+    table = body[body.index('<tbody data-domain-key='):body.rindex('</tbody>')]
     assert 'Average response: 125 ms' in table
     assert 'No latency data' in table
     assert 'Just now' in table and '0 minutes ago' not in table
@@ -504,3 +555,49 @@ def test_compact_observation_timestamp_uses_workspace_timezone(zone, expected):
     assert 'MSK' not in body and 'UTC</time>' not in body
     assert 'datetime="2026-11-03T12:46:00+00:00"' in body
     assert ' · ' not in body
+
+
+@pytest.mark.parametrize('maximum', [0, 1, 125.5, 1e308])
+def test_chart_y_levels_share_the_polyline_scale(maximum):
+    from sitewatcher.webapp.presentation import chart_context
+    chart = chart_context([{'index': 60, 'latency_ms': maximum}], 'latency_ms')
+    assert len(chart['y_ticks']) == 5
+    for tick in chart['y_ticks']:
+        assert tick['y'] == pytest.approx(150 - tick['value'] / chart['maximum'] * 132)
+        assert tick['position'] == pytest.approx(tick['y'] / 165 * 100)
+    assert chart['y_ticks'][0]['value'] == chart['maximum']
+    assert chart['y_ticks'][-1]['value'] == 0
+
+
+@pytest.mark.parametrize('days', [1, 7, 30])
+def test_chart_time_ticks_cover_full_window_in_workspace_timezone(days):
+    from datetime import datetime, timedelta, timezone
+    from sitewatcher.webapp.presentation import report_context
+    start = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    report = report_context({
+        'totals': {'successful': 1, 'failed': 0}, 'timezone': 'Europe/Moscow',
+        'window_start': start.isoformat(),
+        'window_end': (start + timedelta(days=days)).isoformat(),
+        'buckets': [{'index': 60, 'latency_ms': 100, 'successful': 1, 'failed': 0}],
+    })
+    ticks = report['chart']['x_ticks']
+    assert [tick['position'] for tick in ticks] == [0, 25, 50, 75, 100]
+    for index, tick in enumerate(ticks):
+        expected = start + timedelta(days=days) * index / 4
+        assert tick['stamp']['value'] == expected
+        assert tick['label'] == expected.astimezone(__import__('zoneinfo').ZoneInfo(
+            'Europe/Moscow')).strftime('%d %b %H:%M')
+
+
+def test_chart_caption_is_compact_and_points_keep_accessible_exact_values():
+    from django.template.loader import render_to_string
+    from sitewatcher.webapp.presentation import chart_context
+    report = {'domain': 'one.example', 'totals': {'latency_ms': 125.5}, 'chart': chart_context([
+        {'index': 0, 'latency_ms': 125.5, 'label': '03 Nov 2026, 13:00 MSK'},
+    ], 'latency_ms')}
+    body = render_to_string('sitewatcher/partials/chart.html', {'report': report})
+    assert 'Website response time' in body and 'Average — 126 ms' in body
+    assert 'Average of successful HTTP responses' not in body
+    assert 'class="chart-y-axis"' in body and 'class="chart-plot"' in body
+    assert 'tabindex="0"' in body and '13:00 MSK · 125.5 ms' in body
+    assert 'class="chart-tooltip"' in body

@@ -63,15 +63,19 @@ class PublicStatusMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        if not request.path_info.startswith('/status/'):
-            return self.get_response(request)
         import re
+        from .public import RESERVED_PUBLIC_SLUGS
+        alias = re.fullmatch(r'/([a-z][a-z0-9_-]{0,63})(?:/(data|activity)?)?', request.path_info)
+        alias = alias if alias and alias[1] not in RESERVED_PUBLIC_SLUGS else None
+        if not request.path_info.startswith('/status/') and not alias:
+            return self.get_response(request)
         from django.core.exceptions import DisallowedHost, TooManyFieldsSent
         from django.http import HttpResponse, QueryDict
         from .public import status
 
         query_string = request.META.get('QUERY_STRING', '')
         match = re.fullmatch(r'/status/([A-Za-z0-9_-]{43})/(data|activity)?', request.path_info)
+        request.public_alias = alias is not None
         request.path = request.path_info = '/status/[redacted]/'
         for key in ('PATH_INFO', 'RAW_URI', 'REQUEST_URI', 'QUERY_STRING', 'HTTP_REFERER'):
             request.META.pop(key, None)
@@ -82,9 +86,13 @@ class PublicStatusMiddleware:
         try:
             request.get_host()  # The owner CommonMiddleware is intentionally bypassed.
             request.GET = QueryDict(query_string, encoding=request.encoding)
-            response = status(request, match[1], data=match[2] == 'data',
-                              activity=match[2] == 'activity') if match else HttpResponse(
-                'Not found', status=404)
+            if alias:
+                response = status(request, public_slug=alias[1], data=alias[2] == 'data',
+                                  activity=alias[2] == 'activity')
+            else:
+                response = status(request, match[1], data=match[2] == 'data',
+                                  activity=match[2] == 'activity') if match else HttpResponse(
+                    'Not found', status=404)
         except DisallowedHost:
             response = HttpResponse('Invalid host', status=400)
         except TooManyFieldsSent:

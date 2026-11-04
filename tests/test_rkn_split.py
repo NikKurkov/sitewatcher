@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from sitewatcher import storage, web_actions
+from rkn_helpers import registry_data
 from sitewatcher.checks import rkn_block_sqlite as rkn
 from sitewatcher.checks.base import Status
 from sitewatcher.config import AppConfig, ChecksModel, RknConfig, resolve_settings
@@ -37,8 +38,7 @@ def test_rkn_domain_and_ip_results_are_independent(tmp_path, monkeypatch, dump,
     domain = rkn.RknBlockCheck('example.com', None, cfg)
     ip = rkn.RknIpCheck('example.com', None, cfg)
     domain_name, ip_address = dump.split(';')
-    domain._rebuild_index(rkn.RegistryData({domain_name}, {ipaddress.IPv4Network(ip_address)},
-                                          'antifilter', datetime.now(timezone.utc)),
+    domain._rebuild_index(registry_data(tmp_path, {domain_name}, {ipaddress.IPv4Network(ip_address)}),
                           datetime.now(timezone.utc))
     monkeypatch.setattr(domain, '_resolve_ipv4', AsyncMock(side_effect=AssertionError('No DNS')))
     monkeypatch.setattr(ip, '_resolve_ipv4', AsyncMock(return_value=['192.0.2.1']))
@@ -56,8 +56,7 @@ def test_rkn_domain_and_ip_results_are_independent(tmp_path, monkeypatch, dump,
 def test_ip_without_dns_evidence_is_unknown(tmp_path, monkeypatch, answer):
     check = rkn.RknIpCheck('example.com', None, RknConfig(
         index_db_path=str(tmp_path / 'rkn.sqlite3')))
-    check._rebuild_index(rkn.RegistryData({'other.example'},
-        {ipaddress.IPv4Network('192.0.2.1')}, 'antifilter', datetime.now(timezone.utc)),
+    check._rebuild_index(registry_data(tmp_path, {'other.example'}),
         datetime.now(timezone.utc))
     resolver = (AsyncMock(side_effect=answer) if isinstance(answer, Exception)
                 else AsyncMock(return_value=answer))
@@ -123,9 +122,8 @@ def test_legacy_combined_critical_does_not_seed_current_status_cache_or_schedule
 
 def test_dispatcher_builds_independent_rkn_checks_with_shared_index(tmp_path, monkeypatch):
     cfg = split_config(rkn={'index_db_path': str(tmp_path / 'rkn.sqlite3')})
-    download = AsyncMock(return_value=rkn.RegistryData({'example.com'},
-        {ipaddress.IPv4Network('192.0.2.1')}, 'antifilter', datetime.now(timezone.utc)))
-    monkeypatch.setattr(rkn.RknBlockCheck, '_download_with_fallback', download)
+    download = AsyncMock(return_value=registry_data(tmp_path, {'example.com'}))
+    monkeypatch.setattr(rkn.RknBlockCheck, '_download_source', download)
     monkeypatch.setattr(rkn.RknBlockCheck, '_resolve_ipv4', AsyncMock(return_value=['192.0.2.1']))
     async def run():
         async with Dispatcher(cfg) as dispatcher:

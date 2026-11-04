@@ -159,7 +159,7 @@ def test_edit_can_rename_host_and_switch_protocol_preserving_history_and_favorit
     assert 'http_basic' in due_checks(cfg, 41, 'new.ru')
     from sitewatcher import check_activity
     assert check_activity.domain_roster(41)[0]['status'] == 'UNKNOWN'
-    assert check_activity.published_http(41, ['new.ru'])[1][0]['status'] == 'UNKNOWN'
+    assert check_activity.published_activity(41, ['new.ru'])[1][0]['status'] == 'UNKNOWN'
     storage.add_domain(41, 'taken.ru')
     current = web_actions.settings_context(cfg, 41, 'new.ru')
     with pytest.raises(ValueError, match='already exists'):

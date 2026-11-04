@@ -48,6 +48,11 @@ def parse_management_form(content_type: str, body: bytes) -> dict[str, str]:
     return values
 
 
+class ProxyAddressInput(forms.PasswordInput):
+    """Show proxy URLs; the owner settings view opts in to prefilling saved values."""
+    input_type = 'text'
+
+
 class WorkspacePreferencesForm(forms.Form):
     """Validate optional patches so a timezone save never resets Telegram settings."""
     language = forms.ChoiceField(label=_('Language'), required=False,
@@ -83,10 +88,17 @@ class WorkspacePreferencesForm(forms.Form):
     remove_virustotal_api_key = forms.BooleanField(
         label=_('Remove saved VirusTotal API key'), required=False)
 
+    virustotal_proxy_settings = forms.ChoiceField(
+        required=False, choices=[('1', '1')], initial='1', widget=forms.HiddenInput)
+    virustotal_proxy_enabled = forms.BooleanField(
+        label=_('Use a proxy for VirusTotal'), required=False,
+        widget=forms.CheckboxInput(attrs={
+            'data-vt-proxy-toggle': '', 'aria-controls': 'virustotal-proxy-fields',
+        }))
     virustotal_proxy = forms.CharField(
         label=_('VirusTotal proxy'), required=False, max_length=2048,
-        widget=forms.PasswordInput(render_value=False, attrs={
-            'autocomplete': 'new-password', 'spellcheck': 'false',
+        widget=ProxyAddressInput(render_value=False, attrs={
+            'autocomplete': 'off', 'spellcheck': 'false',
         }))
     remove_virustotal_proxy = forms.BooleanField(
         label=_('Remove saved VirusTotal proxy'), required=False)
@@ -128,8 +140,6 @@ class WorkspacePreferencesForm(forms.Form):
         if data.get('virustotal_api_key') and data.get('remove_virustotal_api_key'):
             self.add_error('virustotal_api_key',
                            _('Choose a new VirusTotal key or remove the saved key.'))
-        if data.get('virustotal_proxy') and data.get('remove_virustotal_proxy'):
-            self.add_error('virustotal_proxy', _('Choose a new proxy or remove the saved proxy.'))
         return data
 
     def clean_timezone(self):

@@ -1,31 +1,32 @@
 {% extends 'sitewatcher/base.html' %}
 {% load i18n %}
 {% block title %}{% translate 'Overview · SiteWatcher' %}{% endblock %}
-{% block page_scripts %}<link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'route_view.js' %}"></script><script defer src="{% url 'asset' 'activity.js' %}"></script>{% if not read_only %}<script defer src="{% url 'asset' 'domain_order.js' %}"></script>{% endif %}{% endblock %}
+{% block page_scripts %}<link rel="stylesheet" href="{% url 'asset' 'domain_list.css' %}"><link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'route_view.js' %}"></script><script defer src="{% url 'asset' 'activity.js' %}"></script>{% if not read_only %}<script defer src="{% url 'asset' 'domain_order.js' %}"></script>{% endif %}{% endblock %}
+{% block header_summary %}
+    {% if total %}
+        <section class="header-monitoring-summary {% if attention %}needs-attention{% elif summary.unknown == total or summary.paused == total %}is-neutral{% endif %}"
+            aria-label="{% translate 'Monitoring summary' %}"
+        >
+            <span class="status-symbol" aria-hidden="true">{% if attention %}!{% elif summary.unknown == total or summary.paused == total %}–{% else %}✓{% endif %}</span>
+            <div>
+                <h2>{% if attention %}{% blocktranslate count count=attention %}{{ count }} domain needs attention{% plural %}{{ count }} domains need attention{% endblocktranslate %}{% elif summary.unknown == total %}{% translate 'Waiting for first results' %}{% elif summary.paused == total %}{% translate 'Monitoring is paused' %}{% else %}{% translate 'No active warnings' %}{% endif %}</h2>
+                <p class="header-summary-meta">
+                    <span>{% blocktranslate count count=total %}{{ count }} domain{% plural %}{{ count }} domains{% endblocktranslate %} <span aria-hidden="true">·</span> {% blocktranslate with count=healthy %}{{ count }} healthy{% endblocktranslate %}{% if summary.paused %} <span aria-hidden="true">·</span> {% blocktranslate with count=summary.paused %}{{ count }} paused{% endblocktranslate %}{% endif %}{% if summary.unknown %} <span aria-hidden="true">·</span> {% blocktranslate with count=summary.unknown %}{{ count }} without current results{% endblocktranslate %}{% endif %}</span>
+                    <span class="header-checked">{% if observed %}<time datetime="{{ observed.iso }}" tabindex="0" title="{% translate 'Latest saved check result' %}: {{ observed.label }}">{{ observed.updated_label }}</time>{% else %}{% translate 'Not checked yet' %}{% endif %}</span>
+                </p>
+            </div>
+        </section>
+    {% endif %}
+{% endblock %}
+{% block main_class %}overview-workspace{% endblock %}
 {% block content %}
     <h1 class="sr-only">{% translate 'Overview' %}</h1>
     {% if notice %}
         <p class="notice" role="status">{{ notice }}</p>
     {% endif %}
     {% if total %}
-        <section class="status-overview {% if attention %}needs-attention{% endif %}"
-            aria-label="{% translate 'Monitoring summary' %}"
-        >
-            <span class="status-symbol" aria-hidden="true">{% if attention %}!{% else %}✓{% endif %}</span>
-            <div>
-                <h2>{% if attention %}{% blocktranslate count count=attention %}{{ count }} domain needs attention{% plural %}{{ count }} domains need attention{% endblocktranslate %}{% elif summary.unknown == total %}{% translate 'Waiting for first results' %}{% elif summary.paused == total %}{% translate 'Monitoring is paused' %}{% else %}{% translate 'No active warnings' %}{% endif %}</h2>
-                <p>{% blocktranslate count count=total %}{{ count }} domain{% plural %}{{ count }} domains{% endblocktranslate %} <span aria-hidden="true">·</span> {% blocktranslate with count=healthy %}{{ count }} healthy{% endblocktranslate %}{% if summary.paused %} <span aria-hidden="true">·</span> {% blocktranslate with count=summary.paused %}{{ count }} paused{% endblocktranslate %}{% endif %}{% if summary.unknown %} <span aria-hidden="true">·</span> {% blocktranslate with count=summary.unknown %}{{ count }} without current results{% endblocktranslate %}{% endif %}</p>
-            </div>
-            <div class="summary-controls">
-                <div class="summary-time">
-                    <span class="eyebrow">{% translate 'Last checked' %}</span>
-                    <div class="summary-timestamp">{% include 'sitewatcher/partials/time.html' with stamp=observed no_separator=True %}</div>
-                </div>
-                {% include 'sitewatcher/partials/periods.html' %}
-            </div>
-        </section>
         {% include 'sitewatcher/partials/activity.html' %}
-        <section class="panel domain-list" aria-label="{% translate 'Domains' %}">
+        <section class="panel domain-list" data-disclosure-scope="owner-{{ request.workspace.pk }}" aria-label="{% translate 'Domains' %}">
             <p class="sr-only" data-order-status role="status"></p>
             <table class="domains-table"{% if not read_only %} data-domain-order
                 data-saved="{% translate 'Domain order saved' %}"
@@ -60,14 +61,15 @@
                         <th scope="col" class="header-metric">{% translate 'HTTP history' %}</th>
                         <th scope="col" class="header-metric">{% translate 'Successful checks' %}</th>
                         <th scope="col" class="header-metric">{% translate 'Last checked' %}</th>
-                        <th scope="col" class="header-metric">
+                        <th scope="col" class="header-periods">
                             <span class="sr-only">{% translate 'Actions' %}</span>
+                            {% include 'sitewatcher/partials/periods.html' %}
                         </th>
                     </tr>
                 </thead>
-                <tbody>
                     {% for row in rows %}
-                        <tr data-domain-name="{{ row.name }}" data-favorite="{{ row.favorite|yesno:'true,false' }}">
+                    <tbody data-domain-key="{{ row.name }}" data-domain-name="{{ row.name }}" data-favorite="{{ row.favorite|yesno:'true,false' }}">
+                        <tr data-domain-summary>
                             <th scope="row" data-label="{% translate 'Domain' %}">
                                 <div class="domain-heading">
                                     {% if not read_only %}<button type="button" class="domain-reorder-handle" data-domain-drag draggable="true" hidden
@@ -133,18 +135,29 @@
                                     {% else %}
                                         <a class="button icon-button" href="/domains/history?domain={{ row.name|urlencode }}" title="{% translate 'History' %}" aria-label="{% translate 'History' %}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></a>
                                     {% endif %}
+                                    <button type="button" class="icon-button domain-expand" data-domain-toggle hidden
+                                        aria-expanded="false" aria-controls="domain-details-{{ forloop.counter }}"
+                                        aria-label="{% blocktranslate with domain=row.name %}Show checks and chart for {{ domain }}{% endblocktranslate %}"
+                                    ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
                                 </div>
                             </td>
                         </tr>
+                        <tr id="domain-details-{{ forloop.counter }}" class="domain-detail-row" hidden>
+                            <td colspan="6">
+                                {% include 'sitewatcher/partials/domain_details.html' with report=row.report checks=row.checks common_observed=row.checks_common_observed owner_detail=True domain_name=row.name settings_error=row.error %}
+                            </td>
+                        </tr>
+                    </tbody>
                     {% empty %}
+                    <tbody>
                         <tr>
                             <td colspan="6" class="empty-filter">
                                 {% translate 'No domains match this filter.' %}
                                 <a href="/?days={{ report.days }}">{% translate 'Show all domains' %}</a>
                             </td>
                         </tr>
+                    </tbody>
                     {% endfor %}
-                </tbody>
             </table>
         </section>
     {% else %}

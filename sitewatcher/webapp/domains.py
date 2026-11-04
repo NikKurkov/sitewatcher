@@ -19,11 +19,13 @@ from sitewatcher.dispatcher import Dispatcher
 from sitewatcher.reporting import SnapshotError, build_snapshot
 from sitewatcher.utils.domains import normalize_domain
 from sitewatcher.utils.domains_csv import export_domains_csv, import_domains_csv
+from sitewatcher.utils.results import is_missing_malware_report
 from sitewatcher.web_actions import (
     LIST_FIELDS, NUMERIC_FIELDS, act_on_domain, add_domains, history_context,
     save_domain, settings_context,
 )
 from .accounts import owner_required
+from .check_presentation import prepare_check_list
 from .models import Workspace
 from .forms import HistoryFiltersForm
 from .analytics import domain_report, overview_report
@@ -159,14 +161,19 @@ def _row_context(row, zone):
         row['state'], row['label'] = 'warn', _('Settings error')
     row['observed'] = local_time(row['last_checked_at'], zone)
     for check in row['checks']:
+        neutral = is_missing_malware_report(check['name'], check['status'], check['message'])
+        check['attention'] = not neutral and (check['status'] != 'OK' or check['stale'])
         check['label'] = check_label(check['name'])
         check['message'] = diagnostic_message(check['message'])
         check['status_label'] = status_label(check['status'])
         check['observed'] = local_time(check['checked_at'], zone)
     row['problems'] = sorted(
-        (check for check in row['checks'] if check['status'] != 'OK' or check['stale']),
+        (check for check in row['checks'] if check['attention']),
         key=lambda check: {'CRIT': 0, 'WARN': 1}.get(check['status'], 2),
     )
+    row['checks'].sort(key=lambda check: (
+        not check['attention'], {'CRIT': 0, 'WARN': 1}.get(check['status'], 2), check['name']))
+    row['checks_common_observed'] = prepare_check_list(row['checks'])
 
 
 FILTERS = {

@@ -71,6 +71,19 @@ def test_missing_enabled_checks_are_unknown_and_due_immediately(database):
     assert build_snapshot(config(), 1, now=NOW)['domains'][0]['overall'] == 'WARN'
 
 
+def test_missing_virustotal_report_does_not_raise_domain_warning(database):
+    cfg = config()
+    cfg.defaults.checks.malware = True
+    save(1, 'example.com', 'ping')
+    save(1, 'example.com', 'tls_cert')
+    save(1, 'example.com', 'malware', 'UNKNOWN', 'VirusTotal has no report for this URL')
+    row = build_snapshot(cfg, 1, now=NOW)['domains'][0]
+    assert row['overall'] == 'OK'
+    assert next(check for check in row['checks'] if check['name'] == 'malware')['status'] == 'UNKNOWN'
+    save(1, 'example.com', 'malware', 'UNKNOWN', 'VirusTotal request quota exceeded.')
+    assert build_snapshot(cfg, 1, now=NOW)['domains'][0]['overall'] == 'WARN'
+
+
 def test_stale_ok_contributes_unknown_without_downgrading_problems(database):
     save(1, 'healthy.example', 'ping', timestamp='2026-10-21 11:00:00')
     save(1, 'healthy.example', 'tls_cert')

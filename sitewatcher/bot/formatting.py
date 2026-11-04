@@ -8,6 +8,7 @@ from typing import Iterable
 from .. import storage
 from ..checks.base import CheckOutcome
 from ..utils.results import (
+    is_missing_malware_report,
     overall_from_results as _overall_from_results,
     status_text as _status_text,
     status_weight as _status_weight,
@@ -85,7 +86,9 @@ async def _format_results_summary(owner_id: int, domain: str, results: Iterable,
     head = f"{_status_emoji(overall)} <b>{html.escape(domain)}</b> — {overall}"
 
     bad = sorted(
-        (result for result in results if _status_text(result.status) in {"CRIT", "WARN", "UNKNOWN"}),
+        (result for result in results
+         if _status_text(result.status) in {"CRIT", "WARN", "UNKNOWN"}
+         and not is_missing_malware_report(result.check, result.status, result.message)),
         key=lambda result: (-_status_weight(result.status), result.check),
     )
     return "\n".join([head] + [_format_check(result) for result in bad])

@@ -7,9 +7,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 import ipaddress
+import io
 from pathlib import Path
 import socket
 import sqlite3
+import tempfile
 from weakref import WeakValueDictionary
 
 import httpx
@@ -17,8 +19,9 @@ import httpx
 from .base import BaseCheck, CheckOutcome, Status
 from .. import storage
 from ..config import RknConfig
-from ..utils.domains import normalize_domain
+from ..utils.domains import DOMAIN_RE, normalize_domain
 from ..utils.http_retry import get_with_retries
+from ..utils.http_body import _read_body
 
 _PARSER_VERSION = '3'
 _MIN_DOMAINS = 1000
@@ -41,11 +44,30 @@ _GITHUB_COMMIT_URL = 'https://api.github.com/repos/bol-van/rulist/commits?per_pa
 
 @dataclass(frozen=True)
 class RegistryData:
-    domains: set[str]
-    networks: set[ipaddress.IPv4Network]
+    path: Path
     source: str
     updated_at: datetime
+    domain_count: int
+    network_count: int
     revision: str = ''
+
+
+async def _in_thread(function, *args):
+    # Cancellation must finish the disk operation before deleting its temporary directory.
+    task = asyncio.create_task(asyncio.to_thread(function, *args))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError as cancelled:
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        if not task.cancelled():
+            task.exception()  # Consume a disk failure without replacing cancellation.
+        raise cancelled
 
 
 def rkn_index_path(cfg: RknConfig) -> Path:
@@ -63,32 +85,41 @@ def _timestamp(value: str) -> datetime:
     return stamp.astimezone(timezone.utc)
 
 
-def _parse_lines(text: str, kind: str) -> set:
-    """Parse one value per line; never extract hostnames from an HTML error page."""
-    values = set()
-    invalid = total = 0
-    for line in text.splitlines():
+def _parse_values(lines, kind: str):
+    """Validate a bounded line at a time; incomplete/malformed files never publish."""
+    invalid = total = valid = 0
+    for line in lines:
+        if len(line) > 4096:
+            raise ValueError('Source line is too long')
         line = line.strip().lstrip('\ufeff')
         if not line or line.startswith('#'):
             continue
         total += 1
         if kind == 'domains':
-            raw = line.removeprefix('*.').rstrip('.')
-            domain = normalize_domain(raw) if not any(c in raw for c in '/:;<>"@') else None
-            if domain and (domain.split('.')[-1].isalpha()
-                           or domain.split('.')[-1].startswith('xn--')):
-                values.add(domain)
+            raw = line.removeprefix('*.').rstrip('.').lower()
+            domain = (raw if len(raw) <= 253 and DOMAIN_RE.fullmatch(raw) else None) \
+                if raw.isascii() else normalize_domain(raw)
+            if (domain and not any(c in raw for c in '/:;<>"@')
+                    and (domain.split('.')[-1].isalpha()
+                         or domain.split('.')[-1].startswith('xn--'))):
+                valid += 1
+                yield domain
                 continue
         else:
             try:
-                values.add(ipaddress.IPv4Network(line, strict=False))
+                network = ipaddress.IPv4Network(line, strict=False)
+                valid += 1
+                yield network
                 continue
             except ValueError:
                 pass
         invalid += 1
-    if not values or invalid > max(0, total // 20):
+    if not valid or invalid > total // 20:
         raise ValueError('Source list is empty or malformed')
-    return values
+
+
+def _parse_lines(text: str, kind: str) -> set:
+    return set(_parse_values(io.StringIO(text), kind))
 
 
 class RknBlockCheck(BaseCheck):
@@ -152,20 +183,78 @@ class RknBlockCheck(BaseCheck):
             except sqlite3.Error:
                 meta = {}
             if not self._meta_is_fresh(meta):
-                data = await self._download_with_fallback()
-                await asyncio.to_thread(self._rebuild_index, data, datetime.now(timezone.utc))
+                await self._download_with_fallback()
 
-    async def _download_with_fallback(self) -> RegistryData:
+    async def _download_with_fallback(self) -> None:
         order = (self.cfg.source, 'bol-van' if self.cfg.source == 'antifilter' else 'antifilter')
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         for source in order:
             try:
-                async with asyncio.timeout(50):
-                    data = await self._download_source(source)
-                    await asyncio.to_thread(self._check_reduction, data)
-                    return data
+                with tempfile.TemporaryDirectory(prefix='.rkn-', dir=self.db_path.parent) as folder:
+                    data = await self._download_source(source, Path(folder))
+                    await _in_thread(self._check_reduction, data)
+                    await _in_thread(self._rebuild_index, data, datetime.now(timezone.utc))
+                    return
             except Exception as error:
                 self.log.warning('RKN source %s rejected (%s)', source, type(error).__name__)
         raise RuntimeError('Both RKN sources are unavailable, incomplete or stale')
+
+    async def _download_file(self, url: str, path: Path, source: str):
+        async with self.client.stream('GET', url, timeout=30, follow_redirects=False,
+                                      headers={'Accept-Encoding': 'gzip, deflate'}) as response:
+            response.raise_for_status()
+            stamp = None
+            if source == 'antifilter':
+                stamp = parsedate_to_datetime(response.headers['Last-Modified'])
+                self._check_source_age(stamp)
+            with path.open('wb') as target:
+                await _read_body(response, _MAX_DOWNLOAD_BYTES, _MAX_DOWNLOAD_BYTES, sink=target)
+            return stamp
+
+    @staticmethod
+    def _import_file(index: Path, path: Path, kind: str):
+        with closing(sqlite3.connect(index)) as con, con:
+            con.execute('PRAGMA cache_size=-2048')
+            con.execute('PRAGMA synchronous=OFF')  # Disposable staging index only.
+            con.execute('CREATE TABLE IF NOT EXISTS domains(domain TEXT PRIMARY KEY)')
+            con.execute('CREATE TABLE IF NOT EXISTS networks(start INTEGER,end INTEGER, '
+                        'PRIMARY KEY(start,end))')
+            with path.open(encoding='utf-8-sig') as stream:
+                lines = iter(lambda: stream.readline(4097), '')
+                values = _parse_values(lines, kind)
+                if kind == 'domains':
+                    con.executemany('INSERT OR IGNORE INTO domains VALUES (?)',
+                                    ((value,) for value in values))
+                else:
+                    con.executemany('INSERT OR IGNORE INTO networks VALUES (?,?)',
+                                    ((int(net.network_address), int(net.broadcast_address))
+                                     for net in values))
+
+    @staticmethod
+    def _finish_index(index: Path):
+        with closing(sqlite3.connect(index)) as con, con:
+            con.execute('PRAGMA cache_size=-2048')
+            domains = con.execute('SELECT COUNT(*) FROM domains').fetchone()[0]
+            networks = con.execute('SELECT COUNT(*) FROM networks').fetchone()[0]
+            if domains < _MIN_DOMAINS or networks < _MIN_IPS:
+                raise ValueError('Source bundle is suspiciously small')
+            con.execute('CREATE TABLE merged(start INTEGER,end INTEGER,PRIMARY KEY(start,end))')
+            def merged():
+                start = end = None
+                for first, last in con.execute('SELECT start,end FROM networks ORDER BY start,end'):
+                    if start is not None and first > end + 1:
+                        yield start, end
+                        start = None
+                    if start is None:
+                        start, end = first, last
+                    else:
+                        end = max(end, last)
+                if start is not None:
+                    yield start, end
+            con.executemany('INSERT INTO merged VALUES (?,?)', merged())
+            con.execute('DROP TABLE networks')
+            con.execute('ALTER TABLE merged RENAME TO networks')
+            return domains, networks
 
     async def _get(self, url: str) -> httpx.Response:
         response = await get_with_retries(
@@ -182,39 +271,34 @@ class RknBlockCheck(BaseCheck):
                 raise response
         return responses
 
-    async def _download_source(self, source: str) -> RegistryData:
+    async def _download_source(self, source: str, folder: Path) -> RegistryData:
         revision = ''
         feeds = _PROVIDERS[source]
-        if source == 'bol-van':
-            response = await self._get(_GITHUB_COMMIT_URL)
-            commit = response.json()[0]
-            revision = commit['sha']
-            feeds = tuple((kind, url.replace('/main/', f'/{revision}/')) for kind, url in feeds)
-            dates = await self._get_many(
-                f'https://api.github.com/repos/bol-van/rulist/commits?sha={revision}'
-                f'&path={url.rsplit("/", 1)[1]}&per_page=1' for _, url in feeds)
-            timestamps = [_timestamp(item.json()[0]['commit']['committer']['date']) for item in dates]
-            for stamp in timestamps:
-                self._check_source_age(stamp)
-            updated = min(timestamps)
-        # Await every request, including failures, before trying the next provider.
-        responses = await self._get_many(url for _, url in feeds)
-        if source == 'antifilter':
-            timestamps = [parsedate_to_datetime(response.headers['Last-Modified'])
-                          for response in responses]
-            for stamp in timestamps:
-                self._check_source_age(stamp)
-            updated = min(timestamps)
-        self._check_source_age(updated)
-        def parse():
-            domains, networks = set(), set()
-            for (kind, _), response in zip(_PROVIDERS[source], responses, strict=True):
-                values = _parse_lines(response.content.decode('utf-8-sig'), kind)
-                (domains if kind == 'domains' else networks).update(values)
-            if len(domains) < _MIN_DOMAINS or len(networks) < _MIN_IPS:
-                raise ValueError('Source bundle is suspiciously small')
-            return RegistryData(domains, networks, source, updated, revision)
-        return await asyncio.to_thread(parse)
+        timestamps = []
+        # Network deadlines do not cancel a still-running parser thread and start another.
+        async with asyncio.timeout(150):
+            if source == 'bol-van':
+                response = await self._get(_GITHUB_COMMIT_URL)
+                revision = response.json()[0]['sha']
+                feeds = tuple((kind, url.replace('/main/', f'/{revision}/')) for kind, url in feeds)
+                dates = await self._get_many(
+                    f'https://api.github.com/repos/bol-van/rulist/commits?sha={revision}'
+                    f'&path={url.rsplit("/", 1)[1]}&per_page=1' for _, url in feeds)
+                timestamps = [_timestamp(item.json()[0]['commit']['committer']['date'])
+                              for item in dates]
+                for stamp in timestamps:
+                    self._check_source_age(stamp)
+            for i, (_, url) in enumerate(feeds):
+                stamp = await self._download_file(url, folder / f'{i}.txt', source)
+                if stamp is not None:
+                    timestamps.append(stamp)
+        index = folder / 'index.db'
+        for i, (kind, _) in enumerate(feeds):
+            path = folder / f'{i}.txt'
+            await _in_thread(self._import_file, index, path, kind)
+            path.unlink()
+        domains, networks = await _in_thread(self._finish_index, index)
+        return RegistryData(index, source, min(timestamps), domains, networks, revision)
 
     def _check_reduction(self, data: RegistryData) -> None:
         try:
@@ -222,20 +306,20 @@ class RknBlockCheck(BaseCheck):
         except sqlite3.Error:
             return
         if meta.get('parser_version') == _PARSER_VERSION and meta.get('source') == data.source:
-            if (len(data.domains) < int(meta['domain_count']) // 2
-                    or len(data.networks) < int(meta['network_count']) // 2):
+            if (data.domain_count < int(meta['domain_count']) // 2
+                    or data.network_count < int(meta['network_count']) // 2):
                 raise ValueError('Source bundle unexpectedly lost over half its entries')
 
     def _rebuild_index(self, data: RegistryData, fetched_at: datetime) -> None:
-        if not data.domains or not data.networks or data.source not in _PROVIDERS:
+        if not data.domain_count or not data.network_count or data.source not in _PROVIDERS:
             raise ValueError('Incomplete registry bundle')
         self._check_source_age(data.updated_at)
-        ranges = [(int(net.network_address), int(net.broadcast_address))
-                  for net in ipaddress.collapse_addresses(data.networks)]
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         # A complete index write exceeds SQLite's default five-second busy timeout.
-        with closing(sqlite3.connect(self.db_path, timeout=60)) as con, con:
+        with closing(sqlite3.connect(self.db_path, timeout=60, uri=True)) as con, con:
             con.execute('PRAGMA journal_mode=WAL')
+            con.execute('PRAGMA cache_size=-2048')
+            con.execute('ATTACH DATABASE ? AS staged', (data.path.resolve().as_uri() + '?mode=ro',))
             con.execute('BEGIN IMMEDIATE')
             has_meta = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'").fetchone()
             meta = dict(con.execute('SELECT key,value FROM meta')) if has_meta else {}
@@ -244,17 +328,17 @@ class RknBlockCheck(BaseCheck):
                     and _timestamp(meta['source_updated_at']) >= data.updated_at):
                 return
             for table in ('meta', 'domains', 'ips', 'networks'):
-                con.execute(f'DROP TABLE IF EXISTS {table}')
+                con.execute(f'DROP TABLE IF EXISTS main.{table}')
             con.execute('CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT NOT NULL)')
             con.execute('CREATE TABLE domains(domain TEXT PRIMARY KEY)')
             con.execute('CREATE TABLE networks(start INTEGER,end INTEGER,PRIMARY KEY(start,end))')
-            con.executemany('INSERT INTO domains VALUES (?)', ((name,) for name in data.domains))
-            con.executemany('INSERT INTO networks VALUES (?,?)', ranges)
+            con.execute('INSERT INTO domains SELECT domain FROM staged.domains')
+            con.execute('INSERT INTO networks SELECT start,end FROM staged.networks')
             con.executemany('INSERT INTO meta VALUES (?,?)', {
                 'parser_version': _PARSER_VERSION, 'source': data.source,
                 'source_revision': data.revision,
                 'source_updated_at': data.updated_at.isoformat(), 'fetched_at': fetched_at.isoformat(),
-                'domain_count': str(len(data.domains)), 'network_count': str(len(data.networks)),
+                'domain_count': str(data.domain_count), 'network_count': str(data.network_count),
             }.items())
 
     def _query(self, *, domain: str | None = None, ips: list[str] | None = None):

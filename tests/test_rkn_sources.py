@@ -237,3 +237,23 @@ def test_legacy_rkn_result_is_not_current_cache_or_scheduling_evidence(tmp_path)
     assert due_checks(cfg, 1, 'c.t-p.cc') == ['rkn_domain']
     assert build_snapshot(cfg, 1)['domains'][0]['overall'] != 'OK'
     assert _overall_from_results(_complete_results(cfg, 1, 'c.t-p.cc', [])) != 'OK'
+
+
+def test_compressed_provider_bundle_is_streamed_and_validated(tmp_path):
+    import gzip
+    mock, _ = transport()
+    class Body(httpx.AsyncByteStream):
+        def __init__(self, raw):
+            self.raw = raw
+        async def __aiter__(self):
+            yield self.raw[:7]
+            yield self.raw[7:]
+    def handle(request):
+        assert request.headers['accept-encoding'] == 'gzip, deflate'
+        response = mock.handler(request)
+        return httpx.Response(response.status_code,
+                              headers={**response.headers, 'Content-Encoding': 'gzip'},
+                              stream=Body(gzip.compress(response.content)))
+    result, _ = run_check(tmp_path, httpx.MockTransport(handle))
+    assert result.status is Status.CRIT and result.metrics['matched'] == 'c.t-p.cc'
+    assert result.metrics['source'] == 'antifilter'

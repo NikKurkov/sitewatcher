@@ -133,3 +133,38 @@ install the previous release. Verify with `doctor` before restarting. Do not mer
 downgrade code over a live migrated database. The release rehearsal used two owners with
 identical domain names, corrupt overrides, legacy history, idempotent migrations and
 both old-schema and current-schema restore; see the dated verification report.
+
+## RKN refresh on small servers
+
+Registry components are streamed to a private temporary directory beside the index,
+then validated into a temporary SQLite index with a bounded page cache. Domain rows
+and IP ranges are not collected into Python sets. A complete, dated bundle with the
+expected distinct entry counts is published in one transaction; malformed, stale,
+truncated or suspiciously reduced bundles leave the previous index intact. Allow
+space for the downloads, staging index and the previous index during refresh.
+
+The source's 150-second network deadline is separate from parsing/publication.
+Cancellation drains an active disk operation before removing temporary files; it
+does not start an overlapping fallback parser. The unchanged SQLite index remains
+rebuildable cache, separate from monitoring history.
+
+## Dedicated VirusTotal proxy switch
+
+Settings provides a checkbox for VirusTotal's dedicated proxy. When enabled, enter
+an HTTP(S) or SOCKS5 URL; an optional username/password can be included in that URL.
+The secret input stays blank on subsequent visits: blank means retain the saved
+address. Turning the checkbox off retains the saved address and forces VirusTotal
+to use its normal connection on the next probe. Other checks' clients are unchanged.
+The switch takes effect without restarting; environment/YAML still determine the
+proxy address when configured, but an explicitly disabled switch suppresses it.
+
+Keep `<database>.virustotal-proxy` and `<database>.virustotal-proxy-enabled` in
+restricted backups alongside the API key. Existing installations without a switch
+file keep their prior configured-proxy behavior.
+
+Registry downloads negotiate gzip/deflate and decompress directly to disk in
+64 KiB chunks with separate compressed/uncompressed byte limits. Large feed
+redirects fail closed and fall back to the other provider. A cold refresh can
+include a large download, parsing and index publication; allow an overall domain
+deadline that covers this work (300 seconds on the constrained VPS). Per-request
+HTTP timeouts for ordinary site checks remain unchanged.

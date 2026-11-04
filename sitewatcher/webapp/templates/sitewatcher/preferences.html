@@ -1,7 +1,7 @@
 {% extends 'sitewatcher/base.html' %}
 {% load i18n %}
 {% block title %}{% translate 'Settings · SiteWatcher' %}{% endblock %}
-{% block page_scripts %}<script defer src="{% url 'asset' 'key_visibility.js' %}"></script>{% endblock %}
+{% block page_scripts %}<script defer src="{% url 'asset' 'key_visibility.js' %}"></script><script defer src="{% url 'asset' 'vt_proxy.js' %}"></script>{% endblock %}
 {% block content %}
     <div class="page-heading">
         <div>
@@ -154,11 +154,14 @@
                     <label class="checkbox-field">{{ form.remove_virustotal_api_key }} {{ form.remove_virustotal_api_key.label }}</label>
                     <p class="field-help">{% translate 'This key is shared by this installation. Removing the saved key keeps environment and installation overrides. VirusTotal only reads existing URL reports; no URL is submitted for analysis.' %}</p>
                 </div>
-                <div class="field">
+                {{ form.virustotal_proxy_settings }}
+                <label class="checkbox-field">{{ form.virustotal_proxy_enabled }} {{ form.virustotal_proxy_enabled.label }}</label>
+                <p class="field-help">{% translate 'This proxy is used only for VirusTotal. Other checks keep their existing connection settings.' %}</p>
+                <div class="field" id="virustotal-proxy-fields" data-vt-proxy-fields{% if not form.virustotal_proxy_enabled.value %} hidden{% endif %}>
                     <label for="{{ form.virustotal_proxy.id_for_label }}">{{ form.virustotal_proxy.label }}</label>
                     {{ form.virustotal_proxy }}
                     {% for error in form.virustotal_proxy.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
-                    <p class="field-help">{% translate 'Optional HTTP(S) or SOCKS5 proxy used only by VirusTotal. Leave blank to keep the saved proxy. Changes apply on the next check.' %}</p>
+                    <p class="field-help">{% translate 'Enter an HTTP(S) or SOCKS5 URL, for example socks5://user:password@host:1080 or http://host:3128. Leave blank to keep the saved address. Disabling the proxy keeps its address and credentials.' %}</p>
                     <p class="field-help">{% if virustotal_proxy_present %}{% translate 'VirusTotal proxy configured.' %}{% else %}{% translate 'No dedicated VirusTotal proxy configured; the common HTTP client is used.' %}{% endif %}</p>
                     {% if virustotal_proxy_environment_override %}
                         <p class="notice">{% translate 'VIRUSTOTAL_PROXY takes priority over the saved proxy.' %}</p>
@@ -166,7 +169,7 @@
                         <p class="notice">{% translate 'malware.vt_proxy takes priority over the saved proxy.' %}</p>
                     {% endif %}
                     <label class="checkbox-field">{{ form.remove_virustotal_proxy }} {{ form.remove_virustotal_proxy.label }}</label>
-                    <p class="field-help">{% translate 'Proxy credentials are never displayed. In Docker, 127.0.0.1 refers to the container; a proxy on the host needs a reachable address or the optional host-network configuration.' %}</p>
+                    <p class="field-help">{% translate 'The saved proxy address, including credentials, is visible in owner settings. In Docker, 127.0.0.1 refers to the container; a proxy on the host needs a reachable address or the optional host-network configuration.' %}</p>
                 </div>
             {% if not read_only %}
                 <div class="form-actions">
@@ -204,12 +207,25 @@
             </form>
         {% endif %}
     </section>
-    <section class="panel form-section publication-settings">
+    <section class="panel form-section publication-settings" id="public-status">
         <h2>{% translate 'Public status page' %}</h2>
+        <form method="post" action="/settings/public">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="path">
+            <div class="field">
+                <label for="public-page-path">{% translate 'Public page address' %}</label>
+                <input id="public-page-path" name="public_slug" value="{{ request.workspace.public_path }}" maxlength="65" required {% if read_only %}disabled{% endif %}>
+                <p class="field-help">{% translate 'This address is public. Changing it makes the previous address unavailable.' %}</p>
+            </div>
+            <button type="submit" {% if read_only %}disabled{% endif %}>{% translate 'Save address' %}</button>
+        </form>
+        {% if request.workspace.public_enabled %}
+            <p><a href="{{ public_page_url }}">{{ public_page_url }}</a></p>
+        {% endif %}
         <p class="field-help">{% if request.workspace.public_enabled %}{% translate 'Public status is enabled. Anyone with the link can read aggregate HTTP observations for your selected domains.' %}{% else %}{% translate 'Public status is disabled. Publish only the domains you choose.' %}{% endif %} {% translate 'Diagnostic messages, Telegram settings, and private domains stay private.' %}</p>
         {% if public_link %}
             <div class="notice">
-                <label for="public-link">{% translate 'New public link — save it now' %}</label>
+                <label for="public-link">{% translate 'Additional private link — save it now' %}</label>
                 <input id="public-link" type="text" readonly value="{{ public_link }}">
                 <button type="button"
                     class="copy-public-link"
@@ -241,7 +257,7 @@
             </fieldset>
         </form>
         {% if request.workspace.public_enabled %}
-            <p class="field-help">{% translate 'The full link cannot be recovered. Rotate to create a new link; the old link stops working immediately. Disable to revoke all access.' %}</p>
+            <p class="field-help">{% translate 'The additional private link is shown only once. Rotating it revokes that link; the public page address above stays unchanged. Disabling publication closes both addresses.' %}</p>
             <div class="detail-actions">
                 <form method="post" action="/settings/public">
                     {% csrf_token %}

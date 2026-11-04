@@ -27,6 +27,29 @@ class CountingStream(httpx.AsyncByteStream):
         self.closed = True
 
 
+@pytest.mark.parametrize('encoding', ['gzip', 'deflate'])
+def test_large_compressed_body_streams_to_file_in_bounded_writes(tmp_path, encoding):
+    from sitewatcher.utils.http_body import _read_body
+
+    body = b'registry-data\n' * 400_000
+    wire = gzip.compress(body) if encoding == 'gzip' else zlib.compress(body)
+
+    async def scenario():
+        response = httpx.Response(200, headers={'Content-Encoding': encoding},
+                                  stream=CountingStream([wire]),
+                                  request=httpx.Request('GET', 'https://example.test/'))
+        with (tmp_path / 'download').open('wb') as file:
+            class Sink:
+                def write(self, chunk):
+                    assert len(chunk) <= 64 * 1024
+                    return file.write(chunk)
+            content, wire_size = await _read_body(response, len(wire), len(body), sink=Sink())
+        assert content == b'' and wire_size == len(wire)
+        assert (tmp_path / 'download').read_bytes() == body
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize('encoding', ['identity', 'gzip', 'deflate', 'raw-deflate'])
 def test_bounded_get_reads_complete_supported_body(encoding):
     body = b'welcome ' * 100

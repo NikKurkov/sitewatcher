@@ -2,7 +2,32 @@
 {% load i18n %}
 {% block title %}{% translate 'Service status · SiteWatcher' %}{% endblock %}
 {% block main_class %}public-status{% endblock %}
-{% block page_scripts %}{% if report.domains %}<link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'activity.js' %}"></script>{% endif %}{% endblock %}
+{% block page_scripts %}<link rel="stylesheet" href="{% url 'asset' 'domain_list.css' %}">{% if report.domains %}<link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'activity.js' %}"></script>{% endif %}{% endblock %}
+{% block header_summary %}
+    {% if report.domains %}
+    <section class="header-monitoring-summary public-status-summary {% if attention %}needs-attention{% elif not available %}is-neutral{% endif %}" aria-label="{% translate 'Published service status' %}">
+        <span class="status-symbol" aria-hidden="true">{% if attention %}!{% elif available %}✓{% else %}–{% endif %}</span>
+        <div>
+            {% with total=report.domains|length %}
+            <h2 title="{% translate 'HTTP availability' %}">
+                {% if unavailable %}
+                    {% if total == 1 %}{% translate 'Published site is unavailable' %}{% else %}{% blocktranslate count count=unavailable with total=total %}{{ count }} of {{ total }} sites is unavailable{% plural %}{{ count }} of {{ total }} sites are unavailable{% endblocktranslate %}{% endif %}
+                {% elif available == total %}
+                    {% if total == 1 %}{% translate 'Published site is working' %}{% else %}{% blocktranslate count count=total %}All {{ count }} site is working{% plural %}All {{ count }} sites are working{% endblocktranslate %}{% endif %}
+                {% elif unknown %}
+                    {% translate 'Some sites have no recent data' %}
+                {% elif paused == total %}
+                    {% translate 'Monitoring is paused' %}
+                {% else %}
+                    {% translate 'Monitoring is paused for some sites' %}
+                {% endif %}
+            </h2>
+            {% endwith %}
+            <p class="header-summary-meta"><span>{% if attention %}{% blocktranslate count count=attention %}{{ count }} domain needs attention{% plural %}{{ count }} domains need attention{% endblocktranslate %}{% else %}{% translate 'No active warnings' %}{% endif %}{% if paused %} · {% translate 'Paused' %}: {{ paused }}{% endif %}{% if unknown %} · {% translate 'No recent data' %}: {{ unknown }}{% endif %}</span><span class="header-checked">{% if observed %}<time datetime="{{ observed.iso }}" tabindex="0" title="{% translate 'Latest saved check result' %}: {{ observed.label }}">{{ observed.updated_label }}</time>{% else %}{% translate 'Not checked yet' %}{% endif %}</span></p>
+        </div>
+    </section>
+    {% endif %}
+{% endblock %}
 {% block header_actions %}
     <div class="topbar-actions" data-auto-refresh>
         {% if report.domains %}
@@ -15,59 +40,33 @@
 {% endblock %}
 {% block content %}
     <h1 class="sr-only">{% translate 'Service status' %}</h1>
-    <section class="status-overview {% if unavailable %}needs-attention{% endif %}"
-        aria-label="{% translate 'Published service status' %}"
-    >
-        <span class="status-symbol" aria-hidden="true">{% if unavailable %}!{% elif available %}✓{% else %}–{% endif %}</span>
-        <div>
-            <h2>{% if unavailable %}{% blocktranslate count count=unavailable %}{{ count }} service unavailable{% plural %}{{ count }} services unavailable{% endblocktranslate %}{% elif available and available == report.domains|length %}{% translate 'All published services available' %}{% else %}{% translate 'No recent data for some services' %}{% endif %}</h2>
-            <p>{% blocktranslate with available=available unavailable=unavailable published=report.domains|length %}{{ available }} available · {{ unavailable }} unavailable · {{ published }} published{% endblocktranslate %}</p>
-        </div>
-        <div class="summary-controls">
-            <div class="summary-time">
-                <span class="eyebrow">{% translate 'Last checked' %}</span>
-                <div class="summary-timestamp">{% include 'sitewatcher/partials/time.html' with stamp=observed no_separator=True %}</div>
-            </div>
-            {% include 'sitewatcher/partials/periods.html' %}
-        </div>
-    </section>
     {% if report.domains %}{% include 'sitewatcher/partials/activity.html' %}{% endif %}
-    <section class="panel public-totals" aria-label="{% translate 'Published services only' %}">
-        <span>{% translate 'Successful checks' %} <strong>{% if report.totals.success_percent != None %}{{ report.totals.success_percent|floatformat:1 }}%{% else %}{% translate 'No data' %}{% endif %}</strong></span>
-        <span>{% translate 'Failed checks' %} <strong>{% if report.totals.failure_percent != None %}{{ report.totals.failure_percent|floatformat:1 }}%{% else %}{% translate 'No data' %}{% endif %}</strong></span>
-        <span>{% translate 'Recorded checks' %} <strong>{{ report.totals.sample_count }}</strong> <span class="muted">({% blocktranslate with count=report.totals.unknown %}{{ count }} unknown{% endblocktranslate %})</span></span>
-    </section>
     {% if report.domains %}
         <section class="panel public-services" aria-label="{% translate 'Published service status' %}">
-            <div class="public-services-header" aria-hidden="true">
+            <div class="public-services-header">
                 <span>{% translate 'Domain' %}</span>
                 <span>{% translate 'Status' %}</span>
                 <span>{% translate 'HTTP history' %}</span>
-                <span>{% translate 'Successful checks' %}</span>
+                <span title="{% translate 'Successful HTTP observations as a percentage of known results.' %}">{% translate 'Successful HTTP checks' %}</span>
                 <span>{% translate 'Last checked' %}</span>
-                <span></span>
+                <span class="public-periods">{% include 'sitewatcher/partials/periods.html' %}</span>
             </div>
-            <ul class="public-services-list">
+            <ul class="public-services-list" data-disclosure-scope="public">
                 {% for item in report.domains %}
-                    <li>
-                        <details class="public-component-chart">
+                    <li data-domain-key="{{ item.domain }}">
+                        <details class="public-component-chart" data-domain-disclosure>
                             <summary class="public-service-row">
                                 <span class="public-service-name" title="{{ item.domain }}">{{ item.domain }}</span>
-                                <span class="badge {{ item.state }}">{% if item.state == "crit" %}<span aria-hidden="true">⚠</span>{% else %}<span class="status-dot" aria-hidden="true"></span>{% endif %}{{ item.state_label }}</span>
+                                <span class="public-service-status"><span class="sr-only">{% translate 'HTTP availability' %}: </span><span class="badge {{ item.state }}">{% if item.state == "crit" %}<span aria-hidden="true">⚠</span>{% else %}<span class="status-dot" aria-hidden="true"></span>{% endif %}{{ item.state_label }}</span>{% if item.attention_count %}<span class="domain-attention-count">{% blocktranslate count count=item.attention_count %}{{ count }} notice{% plural %}{{ count }} notices{% endblocktranslate %}</span>{% endif %}</span>
                                 <span class="public-service-history">
                                     {% include 'sitewatcher/partials/strip.html' with item=item %}
                                 </span>
-                                <span class="public-service-success"><span class="sr-only">{% translate 'Successful checks' %}: </span>{% if item.totals.success_percent != None %}{{ item.totals.success_percent|floatformat:1 }}%{% else %}{% translate 'No data' %}{% endif %}</span>
+                                <span class="public-service-success" title="{% translate 'Successful HTTP observations as a percentage of known results.' %}"><span class="sr-only">{% translate 'Successful HTTP checks' %}: </span>{% if item.totals.success_percent != None %}{{ item.totals.success_percent|floatformat:1 }}%{% else %}{% translate 'No data' %}{% endif %}</span>
                                 <span class="last-checked public-service-time"><span class="sr-only">{% translate 'Last checked' %}: </span>{% include 'sitewatcher/partials/time.html' with stamp=item.observed compact=True %}</span>
                                 <span class="public-service-expand" aria-hidden="true">⌄</span>
                                 <span class="sr-only">{% translate 'Response time and chart data' %}</span>
                             </summary>
-                            <div class="public-service-detail">
-                                <p class="muted">{% blocktranslate with successful=item.totals.successful failed=item.totals.failed unknown=item.totals.unknown %}HTTP observations: {{ successful }} successful, {{ failed }} failed, {{ unknown }} unknown. Empty space means no observations.{% endblocktranslate %}</p>
-                                {% if not item.totals.sample_count %}<p class="no-data">{% translate 'No HTTP observations in this period.' %}</p>{% endif %}
-                                {% include 'sitewatcher/partials/chart.html' with report=item %}
-                                {% include 'sitewatcher/partials/chart_data.html' with report=item %}
-                            </div>
+                            {% include 'sitewatcher/partials/domain_details.html' with report=item checks=item.checks common_observed=item.checks_common_observed owner_detail=False %}
                         </details>
                     </li>
                 {% endfor %}
@@ -80,9 +79,5 @@
             <p class="muted">{% translate 'This page has no published services yet.' %}</p>
         </section>
     {% endif %}
-    <details class="public-notes">
-        <summary>{% translate 'About these figures' %}</summary>
-        <p class="fine-print">{% translate 'Successful checks = successful ÷ (successful + failed). Failure percentage uses the same denominator. Unknown observations are excluded. These are recorded checks, not continuous uptime.' %}</p>
-        <p class="fine-print">{% blocktranslate with timezone=public_timezone %}Times in {{ timezone }}{% endblocktranslate %}. {% translate 'Empty history intervals mean no observations were recorded. Current availability uses the monitoring interval to detect overdue HTTP observations. Paused services and services with no recent data are not counted as available.' %}</p>
-    </details>
+
 {% endblock %}

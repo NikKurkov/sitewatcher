@@ -48,7 +48,20 @@ def overall_from_statuses(statuses: Iterable, *, empty: str = "UNKNOWN") -> str:
 
 
 def overall_from_results(results: Iterable) -> str:
-    return overall_from_statuses(getattr(result, "status", "UNKNOWN") for result in results)
+    return overall_from_statuses(
+        'OK' if is_missing_malware_report(getattr(result, 'check', ''),
+                                         getattr(result, 'status', 'UNKNOWN'),
+                                         getattr(result, 'message', ''))
+        else getattr(result, 'status', 'UNKNOWN') for result in results
+    )
+
+
+def is_missing_malware_report(check: str, status: object, message: str) -> bool:
+    """An absent passive report is informational, not evidence of a threat or provider failure."""
+    return (check == 'malware' and status_text(status) == 'UNKNOWN'
+            and strip_cached_suffix(message) in {
+                'VirusTotal has no report for this URL', 'VT: not_found',
+            })
 
 
 def strip_cached_suffix(message: str) -> str:

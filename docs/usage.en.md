@@ -93,13 +93,15 @@ On the edit page, choose HTTP or HTTPS on the left and enter the hostname and op
 | No data / unknown | There is not enough information to decide, for example because a provider did not respond. |
 | Paused | Scheduled checks are stopped. You can still run a manual check. |
 
-Hover over a warning or critical badge, or focus it with the keyboard, to see the checks and their times. Click a website to open its history, response-time chart and saved results. Chart points show their value on hover or focus.
+Hover over a warning or critical badge, or focus it with the keyboard, to see the checks and their times. Click the row, website name or its arrow to reveal current checks and the HTTP chart together. The graph spans the full width above the check results, which use two columns on larger screens and one on phones. Several domains can stay open for comparison. Full history is linked inside the disclosure; edit, check, pause, favorites and reorder remain available outside. Without JavaScript, the name links directly to full history. [Inline details](screenshots/overview-inline-details.png). Chart points show their value on hover or focus.
 
 History can be filtered by dates, check and result. Dates include both selected days in your workspace timezone. The results list shows up to 100 matching entries; these filters do not change the chart's selected period. The success percentage describes saved HTTP checks, not a continuous measurement of uptime.
 
 ### Find and arrange websites
 
-Search is beside the **Domain** heading. The **Status** heading opens a filter; changes apply automatically. The 24-hour, 7-day and 30-day choices are beside the last-check summary.
+The overview summary sits between separators beside the SiteWatcher logo and shows the age of the latest saved check result. Hover over that age for the exact date and time. The history period is in the table header, to the right of Last checked. On narrow screens the summary wraps below the logo. Previews: [desktop](screenshots/overview-compact-header-desktop.png), [mobile](screenshots/overview-compact-header-mobile.png).
+
+Search is beside the **Domain** heading. The **Status** heading opens a filter; changes apply automatically. The 24-hour, 7-day and 30-day choices sit in the list header.
 
 Click a star to keep a website in favorites. Drag its handle to move it within the favorites or regular group. Keyboard users can focus the handle and press **Alt + ↑ / ↓**. Order survives page reloads. When a filter is active, hidden rows retain their positions. A failed save restores the previous order.
 
@@ -184,9 +186,9 @@ This bot uses `--no-scheduler`. **Never run a scheduled bot and worker for the s
 
 Enable the malware check for a domain and save an API key in **Settings → VirusTotal**. The eye button reveals the key only after an explicit authenticated request. Viewing it does not replace the saved key. Blank retains it; the separate checkbox removes it.
 
-Key priority is `VIRUSTOTAL_API_KEY` → YAML `malware.vt_api_key` → saved key. VirusTotal only reads existing reports for the HTTPS home URL. It does not submit a scan. A missing key, missing report, invalid response, quota, network failure or proxy error remains an unknown result, not a clean verdict.
+Key priority is `VIRUSTOTAL_API_KEY` → YAML `malware.vt_api_key` → saved key. VirusTotal only reads existing reports for the HTTPS home URL. It does not submit a scan. A missing key, missing report, invalid response, quota, network failure or proxy error remains an unknown result, not a clean verdict. An absent report is informational and does not raise the overall warning or appear in the Telegram problem summary. Provider and configuration errors still require attention.
 
-A dedicated HTTP(S) or SOCKS5 proxy can be saved in the same settings section. It applies only to VirusTotal. Proxy priority is `VIRUSTOTAL_PROXY` → YAML `malware.vt_proxy` → saved proxy. Without one, the common HTTP client is used. Blank retains a saved proxy; the checkbox removes it. Both the key and proxy are reloaded on the next check. Credentials are not redisplayed.
+Enable **Use a proxy for VirusTotal** in the same settings section to show the HTTP(S)/SOCKS5 address field. This proxy applies only to VirusTotal. Turning the checkbox off retains the saved address and credentials; other checks keep their existing connections. Proxy priority is `VIRUSTOTAL_PROXY` → YAML `malware.vt_proxy` → saved proxy. Without one, the common HTTP client is used. Blank retains a saved proxy; the separate removal checkbox deletes it. Both the key and proxy are reloaded on the next check. The saved proxy address, including credentials, is visible in owner settings after reloading the page.
 
 In Docker, `127.0.0.1` means the container. A proxy must be reachable from it. If your proxy listens only on the Linux host's loopback interface, you can opt into host networking:
 
@@ -224,9 +226,13 @@ WHOIS/RDAP availability depends on the zone; supported Russian zones can fall ba
 
 ## Public status page
 
-Enable publication in **Settings**, select domains and create a link. The full link is shown once, when it is created. Copy it then; create a new one if you lose it. The page shares only the selected sites' HTTP history, response times and scoped HTTP events. It has no monitoring controls and does not expose private domains, other checks, raw diagnostics, internal routes or the owner ID.
+Enable publication in **Settings** and select domains. The persistent public address defaults to `/status`; change it in the public-page settings. The footer opens that address. Changing the address removes the old path, and disabling publication closes it. This is a publicly accessible page, not a secret URL. An additional private link can still be issued and rotated; that token is shown once and only its hash is stored. The page shares the selected sites' HTTP history, response times and scoped events for all check types, plus the latest status and observation time of every enabled check. Missing results are UNKNOWN and overdue observations are marked. The default theme is dark; a visitor's saved choice takes priority. It has no monitoring controls and does not expose private domains, raw diagnostics, internal routes or the owner ID.
 
-The public map has its own saved on/off setting. Changing the selected domains is reflected on its next poll. Disable publication or rotate the link to revoke access. Treat the link as a bearer credential; configure reverse-proxy logs to omit or mask `/status/` paths.
+The public page uses the same compact header and domain-list layout as the owner workspace. Rows start closed and disclose check statuses plus the HTTP chart. A green HTTP badge means HTTP availability only; other check notices are shown separately. Previews: [desktop](screenshots/public-unified-desktop.png), [mobile](screenshots/public-unified-mobile.png), [expanded](screenshots/public-inline-details.png).
+
+Automatic refresh retains open domains, nested chart data, scroll and keyboard focus, including across period and filter navigation. Reading an open domain does not stop refresh; focused input, unsaved input and dragging defer it. State is scoped to the account/page or public address. Without JavaScript, owner history links and public native disclosures remain usable.
+
+The public map has its own saved on/off setting. Changing the selected domains is reflected on its next poll. Disable publication to close both addresses, or rotate the additional private link to revoke only that token. Treat that private link as a bearer credential; configure reverse-proxy logs to omit or mask `/status/` paths.
 
 ## Remote access and accounts
 
@@ -258,6 +264,7 @@ Docker data is in `/data`, backed by `sitewatcher-data`. A Python installation u
 - `<database>.telegram-token`
 - `<database>.telegram-proxy`
 - `<database>.virustotal-key`
+- `<database>.virustotal-proxy-enabled`
 - `<database>.virustotal-proxy`
 
 Also retain custom YAML and `.env` files. Credential files require mode `0600`. Backups and CSV exports may contain secrets; do not put them in Git or release archives.

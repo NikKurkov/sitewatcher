@@ -2,13 +2,13 @@
 (() => {
   const table = document.querySelector('[data-domain-order]');
   if (!table) return;
-  const body = table.querySelector('tbody');
+  const body = table;
   const token = table.querySelector('[name=csrfmiddlewaretoken]');
   const message = document.querySelector('[data-order-status]');
   const handles = [...table.querySelectorAll('[data-domain-drag]')];
   if (!token || !handles.length) return;
-  const rows = () => [...body.querySelectorAll('tr[data-domain-name]')];
-  const rowOf = target => target.closest('tr[data-domain-name]');
+  const rows = () => [...body.children].filter(node => node.matches('tbody[data-domain-name]'));
+  const rowOf = target => target.closest('tbody[data-domain-name]');
   let source = null;
   let marked = null;
   let pending = false;

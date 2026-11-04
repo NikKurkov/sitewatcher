@@ -1,8 +1,9 @@
 {% load i18n %}
 <!doctype html>
 {% get_current_language as LANGUAGE_CODE %}
+{% firstof request.COOKIES.sitewatcher_theme public_view|yesno:"dark,light" as theme %}
 <html lang="{{ LANGUAGE_CODE }}"
-    data-theme="{% if request.COOKIES.sitewatcher_theme == 'dark' %}dark{% else %}light{% endif %}"
+    data-theme="{% if theme == 'dark' %}dark{% else %}light{% endif %}"
 >
     <head>
         <meta charset="utf-8">
@@ -28,6 +29,7 @@
                     <img class="brand-light" src="{% url 'asset' 'logo-light.svg' %}" width="157" height="32" alt="">
                     <img class="brand-dark" src="{% url 'asset' 'logo-dark.svg' %}" width="157" height="32" alt="">
                 </a>
+                {% block header_summary %}{% endblock %}
                 {% block header_actions %}{% if owner_toolbar and not public_view %}{% include 'sitewatcher/partials/overview_actions.html' %}{% endif %}{% endblock %}
                 {% if owner_toolbar and not public_view %}
                     <a class="button icon-button settings-button" href="/workspace" title="{% translate 'Settings' %}" aria-label="{% translate 'Settings' %}"
@@ -45,10 +47,10 @@
                     {% endif %}
                     <button class="theme-switch"
                         type="submit"
-                        name="mode" value="{% if request.COOKIES.sitewatcher_theme == 'dark' %}light{% else %}dark{% endif %}"
+                        name="mode" value="{% if theme == 'dark' %}light{% else %}dark{% endif %}"
                         role="switch"
                         aria-label="{% translate 'Dark theme' %}"
-                        aria-checked="{% if request.COOKIES.sitewatcher_theme == 'dark' %}true{% else %}false{% endif %}"
+                        aria-checked="{% if theme == 'dark' %}true{% else %}false{% endif %}"
                     ><span></span></button>
                     <span aria-hidden="true">☾</span>
                 </form>
@@ -59,7 +61,10 @@
             {% endblock %}
         </main>
         <footer class="footer">
-            <a href="https://github.com/NikKurkov/sitewatcher">SiteWatcher <span aria-hidden="true">·</span> {% translate 'Website monitoring' %}</a>
+            <a href="https://github.com/NikKurkov/sitewatcher">SiteWatcher</a>
+            {% if owner_toolbar and not public_view %}
+                <a href="{% if request.workspace.public_enabled %}{{ request.workspace.public_path }}{% else %}/settings#public-status{% endif %}">{% translate 'Public page' %}</a>
+            {% endif %}
         </footer>
     </body>
 </html>

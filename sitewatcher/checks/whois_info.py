@@ -7,7 +7,8 @@ import sqlite3
 import time
 from pathlib import Path
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -140,6 +141,8 @@ class WhoisInfoCheck(BaseCheck):
 
     def __init__(self, domain: str, client: httpx.AsyncClient, cfg: WhoisConfig) -> None:
         super().__init__(domain)
+        self.legacy_key = domain.lower()
+        self.cache_key = registrable_domain(domain)
         self.client = client
         self.cfg = cfg
         # SSOT: rely on storage.DEFAULT_DB, not env lookups here.
@@ -156,48 +159,36 @@ class WhoisInfoCheck(BaseCheck):
             age_hours = (now - prev.fetched_at).total_seconds() / 3600.0
             must_refresh = age_hours >= float(getattr(self.cfg, "refresh_hours", 24))
 
-        # Always define rx_metrics so except-paths can safely reference it
         rx_metrics: Dict[str, Any] = {}
-
-        try:
-            if must_refresh or not prev:
+        if must_refresh:
+            blocked = self._claim_refresh(now)
+            if blocked:
+                return blocked
+            # Another process may have completed a refresh since our first read.
+            prev = self._db_get()
+            try:
                 snap, fetched_at, rx_metrics = await self._fetch_snapshot(self.domain)
                 self._db_upsert(snap, fetched_at)
-            else:
-                snap = json.loads(prev.snapshot_json)
-                fetched_at = prev.fetched_at
-
-        except httpx.HTTPStatusError as e:
-            code = e.response.status_code if e.response is not None else None
-            url = str(e.request.url) if e.request is not None else None
-            base = {"url": url, "status_code": code, **rx_metrics}
-            if code == 429:
-                ra = e.response.headers.get("Retry-After") if e.response is not None else None
-                base["retry_after"] = ra
-                return CheckOutcome(self.name, Status.UNKNOWN, "RDAP rate-limited", base)
-            return CheckOutcome(
-                self.name,
-                Status.CRIT,
-                f"RDAP HTTP {code}" if code is not None else "RDAP HTTP error",
-                base,
-            )
-
-        except httpx.RequestError as e:
-            url = str(e.request.url) if getattr(e, "request", None) else None
-            return CheckOutcome(
-                self.name,
-                Status.UNKNOWN,
-                f"RDAP request error: {e.__class__.__name__}",
-                {"url": url, "error": str(e), **rx_metrics},
-            )
-
-        except Exception as e:
-            return CheckOutcome(
-                self.name,
-                Status.UNKNOWN,
-                f"whois/rdap error: {e.__class__.__name__}: {e}",
-                {"error": str(e), **rx_metrics},
-            )
+                self._finish_attempt(Status.UNKNOWN, "WHOIS refresh completed", now)
+            except Exception as exc:
+                status = Status.UNKNOWN
+                message = f"WHOIS refresh failed: {exc.__class__.__name__}"
+                retry_after = None
+                if isinstance(exc, httpx.HTTPStatusError):
+                    code = exc.response.status_code
+                    rx_metrics["status_code"] = code
+                    message = "RDAP rate-limited" if code == 429 else f"RDAP HTTP {code}"
+                    status = Status.UNKNOWN
+                    retry_after = exc.response.headers.get("Retry-After")
+                next_retry = self._finish_attempt(status, message, now, retry_after)
+                return CheckOutcome(self.name, status, message, {
+                    **rx_metrics, "next_retry_at": next_retry.isoformat(),
+                    "fetched_at": prev.fetched_at.isoformat() if prev else None,
+                    "cache_state": "stale" if prev else "unavailable",
+                })
+        else:
+            snap = json.loads(prev.snapshot_json)
+            fetched_at = prev.fetched_at
 
         # 1) Expiry assessment
         expires_at = snap.get("expires_at")
@@ -340,7 +331,7 @@ class WhoisInfoCheck(BaseCheck):
             self.client,
             url,
             timeout_s=float(getattr(self.cfg, "timeout_s", 30.0) or 30.0),
-            retries=2,
+            retries=0,
             backoff_s=0.3,
             follow_redirects=True,
             headers={
@@ -488,16 +479,127 @@ class WhoisInfoCheck(BaseCheck):
         """Open a connection to the snapshot DB."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         storage._ensure_initialized(self.db_path)
-        return sqlite3.connect(str(self.db_path))
+        conn = sqlite3.connect(str(self.db_path))
+        conn.execute("""CREATE TABLE IF NOT EXISTS whois_attempts (
+            domain TEXT PRIMARY KEY, attempted_at TEXT NOT NULL,
+            next_retry_at TEXT NOT NULL, status TEXT NOT NULL, message TEXT NOT NULL
+        )""")
+        return conn
+
+    def _refresh_deadline(self, now: datetime) -> datetime:
+        return now + timedelta(hours=float(self.cfg.refresh_hours))
+
+    def _claim_refresh(self, now: datetime) -> Optional[CheckOutcome]:
+        """Commit a daily reservation before IO, serializing concurrent workers."""
+        with contextlib.closing(self._connect()) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT next_retry_at, status, message FROM whois_attempts WHERE domain=?",
+                (self.cache_key,),
+            ).fetchone()
+            if row and datetime.fromisoformat(row[0]) > now:
+                saved = conn.execute(
+                    "SELECT fetched_at FROM whois_state WHERE domain=?", (self.cache_key,),
+                ).fetchone()
+                diagnostics = {}
+                if row[2] == "RDAP rate-limited":
+                    diagnostics["status_code"] = 429
+                elif row[2].startswith("RDAP HTTP "):
+                    code = row[2].removeprefix("RDAP HTTP ")
+                    if len(code) == 3 and code.isascii() and code.isdigit():
+                        diagnostics["status_code"] = int(code)
+                return CheckOutcome(self.name, Status(row[1]), row[2], {
+                    **diagnostics,
+                    "next_retry_at": row[0],
+                    "fetched_at": saved[0] if saved else None,
+                    "cache_state": "stale" if saved else "unavailable",
+                })
+            # Recheck success under the same write lock to avoid a duplicate
+            # refresh when another worker finished between the read and claim.
+            cached = conn.execute(
+                "SELECT fetched_at FROM whois_state WHERE domain=?", (self.cache_key,),
+            ).fetchone()
+            cached_at = datetime.min.replace(tzinfo=timezone.utc)
+            if cached:
+                try:
+                    cached_at = datetime.fromisoformat(cached[0])
+                    if cached_at.tzinfo is None:
+                        cached_at = cached_at.replace(tzinfo=timezone.utc)
+                except (ValueError, TypeError):
+                    pass
+            if cached_at > now - timedelta(hours=float(self.cfg.refresh_hours)):
+                return CheckOutcome(self.name, Status.UNKNOWN, "WHOIS cache updated; awaiting result", {
+                    "fetched_at": cached[0], "cache_state": "cached",
+                })
+            conn.execute(
+                "INSERT INTO whois_attempts VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(domain) DO UPDATE SET attempted_at=excluded.attempted_at, "
+                "next_retry_at=excluded.next_retry_at, status=excluded.status, "
+                "message=excluded.message",
+                (self.cache_key, now.isoformat(), self._refresh_deadline(now).isoformat(),
+                 Status.UNKNOWN.value, "WHOIS refresh pending; awaiting retry"),
+            )
+        return None
+
+    def _finish_attempt(
+        self, status: Status, message: str, now: datetime, retry_after: Optional[str] = None,
+    ) -> datetime:
+        deadline = self._refresh_deadline(now)
+        if retry_after:
+            try:
+                if retry_after.strip().isdigit():
+                    candidate = now + timedelta(seconds=int(retry_after.strip()))
+                else:
+                    candidate = parsedate_to_datetime(retry_after)
+                    if candidate.tzinfo is None:
+                        candidate = candidate.replace(tzinfo=timezone.utc)
+                deadline = max(deadline, candidate)
+            except (ValueError, TypeError, OverflowError):
+                pass
+        with contextlib.closing(self._connect()) as conn, conn:
+            conn.execute(
+                "UPDATE whois_attempts SET next_retry_at=?, status=?, message=? WHERE domain=?",
+                (deadline.isoformat(), status.value, message, self.cache_key),
+            )
+        return deadline
 
     def _db_get(self) -> Optional[_WhoisRow]:
         """Load previous snapshot row for domain, if any."""
         conn = self._connect()
         try:
-            row = conn.execute(
-                "SELECT snapshot_json, fetched_at FROM whois_state WHERE domain = ?",
-                (self.domain.lower(),),
+            # Reuse snapshots written before registrable-domain normalization.
+            # Preserve the old row and only advance the canonical snapshot.
+            conn.execute("BEGIN IMMEDIATE")
+            legacy = conn.execute(
+                "SELECT snapshot_json, fetched_at FROM whois_state WHERE domain=?",
+                (self.legacy_key,),
             ).fetchone()
+            row = conn.execute(
+                "SELECT snapshot_json, fetched_at FROM whois_state WHERE domain=?",
+                (self.cache_key,),
+            ).fetchone()
+            if legacy and self.legacy_key != self.cache_key:
+                try:
+                    legacy_at = datetime.fromisoformat(legacy[1])
+                    canonical_at = (
+                        datetime.fromisoformat(row[1])
+                        if row else datetime.min.replace(tzinfo=timezone.utc)
+                    )
+                    if legacy_at.tzinfo is None:
+                        legacy_at = legacy_at.replace(tzinfo=timezone.utc)
+                    if canonical_at.tzinfo is None:
+                        canonical_at = canonical_at.replace(tzinfo=timezone.utc)
+                    if legacy_at > canonical_at:
+                        conn.execute(
+                            "INSERT INTO whois_state(domain, snapshot_json, fetched_at) "
+                            "VALUES(?,?,?) ON CONFLICT(domain) DO UPDATE SET "
+                            "snapshot_json=excluded.snapshot_json, fetched_at=excluded.fetched_at",
+                            (self.cache_key, legacy[0], legacy[1]),
+                        )
+                        row = legacy
+                except (ValueError, TypeError):
+                    pass
+            conn.commit()
             if not row:
                 return None
             snap_json = row[0]
@@ -506,7 +608,7 @@ class WhoisInfoCheck(BaseCheck):
                 if fetched_at.tzinfo is None:
                     fetched_at = fetched_at.replace(tzinfo=timezone.utc)
             except Exception:
-                fetched_at = datetime.now(timezone.utc)
+                fetched_at = datetime.min.replace(tzinfo=timezone.utc)
             return _WhoisRow(snapshot_json=snap_json, fetched_at=fetched_at)
         finally:
             conn.close()
@@ -519,7 +621,7 @@ class WhoisInfoCheck(BaseCheck):
                 "INSERT INTO whois_state(domain, snapshot_json, fetched_at) VALUES(?,?,?) "
                 "ON CONFLICT(domain) DO UPDATE SET snapshot_json=excluded.snapshot_json, "
                 "fetched_at=excluded.fetched_at, updated_at=CURRENT_TIMESTAMP",
-                (self.domain.lower(), json.dumps(snapshot, ensure_ascii=False), fetched_at.isoformat()),
+                (self.cache_key, json.dumps(snapshot, ensure_ascii=False), fetched_at.isoformat()),
             )
             conn.commit()
         finally:

@@ -730,7 +730,7 @@ msgstr[2] "%(count)s доменов"
 
 #, python-format
 msgid "%(count)s healthy"
-msgstr "Без проблем — %(count)s"
+msgstr "%(count)s без проблем"
 
 #, python-format
 msgid "%(count)s paused"
@@ -1777,5 +1777,164 @@ msgid "malware.vt_proxy takes priority over the saved proxy."
 msgstr "malware.vt_proxy имеет приоритет над сохранённым прокси."
 
 #: sitewatcher/webapp/preferences.py
-msgid "Proxy credentials are never displayed. In Docker, 127.0.0.1 refers to the container; a proxy on the host needs a reachable address or the optional host-network configuration."
-msgstr "Учётные данные прокси не отображаются. В Docker адрес 127.0.0.1 относится к контейнеру. Прокси на компьютере должен иметь доступный адрес либо использоваться с дополнительной конфигурацией host-network."
+msgid "The saved proxy address, including credentials, is visible in owner settings. In Docker, 127.0.0.1 refers to the container; a proxy on the host needs a reachable address or the optional host-network configuration."
+msgstr "Сохранённый адрес прокси, включая учётные данные, виден в настройках владельца. В Docker адрес 127.0.0.1 относится к контейнеру. Прокси на компьютере должен иметь доступный адрес либо использоваться с дополнительной конфигурацией host-network."
+
+msgid "Use a proxy for VirusTotal"
+msgstr "Использовать прокси для VirusTotal"
+
+msgid "Enter a proxy address to enable it."
+msgstr "Укажите адрес прокси, чтобы включить его."
+
+msgid "This proxy is used only for VirusTotal. Other checks keep their existing connection settings."
+msgstr "Этот прокси используется только для VirusTotal. Подключение остальных проверок не меняется."
+
+msgid "Enter an HTTP(S) or SOCKS5 URL, for example socks5://user:password@host:1080 or http://host:3128. Leave blank to keep the saved address. Disabling the proxy keeps its address and credentials."
+msgstr "Введите URL HTTP(S) или SOCKS5, например socks5://user:password@host:1080 или http://host:3128. Оставьте поле пустым, чтобы сохранить прежний адрес. При отключении прокси адрес и данные доступа сохраняются."
+
+msgid "Public page"
+msgstr "Публичная страница"
+
+msgid "Public page address"
+msgstr "Адрес публичной страницы"
+
+msgid "This address is public. Changing it makes the previous address unavailable."
+msgstr "Этот адрес общедоступен. После изменения прежний адрес перестанет работать."
+
+msgid "Save address"
+msgstr "Сохранить адрес"
+
+msgid "Choose an unused page address using lowercase letters, numbers, hyphens or underscores."
+msgstr "Выберите свободный адрес из строчных латинских букв, цифр, дефисов или подчёркиваний."
+
+msgid "Additional private link — save it now"
+msgstr "Дополнительная секретная ссылка — сохраните её"
+
+msgid "The additional private link is shown only once. Rotating it revokes that link; the public page address above stays unchanged. Disabling publication closes both addresses."
+msgstr "Дополнительная секретная ссылка показывается один раз. Перевыпуск отзывает её, но не меняет адрес публичной страницы выше. Отключение публикации закрывает оба адреса."
+
+msgid "Checked:"
+msgstr "Проверено:"
+
+msgid "Monitoring actions"
+msgstr "Действия мониторинга"
+
+msgid "Page refresh"
+msgstr "Обновление страницы"
+
+msgid "Latest saved check result"
+msgstr "Последний сохранённый результат проверки"
+
+msgid "Updated just now"
+msgstr "Обновлено только что"
+
+#, python-format
+msgid "Updated %(count)s minute ago"
+msgid_plural "Updated %(count)s minutes ago"
+msgstr[0] "Обновлено %(count)s минуту назад"
+msgstr[1] "Обновлено %(count)s минуты назад"
+msgstr[2] "Обновлено %(count)s минут назад"
+
+#, python-format
+msgid "Updated %(count)s hour ago"
+msgid_plural "Updated %(count)s hours ago"
+msgstr[0] "Обновлено %(count)s час назад"
+msgstr[1] "Обновлено %(count)s часа назад"
+msgstr[2] "Обновлено %(count)s часов назад"
+
+#, python-format
+msgid "Updated %(count)s day ago"
+msgid_plural "Updated %(count)s days ago"
+msgstr[0] "Обновлено %(count)s день назад"
+msgstr[1] "Обновлено %(count)s дня назад"
+msgstr[2] "Обновлено %(count)s дней назад"
+
+msgid "HTTP availability"
+msgstr "Доступность по HTTP"
+
+msgid "Successful HTTP checks"
+msgstr "Аптайм"
+
+msgid "Full history"
+msgstr "Полная история"
+
+#, python-format
+msgid "Show checks and chart for %(domain)s"
+msgstr "Показать проверки и график %(domain)s"
+
+#, python-format
+msgid "%(count)s notice"
+msgid_plural "%(count)s notices"
+msgstr[0] "%(count)s замечание"
+msgstr[1] "%(count)s замечания"
+msgstr[2] "%(count)s замечаний"
+
+msgid "Published site is working"
+msgstr "Все сайты работают"
+
+msgid "Published site is unavailable"
+msgstr "Опубликованный сайт недоступен"
+
+msgid "Some sites have no recent data"
+msgstr "Нет свежих данных по части сайтов"
+
+msgid "Monitoring is paused for some sites"
+msgstr "Мониторинг части сайтов приостановлен"
+
+#, python-format
+msgid "All %(count)s site is working"
+msgid_plural "All %(count)s sites are working"
+msgstr[0] "Все сайты работают: %(count)s"
+msgstr[1] "Все %(count)s сайта работают"
+msgstr[2] "Все %(count)s сайтов работают"
+
+#, python-format
+msgid "%(count)s of %(total)s sites is unavailable"
+msgid_plural "%(count)s of %(total)s sites are unavailable"
+msgstr[0] "%(count)s из %(total)s сайтов недоступен"
+msgstr[1] "%(count)s из %(total)s сайтов недоступны"
+msgstr[2] "%(count)s из %(total)s сайтов недоступны"
+
+msgid "Successful HTTP observations as a percentage of known results."
+msgstr "Доля успешных HTTP-проверок среди результатов с определённым статусом."
+
+msgid "Website response time"
+msgstr "Время ответа сайта"
+
+#, python-format
+msgid "Average — %(latency)s ms"
+msgstr "Среднее — %(latency)s мс"
+
+msgid "Checks"
+msgstr "Проверки"
+
+msgid "Awaiting update"
+msgstr "Ожидает обновления"
+
+msgctxt "check results"
+msgid "Updated just now"
+msgstr "обновлены только что"
+
+#, python-format
+msgctxt "check results"
+msgid "Updated %(count)s minute ago"
+msgid_plural "Updated %(count)s minutes ago"
+msgstr[0] "обновлены %(count)s минуту назад"
+msgstr[1] "обновлены %(count)s минуты назад"
+msgstr[2] "обновлены %(count)s минут назад"
+
+#, python-format
+msgctxt "check results"
+msgid "Updated %(count)s hour ago"
+msgid_plural "Updated %(count)s hours ago"
+msgstr[0] "обновлены %(count)s час назад"
+msgstr[1] "обновлены %(count)s часа назад"
+msgstr[2] "обновлены %(count)s часов назад"
+
+#, python-format
+msgctxt "check results"
+msgid "Updated %(count)s day ago"
+msgid_plural "Updated %(count)s days ago"
+msgstr[0] "обновлены %(count)s день назад"
+msgstr[1] "обновлены %(count)s дня назад"
+msgstr[2] "обновлены %(count)s дней назад"
