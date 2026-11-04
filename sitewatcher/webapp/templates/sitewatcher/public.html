@@ -33,7 +33,7 @@
         {% if report.domains %}
             {% include 'sitewatcher/partials/activity_toggle.html' %}
         {% else %}
-            <button class="icon-button activity-toggle" type="button" disabled title="{% translate 'Show live checks' %}" aria-label="{% translate 'Live checks' %}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></button>
+            <button class="icon-button activity-toggle" type="button" disabled title="{% translate 'Signal room' %}" aria-label="{% translate 'Signal room' %}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 3v9l6.4-6.4M7 12a5 5 0 0 0 5 5"/><circle cx="8" cy="8" r="1"/><circle cx="16" cy="15" r="1"/></svg></button>
         {% endif %}
         {% include 'sitewatcher/partials/refresh_actions.html' with refresh_available=True %}
     </div>
