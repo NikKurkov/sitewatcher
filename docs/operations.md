@@ -161,3 +161,10 @@ proxy address when configured, but an explicitly disabled switch suppresses it.
 Keep `<database>.virustotal-proxy` and `<database>.virustotal-proxy-enabled` in
 restricted backups alongside the API key. Existing installations without a switch
 file keep their prior configured-proxy behavior.
+
+Registry downloads negotiate gzip/deflate and decompress directly to disk in
+64 KiB chunks with separate compressed/uncompressed byte limits. Large feed
+redirects fail closed and fall back to the other provider. A cold refresh can
+include a large download, parsing and index publication; allow an overall domain
+deadline that covers this work (300 seconds on the constrained VPS). Per-request
+HTTP timeouts for ordinary site checks remain unchanged.

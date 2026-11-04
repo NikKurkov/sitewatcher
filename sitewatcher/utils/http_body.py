@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import zlib
+from typing import BinaryIO
 
 import httpx
 
@@ -17,7 +18,7 @@ class BodyReadError(httpx.RequestError):
 
 
 async def _read_body(
-    response: httpx.Response, wire_limit: int, decoded_limit: int,
+    response: httpx.Response, wire_limit: int, decoded_limit: int, *, sink: BinaryIO | None = None,
 ) -> tuple[bytes, int]:
     encoding = response.headers.get('content-encoding', 'identity').strip().lower()
     if encoding not in {'identity', 'gzip', 'deflate'}:
@@ -28,10 +29,24 @@ async def _read_body(
         wire_size = response.num_bytes_downloaded or len(body)
         if wire_size > wire_limit or len(body) > decoded_limit:
             raise BodyReadError('body exceeds configured byte limit', response)
+        if sink is not None:
+            for offset in range(0, len(body), 64 * 1024):
+                sink.write(body[offset:offset + 64 * 1024])
+            return b'', wire_size
         return body, wire_size
 
     decoder = zlib.decompressobj(16 + zlib.MAX_WBITS) if encoding == 'gzip' else None
-    body = bytearray()
+    body = bytearray() if sink is None else None
+    decoded_size = 0
+    def emit(chunk):
+        nonlocal decoded_size
+        decoded_size += len(chunk)
+        if decoded_size > decoded_limit:
+            raise BodyReadError('body exceeds configured decoded byte limit', response)
+        if sink is None:
+            body.extend(chunk)
+        else:
+            sink.write(chunk)
     prefix = b''
     wire_size = 0
     try:
@@ -47,12 +62,19 @@ async def _read_body(
                 zlib_header = prefix[0] & 15 == 8 and int.from_bytes(prefix[:2]) % 31 == 0
                 decoder = zlib.decompressobj(zlib.MAX_WBITS if zlib_header else -zlib.MAX_WBITS)
                 raw, prefix = prefix, b''
-            decoded = decoder.decompress(raw, decoded_limit - len(body) + 1) if decoder else raw
-            if len(body) + len(decoded) > decoded_limit:
-                raise BodyReadError('body exceeds configured decoded byte limit', response)
-            body.extend(decoded)
-            if decoder is not None and decoder.unused_data:
-                raise BodyReadError('body has trailing or concatenated compressed data', response)
+            if decoder is None:
+                for offset in range(0, len(raw), 64 * 1024):
+                    emit(raw[offset:offset + 64 * 1024])
+            else:
+                while True:
+                    limit = min(64 * 1024, decoded_limit - decoded_size + 1)
+                    decoded = decoder.decompress(raw, limit)
+                    emit(decoded)
+                    if decoder.unused_data:
+                        raise BodyReadError('body has trailing or concatenated compressed data', response)
+                    raw = decoder.unconsumed_tail
+                    if decoder.eof or not raw and len(decoded) < limit:
+                        break
     except httpx.RemoteProtocolError as error:
         raise BodyReadError('incomplete HTTP body', response) from error
     except zlib.error as error:
@@ -61,7 +83,7 @@ async def _read_body(
     # all output through max_length-limited decompress calls.
     if encoding != 'identity' and (decoder is None or not decoder.eof):
         raise BodyReadError('incomplete compressed body', response)
-    return bytes(body), wire_size
+    return bytes(body) if body is not None else b'', wire_size
 
 
 async def bounded_get(

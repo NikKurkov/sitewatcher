@@ -21,6 +21,7 @@ from .. import storage
 from ..config import RknConfig
 from ..utils.domains import DOMAIN_RE, normalize_domain
 from ..utils.http_retry import get_with_retries
+from ..utils.http_body import _read_body
 
 _PARSER_VERSION = '3'
 _MIN_DOMAINS = 1000
@@ -199,20 +200,15 @@ class RknBlockCheck(BaseCheck):
         raise RuntimeError('Both RKN sources are unavailable, incomplete or stale')
 
     async def _download_file(self, url: str, path: Path, source: str):
-        async with self.client.stream('GET', url, timeout=30, follow_redirects=True,
-                                      headers={'Accept-Encoding': 'identity'}) as response:
+        async with self.client.stream('GET', url, timeout=30, follow_redirects=False,
+                                      headers={'Accept-Encoding': 'gzip, deflate'}) as response:
             response.raise_for_status()
             stamp = None
             if source == 'antifilter':
                 stamp = parsedate_to_datetime(response.headers['Last-Modified'])
                 self._check_source_age(stamp)
-            size = 0
             with path.open('wb') as target:
-                async for chunk in response.aiter_bytes(64 * 1024):
-                    size += len(chunk)
-                    if max(size, response.num_bytes_downloaded) > _MAX_DOWNLOAD_BYTES:
-                        raise ValueError('Source download is too large')
-                    target.write(chunk)
+                await _read_body(response, _MAX_DOWNLOAD_BYTES, _MAX_DOWNLOAD_BYTES, sink=target)
             return stamp
 
     @staticmethod
