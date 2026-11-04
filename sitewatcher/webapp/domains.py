@@ -25,6 +25,7 @@ from sitewatcher.web_actions import (
     save_domain, settings_context,
 )
 from .accounts import owner_required
+from .check_presentation import prepare_check_list
 from .models import Workspace
 from .forms import HistoryFiltersForm
 from .analytics import domain_report, overview_report
@@ -172,6 +173,7 @@ def _row_context(row, zone):
     )
     row['checks'].sort(key=lambda check: (
         not check['attention'], {'CRIT': 0, 'WARN': 1}.get(check['status'], 2), check['name']))
+    row['checks_common_observed'] = prepare_check_list(row['checks'])
 
 
 FILTERS = {

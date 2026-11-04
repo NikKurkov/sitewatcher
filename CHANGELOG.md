@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Clarify expanded domain details in the workspace and public status page: compact
+  response-time captions, labelled chart axes, shared check timestamps, neutral stale
+  result indicators and lighter successful statuses.
+- Persist WHOIS refresh attempts alongside cached results. Reuse the daily cache after
+  provider failures, respect longer `Retry-After` delays and prevent concurrent or
+  restarted workers from repeatedly querying RDAP during the cooldown.
 - Remove unused management markup, internal compatibility wrappers, obsolete planning
   documents and unreferenced images. Share response metrics and use standard ordered
   deduplication without changing monitoring settings or supported configuration keys.

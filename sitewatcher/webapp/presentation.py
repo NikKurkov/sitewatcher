@@ -103,7 +103,11 @@ def chart_context(points, metric):
         previous = index
     if current:
         segments.append(' '.join(current))
-    return {'segments': segments, 'dots': dots, 'maximum': maximum}
+    y_ticks = [{'value': maximum * fraction, 'y': 150 - fraction * 132,
+                'position': (150 - fraction * 132) / 165 * 100,
+                'short_value': format(maximum * fraction, '.3g') if maximum * fraction >= 1e6 else None}
+               for fraction in [1, .75, .5, .25, 0]]
+    return {'segments': segments, 'dots': dots, 'maximum': maximum, 'y_ticks': y_ticks}
 
 
 def report_context(report):
@@ -113,6 +117,16 @@ def report_context(report):
     report['start'] = local_time(report['window_start'], report['timezone'])
     report['end'] = local_time(report['window_end'], report['timezone'])
     report['chart'] = chart_context(report['buckets'], 'latency_ms')
+    if report['start'] and report['end']:
+        start, end = report['start']['value'], report['end']['value']
+        ticks = []
+        for index in range(5):
+            value = start + (end - start) * index / 4
+            stamp = local_time(value.isoformat(), report['timezone'])
+            local = value.astimezone(ZoneInfo(report['timezone']))
+            ticks.append({'position': index * 25, 'stamp': stamp,
+                          'label': date_format(local, 'd M H:i'), 'time_label': date_format(local, 'H:i')})
+        report['chart']['x_ticks'] = ticks
     for bucket in report['buckets']:
         bucket['x'] = bucket['index'] * 10
         bucket['state'] = ('failed' if bucket['failed'] else 'successful'

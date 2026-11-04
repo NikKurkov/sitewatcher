@@ -555,3 +555,49 @@ def test_compact_observation_timestamp_uses_workspace_timezone(zone, expected):
     assert 'MSK' not in body and 'UTC</time>' not in body
     assert 'datetime="2026-11-03T12:46:00+00:00"' in body
     assert ' · ' not in body
+
+
+@pytest.mark.parametrize('maximum', [0, 1, 125.5, 1e308])
+def test_chart_y_levels_share_the_polyline_scale(maximum):
+    from sitewatcher.webapp.presentation import chart_context
+    chart = chart_context([{'index': 60, 'latency_ms': maximum}], 'latency_ms')
+    assert len(chart['y_ticks']) == 5
+    for tick in chart['y_ticks']:
+        assert tick['y'] == pytest.approx(150 - tick['value'] / chart['maximum'] * 132)
+        assert tick['position'] == pytest.approx(tick['y'] / 165 * 100)
+    assert chart['y_ticks'][0]['value'] == chart['maximum']
+    assert chart['y_ticks'][-1]['value'] == 0
+
+
+@pytest.mark.parametrize('days', [1, 7, 30])
+def test_chart_time_ticks_cover_full_window_in_workspace_timezone(days):
+    from datetime import datetime, timedelta, timezone
+    from sitewatcher.webapp.presentation import report_context
+    start = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    report = report_context({
+        'totals': {'successful': 1, 'failed': 0}, 'timezone': 'Europe/Moscow',
+        'window_start': start.isoformat(),
+        'window_end': (start + timedelta(days=days)).isoformat(),
+        'buckets': [{'index': 60, 'latency_ms': 100, 'successful': 1, 'failed': 0}],
+    })
+    ticks = report['chart']['x_ticks']
+    assert [tick['position'] for tick in ticks] == [0, 25, 50, 75, 100]
+    for index, tick in enumerate(ticks):
+        expected = start + timedelta(days=days) * index / 4
+        assert tick['stamp']['value'] == expected
+        assert tick['label'] == expected.astimezone(__import__('zoneinfo').ZoneInfo(
+            'Europe/Moscow')).strftime('%d %b %H:%M')
+
+
+def test_chart_caption_is_compact_and_points_keep_accessible_exact_values():
+    from django.template.loader import render_to_string
+    from sitewatcher.webapp.presentation import chart_context
+    report = {'domain': 'one.example', 'totals': {'latency_ms': 125.5}, 'chart': chart_context([
+        {'index': 0, 'latency_ms': 125.5, 'label': '03 Nov 2026, 13:00 MSK'},
+    ], 'latency_ms')}
+    body = render_to_string('sitewatcher/partials/chart.html', {'report': report})
+    assert 'Website response time' in body and 'Average — 126 ms' in body
+    assert 'Average of successful HTTP responses' not in body
+    assert 'class="chart-y-axis"' in body and 'class="chart-plot"' in body
+    assert 'tabindex="0"' in body and '13:00 MSK · 125.5 ms' in body
+    assert 'class="chart-tooltip"' in body

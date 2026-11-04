@@ -144,7 +144,7 @@
                         </tr>
                         <tr id="domain-details-{{ forloop.counter }}" class="domain-detail-row" hidden>
                             <td colspan="6">
-                                {% include 'sitewatcher/partials/domain_details.html' with report=row.report checks=row.checks owner_detail=True domain_name=row.name settings_error=row.error %}
+                                {% include 'sitewatcher/partials/domain_details.html' with report=row.report checks=row.checks common_observed=row.checks_common_observed owner_detail=True domain_name=row.name settings_error=row.error %}
                             </td>
                         </tr>
                     </tbody>

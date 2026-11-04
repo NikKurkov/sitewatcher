@@ -298,6 +298,8 @@ document.querySelectorAll('.response-chart').forEach((chart) => {
     point.addEventListener('focus', () => show(point));
     point.addEventListener('blur', () => show(null));
   });
+  const restoredPoint = document.activeElement?.closest('.chart-point');
+  if (restoredPoint && chart.contains(restoredPoint)) show(restoredPoint);
   document.addEventListener('keydown', (event) => {
     if (active && event.key === 'Escape') show(null);
   });

@@ -19,6 +19,7 @@ from sitewatcher.reporting import build_snapshot
 from sitewatcher.utils.results import is_missing_malware_report
 from . import analytics
 from .accounts import owner_required
+from .check_presentation import prepare_check_list
 from .models import Workspace
 from .presentation import check_label, local_time, report_context, status_label
 from .activity import present_events
@@ -153,6 +154,7 @@ def _status_page(request, workspace, *, data):
             check['label'] = check_label(check['name'])
             check['status_label'] = status_label(check['status'])
             check['observed'] = local_time(check['checked_at'], workspace.timezone)
+        item['checks_common_observed'] = prepare_check_list(item['checks'])
         item['observed'] = local_time(item['last_checked_at'], workspace.timezone)
         item['state'], item['state_label'] = {
             'available': ('ok', _('Available')), 'unavailable': ('crit', _('Unavailable')),

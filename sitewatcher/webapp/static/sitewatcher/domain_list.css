@@ -118,3 +118,12 @@
   .domain-check-list { grid-template-columns: minmax(0, 1fr); }
   .domain-check-list > li:nth-child(2) { padding-top: 10px; }
 }
+
+.domain-checks-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; margin-bottom: 12px; }
+.domain-checks-heading h3 { margin: 0; }
+.domain-checks-heading > time, .domain-checks-heading > span { font-size: 12px; color: var(--muted); }
+.check-ok { display: inline-flex; align-items: center; gap: 6px; color: var(--green); font-size: 12px; white-space: nowrap; }
+.check-ok .status-dot { background: var(--green); }
+.domain-check-heading .badge.unknown { background: transparent; color: var(--muted); }
+.check-freshness { color: var(--muted); }
+.check-freshness::before { content: '· '; }

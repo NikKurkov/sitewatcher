@@ -1897,3 +1897,44 @@ msgstr[2] "%(count)s из %(total)s сайтов недоступны"
 
 msgid "Successful HTTP observations as a percentage of known results."
 msgstr "Доля успешных HTTP-проверок среди результатов с определённым статусом."
+
+msgid "Website response time"
+msgstr "Время ответа сайта"
+
+#, python-format
+msgid "Average — %(latency)s ms"
+msgstr "Среднее — %(latency)s мс"
+
+msgid "Checks"
+msgstr "Проверки"
+
+msgid "Awaiting update"
+msgstr "Ожидает обновления"
+
+msgctxt "check results"
+msgid "Updated just now"
+msgstr "обновлены только что"
+
+#, python-format
+msgctxt "check results"
+msgid "Updated %(count)s minute ago"
+msgid_plural "Updated %(count)s minutes ago"
+msgstr[0] "обновлены %(count)s минуту назад"
+msgstr[1] "обновлены %(count)s минуты назад"
+msgstr[2] "обновлены %(count)s минут назад"
+
+#, python-format
+msgctxt "check results"
+msgid "Updated %(count)s hour ago"
+msgid_plural "Updated %(count)s hours ago"
+msgstr[0] "обновлены %(count)s час назад"
+msgstr[1] "обновлены %(count)s часа назад"
+msgstr[2] "обновлены %(count)s часов назад"
+
+#, python-format
+msgctxt "check results"
+msgid "Updated %(count)s day ago"
+msgid_plural "Updated %(count)s days ago"
+msgstr[0] "обновлены %(count)s день назад"
+msgstr[1] "обновлены %(count)s дня назад"
+msgstr[2] "обновлены %(count)s дней назад"
