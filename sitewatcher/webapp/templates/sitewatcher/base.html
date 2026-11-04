@@ -61,7 +61,7 @@
             {% endblock %}
         </main>
         <footer class="footer">
-            <a href="https://github.com/NikKurkov/sitewatcher">SiteWatcher <span aria-hidden="true">·</span> {% translate 'Website monitoring' %}</a>
+            <a href="https://github.com/NikKurkov/sitewatcher">SiteWatcher</a>
             {% if owner_toolbar and not public_view %}
                 <a href="{% if request.workspace.public_enabled %}{{ request.workspace.public_path }}{% else %}/settings#public-status{% endif %}">{% translate 'Public page' %}</a>
             {% endif %}

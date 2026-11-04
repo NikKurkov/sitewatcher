@@ -59,6 +59,29 @@ def test_public_disabled_by_default_and_hash_only_one_time_link(owner, client):
     assert b'Rotate link' in get(client, '/settings').content
 
 
+def test_public_headline_uses_plain_language_for_single_multiple_and_failed_sites(owner, client):
+    from sitewatcher.config import ChecksModel
+
+    owner.language = 'ru'
+    owner.save(update_fields=['language'])
+    names = ('shared.example', 'second.example', 'third.example', 'fourth.example', 'fifth.example')
+    for name in names:
+        storage.add_domain(731, name)
+        storage.set_domain_override(731, name, {'checks': {
+            key: key == 'http_basic' for key in ChecksModel.model_fields}})
+        storage.save_history(731, name, 'http_basic', 'OK', 'up', {'final_code': 200})
+    path, _, _ = publish(client, domains=names[:1])
+    assert 'Опубликованный сайт работает' in get(Client(), path).content.decode()
+    assert client.post('/settings/public', {'action': 'selection', 'domains': '\n'.join(names)},
+                       HTTP_HOST='localhost').status_code == 200
+    assert 'Все 5 сайтов работают' in get(Client(), path).content.decode()
+    storage.save_history(731, names[0], 'http_basic', 'CRIT', 'down', {'final_code': 503})
+    assert '1 из 5 сайтов недоступен' in get(Client(), path).content.decode()
+    for name in names:
+        storage.set_domain_override(731, name, {'interval_minutes': 0})
+    assert 'Мониторинг приостановлен' in get(Client(), path).content.decode()
+
+
 def test_selected_only_aggregate_dto_guest_and_authenticated_owner(owner, client):
     path, token, _ = publish(client)
     for viewer in (Client(), client):
@@ -351,13 +374,13 @@ def test_stale_and_paused_current_state_do_not_misrepresent_historical_success(o
     assert data['domains'][0]['current_state'] == 'no_recent_data'
     assert data['totals']['success_percent'] == 100
     body = get(Client(), path + '?days=7').content.decode()
-    assert 'No recent data' in body and 'All published services available' not in body
+    assert 'No recent data' in body and 'Published site is working' not in body
     assert '100.0%' in body
     storage.set_domain_override(731, 'shared.example', {'interval_minutes': 0})
     data = get(Client(), path + 'data?days=7').json()
     assert data['domains'][0]['current_state'] == 'paused'
     body = get(Client(), path + '?days=7').content.decode()
-    assert 'Paused' in body and 'All published services available' not in body
+    assert 'Paused' in body and 'Published site is working' not in body
     assert '100.0%' in body
 
 
@@ -486,7 +509,7 @@ def test_public_attention_is_safe_and_absent_passive_report_is_neutral(owner, cl
     assert 'data-domain-key="shared.example"' in body
     assert 'data-domain-disclosure' in body
     assert 'HTTP availability' in body
-    disclosure = body.split('data-domain-disclosure', 1)[1].split('</details>', 1)[0]
+    disclosure = body.split('data-domain-disclosure', 1)[1].split('data-domain-key=', 1)[0]
     assert 'Latest monitoring checks' in disclosure
     assert 'chart' in disclosure
     assert '<details class="public-component-chart" open' not in body

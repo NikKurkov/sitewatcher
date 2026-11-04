@@ -8,7 +8,21 @@
     <section class="header-monitoring-summary public-status-summary {% if attention %}needs-attention{% elif not available %}is-neutral{% endif %}" aria-label="{% translate 'Published service status' %}">
         <span class="status-symbol" aria-hidden="true">{% if attention %}!{% elif available %}✓{% else %}–{% endif %}</span>
         <div>
-            <h2>{% translate 'HTTP availability' %}: {% blocktranslate with available=available unavailable=unavailable published=report.domains|length %}{{ available }} available · {{ unavailable }} unavailable · {{ published }} published{% endblocktranslate %}</h2>
+            {% with total=report.domains|length %}
+            <h2 title="{% translate 'HTTP availability' %}">
+                {% if unavailable %}
+                    {% if total == 1 %}{% translate 'Published site is unavailable' %}{% else %}{% blocktranslate count count=unavailable with total=total %}{{ count }} of {{ total }} sites is unavailable{% plural %}{{ count }} of {{ total }} sites are unavailable{% endblocktranslate %}{% endif %}
+                {% elif available == total %}
+                    {% if total == 1 %}{% translate 'Published site is working' %}{% else %}{% blocktranslate count count=total %}All {{ count }} site is working{% plural %}All {{ count }} sites are working{% endblocktranslate %}{% endif %}
+                {% elif unknown %}
+                    {% translate 'Some sites have no recent data' %}
+                {% elif paused == total %}
+                    {% translate 'Monitoring is paused' %}
+                {% else %}
+                    {% translate 'Monitoring is paused for some sites' %}
+                {% endif %}
+            </h2>
+            {% endwith %}
             <p class="header-summary-meta"><span>{% if attention %}{% blocktranslate count count=attention %}{{ count }} domain needs attention{% plural %}{{ count }} domains need attention{% endblocktranslate %}{% else %}{% translate 'No active warnings' %}{% endif %}{% if paused %} · {% translate 'Paused' %}: {{ paused }}{% endif %}{% if unknown %} · {% translate 'No recent data' %}: {{ unknown }}{% endif %}</span><span class="header-checked">{% if observed %}<time datetime="{{ observed.iso }}" tabindex="0" title="{% translate 'Latest saved check result' %}: {{ observed.label }}">{{ observed.updated_label }}</time>{% else %}{% translate 'Not checked yet' %}{% endif %}</span></p>
         </div>
     </section>

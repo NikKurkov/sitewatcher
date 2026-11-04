@@ -1,5 +1,15 @@
 {% load i18n %}
 <div class="domain-detail-layout">
+    <section class="domain-detail-chart" aria-label="{% translate 'HTTP history' %}">
+        <h3>{% translate 'HTTP history' %}</h3>
+        {% if report %}
+            {% if not report.totals.sample_count %}<p class="no-data">{% translate 'No HTTP observations in this period.' %}</p>{% endif %}
+            {% include 'sitewatcher/partials/chart.html' with report=report %}
+            {% include 'sitewatcher/partials/chart_data.html' with report=report %}
+        {% else %}
+            <p class="no-data">{% translate 'No HTTP observations in this period.' %}</p>
+        {% endif %}
+    </section>
     <section class="domain-detail-checks" aria-label="{% translate 'Latest monitoring checks' %}">
         <h3>{% translate 'Latest monitoring checks' %}</h3>
         {% if settings_error and owner_detail %}
@@ -23,15 +33,5 @@
             {% endfor %}
         </ul>
         {% if owner_detail %}<a class="full-history-link" href="/domains/history?domain={{ domain_name|urlencode }}&amp;days={{ report.days }}">{% translate 'Full history' %}</a>{% endif %}
-    </section>
-    <section class="domain-detail-chart" aria-label="{% translate 'HTTP history' %}">
-        <h3>{% translate 'HTTP history' %}</h3>
-        {% if report %}
-            {% if not report.totals.sample_count %}<p class="no-data">{% translate 'No HTTP observations in this period.' %}</p>{% endif %}
-            {% include 'sitewatcher/partials/chart.html' with report=report %}
-            {% include 'sitewatcher/partials/chart_data.html' with report=report %}
-        {% else %}
-            <p class="no-data">{% translate 'No HTTP observations in this period.' %}</p>
-        {% endif %}
     </section>
 </div>

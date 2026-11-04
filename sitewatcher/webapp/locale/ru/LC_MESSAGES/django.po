@@ -1868,3 +1868,29 @@ msgid_plural "%(count)s notices"
 msgstr[0] "%(count)s замечание"
 msgstr[1] "%(count)s замечания"
 msgstr[2] "%(count)s замечаний"
+
+msgid "Published site is working"
+msgstr "Опубликованный сайт работает"
+
+msgid "Published site is unavailable"
+msgstr "Опубликованный сайт недоступен"
+
+msgid "Some sites have no recent data"
+msgstr "Нет свежих данных по части сайтов"
+
+msgid "Monitoring is paused for some sites"
+msgstr "Мониторинг части сайтов приостановлен"
+
+#, python-format
+msgid "All %(count)s site is working"
+msgid_plural "All %(count)s sites are working"
+msgstr[0] "Все сайты работают: %(count)s"
+msgstr[1] "Все %(count)s сайта работают"
+msgstr[2] "Все %(count)s сайтов работают"
+
+#, python-format
+msgid "%(count)s of %(total)s sites is unavailable"
+msgid_plural "%(count)s of %(total)s sites are unavailable"
+msgstr[0] "%(count)s из %(total)s сайтов недоступен"
+msgstr[1] "%(count)s из %(total)s сайтов недоступны"
+msgstr[2] "%(count)s из %(total)s сайтов недоступны"
