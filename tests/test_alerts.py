@@ -23,6 +23,28 @@ def test_no_results_cannot_mean_healthy():
     assert _overall_from_results([]) == "UNKNOWN"
 
 
+def test_missing_virustotal_report_is_neutral_but_errors_and_detections_are_not():
+    import asyncio
+    from sitewatcher.bot.formatting import _format_results_summary
+
+    for message in ('VirusTotal has no report for this URL', 'VT: not_found [cached 2m]'):
+        result = CheckOutcome('malware', Status.UNKNOWN, message)
+        assert _overall_from_results([result]) == 'OK'
+        assert result.status == Status.UNKNOWN
+        summary = asyncio.run(_format_results_summary(1, 'example.com', [result], persist=False))
+        assert 'malware' not in summary
+        assert _overall_from_results([result, CheckOutcome('ping', Status.CRIT, 'down')]) == 'CRIT'
+    for status, message, expected in (
+        (Status.UNKNOWN, 'VirusTotal rejected the API key. Check your API key.', 'WARN'),
+        (Status.UNKNOWN, 'VirusTotal connection timed out.', 'WARN'),
+        (Status.WARN, 'VT: suspicious=1', 'WARN'),
+        (Status.CRIT, 'VT: malicious=1', 'CRIT'),
+    ):
+        assert _overall_from_results([CheckOutcome('malware', status, message)]) == expected
+    assert _overall_from_results([
+        CheckOutcome('ping', Status.UNKNOWN, 'VirusTotal has no report for this URL')]) == 'WARN'
+
+
 def test_enabled_check_without_any_result_is_unknown(tmp_path, monkeypatch):
     monkeypatch.setattr(storage, "DEFAULT_DB", tmp_path / "missing.db")
     cfg = AppConfig()

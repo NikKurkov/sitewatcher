@@ -69,6 +69,20 @@
                                 {% include 'sitewatcher/partials/chart_data.html' with report=item %}
                             </div>
                         </details>
+                        <div class="public-service-detail">
+                            <h3>{% translate 'Latest monitoring checks' %}</h3>
+                            <ul class="check-list">
+                                {% for check in item.checks %}
+                                    <li>
+                                        <span>{{ check.label }}</span>
+                                        <span><span class="badge {{ check.status|lower }}">{{ check.status_label }}</span>{% if check.stale %} {% translate '· Overdue' %}{% endif %}</span>
+                                        <span>{% include 'sitewatcher/partials/time.html' with stamp=check.observed %}</span>
+                                    </li>
+                                {% empty %}
+                                    <li>{% translate 'No data' %}</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
                     </li>
                 {% endfor %}
             </ul>

@@ -36,16 +36,43 @@ def test_overview_problem_first_and_real_measurement(owner, client):
     assert 'data-label="Successful checks"' in body
     assert 'data-label="Last checked"' in body
     assert '/domains/new' in body and '1 domain needs attention' in body
+    header, main = body.split('</header>', 1)
+    assert header.index('class="brand"') < header.index('1 domain needs attention')
+    assert header.index('1 domain needs attention') < header.index('class="topbar-actions"')
+    assert 'class="overview-history-toolbar"' in main
+    assert 'class="status-overview' not in main
 
 
 def test_empty_and_no_observation_states(owner, client):
-    assert 'Add your first domain' in get(client, '/').content.decode()
+    empty = get(client, '/').content.decode()
+    assert 'Add your first domain' in empty
+    assert 'header-monitoring-summary' not in empty
     storage.add_domain(41, 'new.example')
     body = get(client, '/domains/history?domain=new.example').content.decode()
     assert 'No HTTP observations in this period' in body
     assert '24h' in body and '7d' in body and '30d' in body
     assert 'Successful checks' in body and 'Response time' in body
     assert 'No data' in body and '100%' not in body
+
+
+@pytest.mark.parametrize('state,label', [
+    ('healthy', 'No active warnings'), ('paused', 'Monitoring is paused'),
+    ('waiting', 'Waiting for first results'),
+])
+def test_header_summary_preserves_monitoring_states(owner, client, state, label):
+    from sitewatcher.config import ChecksModel
+
+    storage.add_domain(41, 'one.example')
+    storage.set_domain_override(41, 'one.example', {
+        'checks': {key: key == 'http_basic' for key in ChecksModel.model_fields},
+        **({'interval_minutes': 0} if state == 'paused' else {}),
+    })
+    if state != 'waiting':
+        storage.save_history(41, 'one.example', 'http_basic', 'OK', 'up', {'final_code': 200})
+    header = get(client, '/').content.decode().split('</header>', 1)[0]
+    assert label in header
+    assert ('is-neutral' in header) == (state != 'healthy')
+    assert 'header-monitoring-summary' not in get(client, '/workspace').content.decode()
 
 
 def test_detail_percent_sources_timezone_and_bounded_chart(owner, client):

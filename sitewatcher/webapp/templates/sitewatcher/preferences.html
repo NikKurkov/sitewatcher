@@ -207,12 +207,25 @@
             </form>
         {% endif %}
     </section>
-    <section class="panel form-section publication-settings">
+    <section class="panel form-section publication-settings" id="public-status">
         <h2>{% translate 'Public status page' %}</h2>
+        <form method="post" action="/settings/public">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="path">
+            <div class="field">
+                <label for="public-page-path">{% translate 'Public page address' %}</label>
+                <input id="public-page-path" name="public_slug" value="{{ request.workspace.public_path }}" maxlength="65" required {% if read_only %}disabled{% endif %}>
+                <p class="field-help">{% translate 'This address is public. Changing it makes the previous address unavailable.' %}</p>
+            </div>
+            <button type="submit" {% if read_only %}disabled{% endif %}>{% translate 'Save address' %}</button>
+        </form>
+        {% if request.workspace.public_enabled %}
+            <p><a href="{{ public_page_url }}">{{ public_page_url }}</a></p>
+        {% endif %}
         <p class="field-help">{% if request.workspace.public_enabled %}{% translate 'Public status is enabled. Anyone with the link can read aggregate HTTP observations for your selected domains.' %}{% else %}{% translate 'Public status is disabled. Publish only the domains you choose.' %}{% endif %} {% translate 'Diagnostic messages, Telegram settings, and private domains stay private.' %}</p>
         {% if public_link %}
             <div class="notice">
-                <label for="public-link">{% translate 'New public link — save it now' %}</label>
+                <label for="public-link">{% translate 'Additional private link — save it now' %}</label>
                 <input id="public-link" type="text" readonly value="{{ public_link }}">
                 <button type="button"
                     class="copy-public-link"
@@ -244,7 +257,7 @@
             </fieldset>
         </form>
         {% if request.workspace.public_enabled %}
-            <p class="field-help">{% translate 'The full link cannot be recovered. Rotate to create a new link; the old link stops working immediately. Disable to revoke all access.' %}</p>
+            <p class="field-help">{% translate 'The additional private link is shown only once. Rotating it revokes that link; the public page address above stays unchanged. Disabling publication closes both addresses.' %}</p>
             <div class="detail-actions">
                 <form method="post" action="/settings/public">
                     {% csrf_token %}

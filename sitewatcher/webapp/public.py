@@ -1,13 +1,14 @@
-"""Revocable public capabilities with narrow HTTP-only report and activity serializers."""
+"""Revocable public capabilities with safe check statuses and HTTP analytics/activity."""
 import hashlib
 import logging
 import secrets
+import re
 
 from django.conf import settings
 from django.utils import translation
 from django.utils.crypto import salted_hmac
 from django.utils.translation import gettext as _
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.debug import sensitive_variables
@@ -20,6 +21,12 @@ from .accounts import owner_required
 from .models import Workspace
 from .presentation import check_label, local_time, report_context, status_label
 from .activity import present_events
+
+
+RESERVED_PUBLIC_SLUGS = {
+    'login', 'logout', 'password', 'healthz', 'settings', 'assets', 'domains',
+    'workspace', 'import', 'export', 'theme', 'api', 'admin', 'alerts',
+}
 
 
 def _totals(value):
@@ -44,6 +51,12 @@ def public_report(workspace, *, days):
         report['latest_availability'] = (raw['latest_availability'] if raw['latest_availability']
                                         in {'available', 'unavailable'} else 'unknown')
         row = current.get(name, {})
+        report['checks'] = [{key: check[key] for key in
+                            ('name', 'status', 'checked_at', 'stale', 'missing')}
+                           for check in row.get('checks', [])]
+        for check in report['checks']:
+            if check['status'] not in {'OK', 'WARN', 'CRIT', 'UNKNOWN'} or check['missing']:
+                check['status'] = 'UNKNOWN'
         http = next((check for check in row.get('checks', []) if check['name'] == 'http_basic'), {})
         report['last_checked_at'] = http.get('checked_at')
         # Current state follows the latest owned HTTP observation, not the chart window.
@@ -85,12 +98,13 @@ def public_activity(workspace):
 
 
 @sensitive_variables('token')
-def status(request, token, *, data=False, activity=False):
+def status(request, token=None, *, data=False, activity=False, public_slug=None):
     """Called inside the early bearer-path boundary; no owner/session middleware runs."""
     if request.method not in {'GET', 'HEAD'}:
         return HttpResponse(_('Method not allowed'), status=405, headers={'Allow': 'GET, HEAD'})
-    workspace = Workspace.objects.filter(public_enabled=True,
-        public_token_hash=hashlib.sha256(token.encode()).hexdigest()).first()
+    lookup = ({'public_slug': public_slug} if public_slug is not None else
+              {'public_token_hash': hashlib.sha256(token.encode()).hexdigest()})
+    workspace = Workspace.objects.filter(public_enabled=True, **lookup).first()
     if workspace is None:
         return HttpResponse(_('Not found'), status=404)
     request.LANGUAGE_CODE = workspace.language
@@ -126,6 +140,10 @@ def _status_page(request, workspace, *, data):
         return JsonResponse(report)
     for item in report['domains']:
         report_context(item)
+        for check in item['checks']:
+            check['label'] = check_label(check['name'])
+            check['status_label'] = status_label(check['status'])
+            check['observed'] = local_time(check['checked_at'], workspace.timezone)
         item['observed'] = local_time(item['last_checked_at'], workspace.timezone)
         item['state'], item['state_label'] = {
             'available': ('ok', _('Available')), 'unavailable': ('crit', _('Unavailable')),
@@ -137,6 +155,8 @@ def _status_page(request, workspace, *, data):
                 if item['last_checked_at']), default=None)
     return render(request, 'sitewatcher/public.html', {
         'public_view': True, 'public_timezone': workspace.timezone, 'report': report,
+        'public_activity_url': (workspace.public_path + '/activity'
+                                if getattr(request, 'public_alias', False) else 'activity'),
         'available': available, 'unavailable': unavailable, 'observed': local_time(last, workspace.timezone),
     })
 
@@ -151,6 +171,22 @@ def publication(request):
     fields = dict(request.management_form)
     fields.pop('csrfmiddlewaretoken', None)
     action = fields.get('action')
+    if action == 'path':
+        slug = fields.get('public_slug', '').strip().strip('/')
+        invalid_path = _('Choose an unused page address using lowercase letters, numbers, hyphens or underscores.')
+        if (request.GET or set(fields) != {'action', 'public_slug'}
+                or not re.fullmatch(r'[a-z][a-z0-9_-]{0,63}', slug)
+                or slug in RESERVED_PUBLIC_SLUGS
+                or Workspace.objects.filter(public_slug=slug).exclude(pk=request.workspace.pk).exists()):
+            return _render(request, error=invalid_path, status=400)
+        request.workspace.public_slug = slug
+        try:
+            with transaction.atomic():
+                request.workspace.save(update_fields=['public_slug'])
+        except IntegrityError:
+            request.workspace.refresh_from_db()
+            return _render(request, error=invalid_path, status=400)
+        return _render(request, notice=_('Public status updated.'))
     owned = set(storage.list_domains(request.workspace.owner_id))
     selection = {key[7:]: value for key, value in fields.items() if key.startswith('domain.')}
     if (request.GET or set(fields) - {'action', 'domains', *('domain.' + n for n in owned)}

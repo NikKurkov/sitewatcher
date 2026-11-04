@@ -99,6 +99,8 @@ History can be filtered by dates, check and result. Dates include both selected 
 
 ### Find and arrange websites
 
+The overview summary sits beside the SiteWatcher logo, with the last-check time and history period in a compact row above the table. On narrow screens the summary wraps below the logo. Previews: [desktop](screenshots/overview-compact-header-desktop.png), [mobile](screenshots/overview-compact-header-mobile.png).
+
 Search is beside the **Domain** heading. The **Status** heading opens a filter; changes apply automatically. The 24-hour, 7-day and 30-day choices are beside the last-check summary.
 
 Click a star to keep a website in favorites. Drag its handle to move it within the favorites or regular group. Keyboard users can focus the handle and press **Alt + ↑ / ↓**. Order survives page reloads. When a filter is active, hidden rows retain their positions. A failed save restores the previous order.
@@ -184,7 +186,7 @@ This bot uses `--no-scheduler`. **Never run a scheduled bot and worker for the s
 
 Enable the malware check for a domain and save an API key in **Settings → VirusTotal**. The eye button reveals the key only after an explicit authenticated request. Viewing it does not replace the saved key. Blank retains it; the separate checkbox removes it.
 
-Key priority is `VIRUSTOTAL_API_KEY` → YAML `malware.vt_api_key` → saved key. VirusTotal only reads existing reports for the HTTPS home URL. It does not submit a scan. A missing key, missing report, invalid response, quota, network failure or proxy error remains an unknown result, not a clean verdict.
+Key priority is `VIRUSTOTAL_API_KEY` → YAML `malware.vt_api_key` → saved key. VirusTotal only reads existing reports for the HTTPS home URL. It does not submit a scan. A missing key, missing report, invalid response, quota, network failure or proxy error remains an unknown result, not a clean verdict. An absent report is informational and does not raise the overall warning or appear in the Telegram problem summary. Provider and configuration errors still require attention.
 
 Enable **Use a proxy for VirusTotal** in the same settings section to show the HTTP(S)/SOCKS5 address field. This proxy applies only to VirusTotal. Turning the checkbox off retains the saved address and credentials; other checks keep their existing connections. Proxy priority is `VIRUSTOTAL_PROXY` → YAML `malware.vt_proxy` → saved proxy. Without one, the common HTTP client is used. Blank retains a saved proxy; the separate removal checkbox deletes it. Both the key and proxy are reloaded on the next check. The saved proxy address, including credentials, is visible in owner settings after reloading the page.
 
@@ -224,9 +226,9 @@ WHOIS/RDAP availability depends on the zone; supported Russian zones can fall ba
 
 ## Public status page
 
-Enable publication in **Settings**, select domains and create a link. The full link is shown once, when it is created. Copy it then; create a new one if you lose it. The page shares only the selected sites' HTTP history, response times and scoped HTTP events. It has no monitoring controls and does not expose private domains, other checks, raw diagnostics, internal routes or the owner ID.
+Enable publication in **Settings** and select domains. The persistent public address defaults to `/status`; change it in the public-page settings. The footer opens that address. Changing the address removes the old path, and disabling publication closes it. This is a publicly accessible page, not a secret URL. An additional private link can still be issued and rotated; that token is shown once and only its hash is stored. The page shares the selected sites' HTTP history, response times and scoped HTTP events, plus the latest status and observation time of every enabled check. Missing results are UNKNOWN and overdue observations are marked. The default theme is dark; a visitor's saved choice takes priority. It has no monitoring controls and does not expose private domains, raw diagnostics, internal routes or the owner ID.
 
-The public map has its own saved on/off setting. Changing the selected domains is reflected on its next poll. Disable publication or rotate the link to revoke access. Treat the link as a bearer credential; configure reverse-proxy logs to omit or mask `/status/` paths.
+The public map has its own saved on/off setting. Changing the selected domains is reflected on its next poll. Disable publication to close both addresses, or rotate the additional private link to revoke only that token. Treat that private link as a bearer credential; configure reverse-proxy logs to omit or mask `/status/` paths.
 
 ## Remote access and accounts
 

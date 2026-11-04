@@ -9,7 +9,9 @@ import sqlite3
 
 from . import storage
 from .config import AppConfig, ChecksModel, resolve_settings
-from .utils.results import current_rkn_result, overall_from_statuses, status_text
+from .utils.results import (
+    current_rkn_result, is_missing_malware_report, overall_from_statuses, status_text,
+)
 
 
 class SnapshotError(RuntimeError):
@@ -74,7 +76,8 @@ def _domain_snapshot(cfg, name, raw_override, histories, now):
         status = status_text(raw_status)
         if status not in {'OK', 'WARN', 'CRIT', 'UNKNOWN'} or (stale and status == 'OK'):
             status = 'UNKNOWN'
-        statuses.append(status)
+        statuses.append('OK' if saved is not None and is_missing_malware_report(
+            check_name, raw_status, saved['message']) else status)
         has_results = has_results or saved is not None
         due_times.append(due_at)
         row['checks'].append({

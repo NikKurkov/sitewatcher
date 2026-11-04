@@ -178,6 +178,12 @@ def test_public_native_theme_preserves_period_without_echoing_bearer(owner, clie
     path, token, _ = publish(client)
     guest = Client()
     body = get(guest, path + '?days=7').content.decode()
+    assert 'data-theme="dark"' in body
+    assert 'aria-checked="true"' in body and 'name="mode" value="light"' in body
+    guest.cookies['sitewatcher_theme'] = 'light'
+    light_body = get(guest, path).content.decode()
+    assert 'data-theme="light"' in light_body
+    assert 'aria-checked="false"' in light_body
     assert 'name="days" value="7"' in body and 'name="next"' not in body
     assert 'href="?days=7"' in body and 'action=""' in body
     response = get(guest, path + '?mode=dark&days=7')
@@ -187,6 +193,63 @@ def test_public_native_theme_preserves_period_without_echoing_bearer(owner, clie
     assert b'data-theme="dark"' in response.content and token.encode() not in response.content
     assert get(guest, path + '?mode=invalid').status_code == 404
     assert get(guest, path + 'data?mode=dark').status_code == 404
+
+
+def test_named_public_page_is_persistent_editable_and_read_only(owner, client):
+    owner.refresh_from_db()
+    assert owner.public_slug == 'status'
+    assert b'href="/settings#public-status"' in get(client, '/').content
+    path, _, _ = publish(client)
+    footer = get(client, '/').content.decode().split('<footer', 1)[1]
+    assert 'href="/status"' in footer
+    assert get(Client(), '/status').status_code == 200
+    assert get(Client(), '/status/data').json() == get(Client(), path + 'data').json()
+    assert get(Client(), '/status/activity').status_code == 200
+    assert client.post('/status', HTTP_HOST='localhost').status_code == 405
+    response = client.post('/settings/public', {
+        'action': 'path', 'public_slug': '/service-health',
+    }, HTTP_HOST='localhost')
+    assert response.status_code == 200
+    owner.refresh_from_db()
+    assert owner.public_slug == 'service-health'
+    assert get(Client(), '/status').status_code == 404
+    assert get(Client(), '/service-health').status_code == 200
+    assert b'/service-health/activity' in get(Client(), '/service-health').content
+    assert b'http://localhost/service-health' in get(client, '/settings').content
+    assert get(Client(), path).status_code == 200  # Existing private links stay valid.
+    for slug in ('login', 'domains', '../private', 'status/nested', 'assets', 'healthz', 'alerts'):
+        assert client.post('/settings/public', {'action': 'path', 'public_slug': slug},
+                           HTTP_HOST='localhost').status_code == 400
+    client.post('/settings/public', {'action': 'disable'}, HTTP_HOST='localhost')
+    assert get(Client(), '/service-health').status_code == 404
+
+
+def test_public_shows_all_enabled_checks_without_private_diagnostics(owner, client):
+    from sitewatcher.config import ChecksModel
+
+    enabled = {name: True for name in ChecksModel.model_fields}
+    storage.set_domain_override(731, 'shared.example', {'checks': enabled})
+    for name in enabled:
+        if name == 'malware':
+            continue
+        storage.save_history(731, 'shared.example', name, 'WARN',
+                             'private-check-message password=sentinel',
+                             {'private-metric': 'sentinel'})
+    storage.save_history(731, 'foreign.example', 'tls_cert', 'CRIT', 'foreign-secret', {})
+    path, _, _ = publish(client)
+    checks = get(Client(), path + 'data').json()['domains'][0]['checks']
+    assert {check['name'] for check in checks} == set(enabled)
+    assert all(set(check) == {'name', 'status', 'checked_at', 'stale', 'missing'}
+               for check in checks)
+    body = get(Client(), path).content.decode()
+    assert 'TLS certificate' in body and 'Domain registration' in body
+    assert 'Latest monitoring checks' in body
+    assert 'private-check-message' not in body and 'private-metric' not in body
+    assert 'foreign-secret' not in body
+    storage.set_domain_override(731, 'shared.example', {'checks': {'tls_cert': False}})
+    checks = get(Client(), path + 'data').json()['domains'][0]['checks']
+    assert 'tls_cert' not in {check['name'] for check in checks}
+    assert next(check for check in checks if check['name'] == 'malware')['missing']
 
 
 def test_public_no_data_unknowns_and_gap_axes_are_honest(owner, client):

@@ -125,6 +125,9 @@
         <div class="form-actions">
             <button type="submit" class="primary">{% if view == 'edit' %}{% translate 'Save settings' %}{% else %}{% translate 'Add domain' %}{% endif %}</button>
             <a href="/">{% translate 'Cancel' %}</a>
+            {% if view == 'edit' and not read_only %}
+                <a class="button danger-button" href="/domains/delete?domain={{ domain|urlencode }}">{% translate 'Remove domain' %}</a>
+            {% endif %}
         </div>
     </form>
     {% if view == 'edit' and not read_only %}

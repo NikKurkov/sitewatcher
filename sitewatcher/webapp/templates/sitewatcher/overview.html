@@ -2,28 +2,33 @@
 {% load i18n %}
 {% block title %}{% translate 'Overview · SiteWatcher' %}{% endblock %}
 {% block page_scripts %}<link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'route_view.js' %}"></script><script defer src="{% url 'asset' 'activity.js' %}"></script>{% if not read_only %}<script defer src="{% url 'asset' 'domain_order.js' %}"></script>{% endif %}{% endblock %}
+{% block header_summary %}
+    {% if total %}
+        <section class="header-monitoring-summary {% if attention %}needs-attention{% elif summary.unknown == total or summary.paused == total %}is-neutral{% endif %}"
+            aria-label="{% translate 'Monitoring summary' %}"
+        >
+            <span class="status-symbol" aria-hidden="true">{% if attention %}!{% elif summary.unknown == total or summary.paused == total %}–{% else %}✓{% endif %}</span>
+            <div>
+                <h2>{% if attention %}{% blocktranslate count count=attention %}{{ count }} domain needs attention{% plural %}{{ count }} domains need attention{% endblocktranslate %}{% elif summary.unknown == total %}{% translate 'Waiting for first results' %}{% elif summary.paused == total %}{% translate 'Monitoring is paused' %}{% else %}{% translate 'No active warnings' %}{% endif %}</h2>
+                <p>{% blocktranslate count count=total %}{{ count }} domain{% plural %}{{ count }} domains{% endblocktranslate %} <span aria-hidden="true">·</span> {% blocktranslate with count=healthy %}{{ count }} healthy{% endblocktranslate %}{% if summary.paused %} <span aria-hidden="true">·</span> {% blocktranslate with count=summary.paused %}{{ count }} paused{% endblocktranslate %}{% endif %}{% if summary.unknown %} <span aria-hidden="true">·</span> {% blocktranslate with count=summary.unknown %}{{ count }} without current results{% endblocktranslate %}{% endif %}</p>
+            </div>
+        </section>
+    {% endif %}
+{% endblock %}
+{% block main_class %}overview-workspace{% endblock %}
 {% block content %}
     <h1 class="sr-only">{% translate 'Overview' %}</h1>
     {% if notice %}
         <p class="notice" role="status">{{ notice }}</p>
     {% endif %}
     {% if total %}
-        <section class="status-overview {% if attention %}needs-attention{% endif %}"
-            aria-label="{% translate 'Monitoring summary' %}"
-        >
-            <span class="status-symbol" aria-hidden="true">{% if attention %}!{% else %}✓{% endif %}</span>
-            <div>
-                <h2>{% if attention %}{% blocktranslate count count=attention %}{{ count }} domain needs attention{% plural %}{{ count }} domains need attention{% endblocktranslate %}{% elif summary.unknown == total %}{% translate 'Waiting for first results' %}{% elif summary.paused == total %}{% translate 'Monitoring is paused' %}{% else %}{% translate 'No active warnings' %}{% endif %}</h2>
-                <p>{% blocktranslate count count=total %}{{ count }} domain{% plural %}{{ count }} domains{% endblocktranslate %} <span aria-hidden="true">·</span> {% blocktranslate with count=healthy %}{{ count }} healthy{% endblocktranslate %}{% if summary.paused %} <span aria-hidden="true">·</span> {% blocktranslate with count=summary.paused %}{{ count }} paused{% endblocktranslate %}{% endif %}{% if summary.unknown %} <span aria-hidden="true">·</span> {% blocktranslate with count=summary.unknown %}{{ count }} without current results{% endblocktranslate %}{% endif %}</p>
+        <div class="overview-history-toolbar">
+            <div class="summary-time">
+                <span class="eyebrow">{% translate 'Last checked' %}</span>
+                <div class="summary-timestamp">{% include 'sitewatcher/partials/time.html' with stamp=observed no_separator=True %}</div>
             </div>
-            <div class="summary-controls">
-                <div class="summary-time">
-                    <span class="eyebrow">{% translate 'Last checked' %}</span>
-                    <div class="summary-timestamp">{% include 'sitewatcher/partials/time.html' with stamp=observed no_separator=True %}</div>
-                </div>
-                {% include 'sitewatcher/partials/periods.html' %}
-            </div>
-        </section>
+            {% include 'sitewatcher/partials/periods.html' %}
+        </div>
         {% include 'sitewatcher/partials/activity.html' %}
         <section class="panel domain-list" aria-label="{% translate 'Domains' %}">
             <p class="sr-only" data-order-status role="status"></p>

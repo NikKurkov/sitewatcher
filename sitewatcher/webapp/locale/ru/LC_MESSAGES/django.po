@@ -1791,3 +1791,24 @@ msgstr "Этот прокси используется только для Virus
 
 msgid "Enter an HTTP(S) or SOCKS5 URL, for example socks5://user:password@host:1080 or http://host:3128. Leave blank to keep the saved address. Disabling the proxy keeps its address and credentials."
 msgstr "Введите URL HTTP(S) или SOCKS5, например socks5://user:password@host:1080 или http://host:3128. Оставьте поле пустым, чтобы сохранить прежний адрес. При отключении прокси адрес и данные доступа сохраняются."
+
+msgid "Public page"
+msgstr "Публичная страница"
+
+msgid "Public page address"
+msgstr "Адрес публичной страницы"
+
+msgid "This address is public. Changing it makes the previous address unavailable."
+msgstr "Этот адрес общедоступен. После изменения прежний адрес перестанет работать."
+
+msgid "Save address"
+msgstr "Сохранить адрес"
+
+msgid "Choose an unused page address using lowercase letters, numbers, hyphens or underscores."
+msgstr "Выберите свободный адрес из строчных латинских букв, цифр, дефисов или подчёркиваний."
+
+msgid "Additional private link — save it now"
+msgstr "Дополнительная секретная ссылка — сохраните её"
+
+msgid "The additional private link is shown only once. Rotating it revokes that link; the public page address above stays unchanged. Disabling publication closes both addresses."
+msgstr "Дополнительная секретная ссылка показывается один раз. Перевыпуск отзывает её, но не меняет адрес публичной страницы выше. Отключение публикации закрывает оба адреса."

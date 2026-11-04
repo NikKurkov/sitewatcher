@@ -249,8 +249,8 @@ h3 {
 .workspace {
   max-width: 1264px;
   margin: auto;
-  padding: 38px 32px 48px;
-  min-height: calc(100vh - 151px);
+  padding: 38px 32px 8px;
+  min-height: 0;
 }
 
 .workspace:focus {
@@ -542,15 +542,21 @@ tr:last-child>td,tr:last-child>th {
 
 .footer {
   max-width: 1200px;
-  margin: auto;
-  min-height: 75px;
-  border-top: 1px solid var(--line);
+  margin: 0 auto;
+  padding: 0 20px 8px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 20px;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0 16px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
+}
+
+.footer a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
 }
 
 .notice {
@@ -1040,7 +1046,7 @@ input[type=file] {
 }
 
 .footer {
-  margin: 0 24px;
+  margin: 0 auto;
 }
 
 }
@@ -1067,8 +1073,8 @@ input[type=file] {
 }
 
 .workspace {
-  padding: 27px 20px 36px;
-  min-height: calc(100vh - 205px);
+  padding: 27px 20px 8px;
+  min-height: 0;
 }
 
 .page-heading {
@@ -1237,13 +1243,12 @@ input[type=file] {
 }
 
 .footer {
-  margin: 0 20px;
-  min-height: 80px;
-  flex-direction: column;
+  margin: 0 auto;
+  flex-direction: row;
   justify-content: center;
-  align-items: flex-start;
-  gap: 4px;
-  font-size: 10px;
+  align-items: center;
+  gap: 0 16px;
+  font-size: 12px;
 }
 
 .empty-state {
@@ -1402,7 +1407,7 @@ input[type=file] {
 }
 
 .footer {
-  margin-inline: 14px;
+  margin-inline: auto;
 }
 
 .page-heading .primary {
@@ -1909,6 +1914,98 @@ button.favorite-star:hover {
   padding: 0;
 }
 
+
+/* The owner overview keeps its status beside the brand, leaving room for results. */
+.topbar-inner:has(.header-monitoring-summary) {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  gap: 16px;
+  padding-block: 12px;
+}
+.header-monitoring-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.header-monitoring-summary .status-symbol {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  font-size: 16px;
+}
+.header-monitoring-summary h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.header-monitoring-summary p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.header-monitoring-summary.needs-attention .status-symbol {
+  color: var(--amber);
+  background: var(--amber-soft);
+}
+.header-monitoring-summary.is-neutral .status-symbol {
+  color: var(--muted);
+  background: var(--surface-soft);
+}
+.overview-workspace { padding-top: 16px; }
+.overview-history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.overview-history-toolbar .summary-time {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0;
+  text-align: left;
+  font-size: var(--font-small);
+}
+.overview-history-toolbar .eyebrow {
+  margin: 0;
+  font-size: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.overview-history-toolbar .summary-timestamp { justify-content: flex-start; }
+.overview-history-toolbar .periods { margin: 0 0 0 auto; }
+.overview-history-toolbar .periods a { min-height: 44px; }
+@media (max-width: 900px) {
+  .topbar-inner:has(.header-monitoring-summary) {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    gap: 12px;
+  }
+  .header-monitoring-summary { grid-column: 2 / -1; }
+  .topbar-inner:has(.header-monitoring-summary) .topbar-actions {
+    grid-column: 1 / 3;
+    margin: 0;
+    padding: 0;
+    width: auto;
+  }
+}
+@media (max-width: 720px) {
+  .topbar-inner:has(.header-monitoring-summary) {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 12px;
+  }
+  .topbar-inner:has(.header-monitoring-summary) .brand { grid-column: 1; grid-row: 1; }
+  .topbar-inner:has(.header-monitoring-summary) .settings-button { grid-column: 2; grid-row: 1; }
+  .topbar-inner:has(.header-monitoring-summary) .theme-controls { grid-column: 3; grid-row: 1; }
+  .header-monitoring-summary { grid-column: 1 / -1; grid-row: 2; }
+  .topbar-inner:has(.header-monitoring-summary) .topbar-actions { grid-column: 1 / -1; grid-row: 3; }
+}
 
 /* One readable scale and stable geometry for labels, filters and navigation. */
 html { scrollbar-gutter: stable; }
