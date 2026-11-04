@@ -69,6 +69,27 @@ def test_virustotal_proxy_switch_requires_an_address_before_saving(clean_vt_swit
     assert response.context['form']['virustotal_proxy'].errors
 
 
+def test_virustotal_proxy_is_visible_input_without_redisplaying_saved_credentials(clean_vt_switch, client):
+    from html.parser import HTMLParser
+    from sitewatcher.virustotal_settings import save_vt_proxy
+
+    secret = 'socks5://user:private-pass@proxy.example:1080'
+    save_vt_proxy(secret)
+    class Inputs(HTMLParser):
+        proxy = None
+        def handle_starttag(self, tag, attrs):
+            if tag == 'input' and dict(attrs).get('name') == 'virustotal_proxy':
+                self.proxy = dict(attrs)
+    response = client.get('/settings', HTTP_HOST='localhost')
+    inputs = Inputs()
+    inputs.feed(response.content.decode())
+    assert inputs.proxy['type'] == 'text'
+    assert not inputs.proxy.get('value')
+    assert secret.encode() not in response.content
+    response = post(client, {'virustotal_proxy': secret, 'timezone': 'invalid-zone'})
+    assert response.status_code == 400 and secret.encode() not in response.content
+
+
 def test_timezone_save_preserves_owner_destination_history_and_omitted_preferences(owner, client):
     assert owner.timezone == 'Europe/Moscow'
     storage.set_user_alert_chat_id(31, -100123)

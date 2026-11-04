@@ -48,6 +48,11 @@ def parse_management_form(content_type: str, body: bytes) -> dict[str, str]:
     return values
 
 
+class ProxyAddressInput(forms.PasswordInput):
+    """Show typed URLs while keeping saved/rejected credentials out of HTML."""
+    input_type = 'text'
+
+
 class WorkspacePreferencesForm(forms.Form):
     """Validate optional patches so a timezone save never resets Telegram settings."""
     language = forms.ChoiceField(label=_('Language'), required=False,
@@ -92,8 +97,8 @@ class WorkspacePreferencesForm(forms.Form):
         }))
     virustotal_proxy = forms.CharField(
         label=_('VirusTotal proxy'), required=False, max_length=2048,
-        widget=forms.PasswordInput(render_value=False, attrs={
-            'autocomplete': 'new-password', 'spellcheck': 'false',
+        widget=ProxyAddressInput(render_value=False, attrs={
+            'autocomplete': 'off', 'spellcheck': 'false',
         }))
     remove_virustotal_proxy = forms.BooleanField(
         label=_('Remove saved VirusTotal proxy'), required=False)
