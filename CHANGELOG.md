@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Compact signal-room events into single rows with full labels on hover and
+  internal horizontal scrolling on phones.
+
+- Highlight critical signal-room events with a red background and pulse active
+  critical domain cards; respect pause and reduced-motion preferences.
+
 - Place the signal-room event console on the map beside the monitoring hub and
   domain cards. Show time, check, domain, result and duration as readable fields;
   preserve follow/pause/replay and use a stacked layout on narrow screens.

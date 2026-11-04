@@ -128,6 +128,7 @@
     while (logged.size > 300) logged.delete(logged.keys().next().value);
     const row = document.createElement('li');
     row.dataset.domain = event.domain;
+    row.dataset.level = level(event);
     const time = document.createElement('time');
     time.dateTime = stamp(event);
     time.textContent = clock.format(new Date(stamp(event)));
@@ -150,6 +151,7 @@
     duration.className = 'console-duration';
     duration.textContent = event.elapsed_ms !== null && event.phase === 'finished'
       ? `${event.elapsed_ms} ${panel.dataset.milliseconds}` : '—';
+    for (const field of [check, domain, result, duration]) field.title = field.textContent;
     row.append(time, check, domain, state, result, duration);
     const oldHeight = scroll.scrollHeight;
     const oldTop = scroll.scrollTop;

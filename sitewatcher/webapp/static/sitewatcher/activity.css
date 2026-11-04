@@ -342,16 +342,16 @@
   background: transparent; mask-image: linear-gradient(transparent, #000 18px);
 }
 .activity-console li {
-  display: grid; grid-template-columns: 64px minmax(0, 1fr) auto;
-  align-items: baseline; gap: 5px 10px; padding: 14px 0;
+  display: grid; grid-template-columns: 55px minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, .8fr) 54px;
+  align-items: baseline; gap: 8px; min-height: 34px; padding: 7px 0;
   border-bottom: 1px solid #29445180; white-space: normal;
-  font: 12px/1.6 system-ui, sans-serif;
+  font: 11px/1.6 system-ui, sans-serif;
 }
-.activity-console .console-check { grid-column: 2 / 4; color: #a5bfcc; }
-.activity-console .console-domain { grid-column: 2 / 4; font-weight: 550; color: #d3e4ec; }
-.activity-console .console-status { grid-column: 1; grid-row: 2 / 4; font-size: 13px; }
-.activity-console .console-result { grid-column: 2; font-size: 11px; }
-.activity-console .console-duration { grid-column: 3; color: #8da8b7; white-space: nowrap; }
+.activity-console .console-check { color: #a5bfcc; }
+.activity-console .console-domain { font-weight: 550; color: #d3e4ec; }
+.activity-console .console-status { display: none; }
+.activity-console .console-result { font-size: 11px; }
+.activity-console .console-duration { color: #8da8b7; white-space: nowrap; text-align: right; }
 .activity-console time, .console-duration { font: 11px/1.6 ui-monospace, monospace; }
 .activity-console li:nth-last-child(n+7) { opacity: .65; }
 .activity-console li:hover, .activity-console li:focus-within { opacity: 1; }
@@ -380,7 +380,7 @@
 }
 @media (max-width: 600px) {
   .activity-stage > .activity-console { padding-inline: 16px; }
-  .activity-console ol { min-width: 0; }
+  .activity-console ol { min-width: 620px; }
   .activity-stage .activity-map { flex-basis: auto; }
   .activity-stage .activity-field { min-height: 0; }
 }
@@ -389,3 +389,28 @@
 .activity-panel[data-scene-layout=wide]:not([data-route-active=true]) .scene-node-meta { font-size: 14px; }
 .activity-panel[data-scene-layout=wide]:not([data-route-active=true]) .scene-node-status { font-size: 13px; }
 .activity-panel[data-scene-layout=wide]:not([data-route-active=true]) .scene-hub-caption { font-size: 15px; }
+
+/* Critical outcomes stand out without making old successful events blink. */
+.activity-console li[data-level=crit] {
+  background: #601e2c80; border-left: 3px solid #ff7287;
+  border-bottom-color: #a94b5e80; padding-inline: 10px; opacity: 1;
+}
+.activity-console li[data-level=crit] .console-check,
+.activity-console li[data-level=crit] .console-domain { color: #ffe2e7; }
+.activity-console li[data-level=crit] .console-result { color: #ff9bad; font-weight: 650; }
+.scene-node[data-level=crit] .scene-node-body { fill: #421f2c; stroke: #ff7287; }
+.scene-node[data-level=crit].is-active .scene-node-body {
+  animation: activity-critical 1.6s ease-in-out infinite;
+}
+@keyframes activity-critical {
+  50% { fill: #743044; stroke: #ffb3c1; }
+}
+.activity-panel[data-paused=true] .scene-node[data-level=crit] .scene-node-body { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .scene-node[data-level=crit].is-active .scene-node-body { animation: none; }
+}
+
+
+.activity-console li > :is(.console-check, .console-domain, .console-result, .console-duration) {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
