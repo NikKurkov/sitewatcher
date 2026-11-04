@@ -39,7 +39,10 @@ def test_overview_problem_first_and_real_measurement(owner, client):
     header, main = body.split('</header>', 1)
     assert header.index('class="brand"') < header.index('1 domain needs attention')
     assert header.index('1 domain needs attention') < header.index('class="topbar-actions"')
-    assert 'class="overview-history-toolbar"' in main
+    assert 'Checked:' in header and '<time datetime=' in header
+    assert 'class="overview-history-toolbar"' not in main
+    table_header = main.split('<thead>', 1)[1].split('</thead>', 1)[0]
+    assert table_header.index('Last checked') < table_header.index('class="periods"')
     assert 'class="status-overview' not in main
 
 

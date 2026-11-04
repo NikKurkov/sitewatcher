@@ -1923,6 +1923,9 @@ button.favorite-star:hover {
   padding-block: 12px;
 }
 .header-monitoring-summary {
+  border-inline: 1px solid var(--line);
+  padding-inline: 16px;
+  align-self: stretch;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1956,32 +1959,15 @@ button.favorite-star:hover {
   background: var(--surface-soft);
 }
 .overview-workspace { padding-top: 16px; }
-.overview-history-toolbar {
+.header-summary-meta {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
   flex-wrap: wrap;
-  margin-bottom: 12px;
+  gap: 2px 12px;
 }
-.overview-history-toolbar .summary-time {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  margin: 0;
-  text-align: left;
-  font-size: var(--font-small);
-}
-.overview-history-toolbar .eyebrow {
-  margin: 0;
-  font-size: inherit;
-  text-transform: none;
-  letter-spacing: normal;
-}
-.overview-history-toolbar .summary-timestamp { justify-content: flex-start; }
-.overview-history-toolbar .periods { margin: 0 0 0 auto; }
-.overview-history-toolbar .periods a { min-height: 44px; }
+.header-checked { white-space: nowrap; }
+.overview-workspace .header-periods { padding: 8px; }
+.header-periods .periods { margin: 0; }
+.header-periods .periods a { min-width: 44px; min-height: 44px; }
 @media (max-width: 900px) {
   .topbar-inner:has(.header-monitoring-summary) {
     grid-template-columns: auto minmax(0, 1fr) auto auto;
@@ -2003,7 +1989,19 @@ button.favorite-star:hover {
   .topbar-inner:has(.header-monitoring-summary) .brand { grid-column: 1; grid-row: 1; }
   .topbar-inner:has(.header-monitoring-summary) .settings-button { grid-column: 2; grid-row: 1; }
   .topbar-inner:has(.header-monitoring-summary) .theme-controls { grid-column: 3; grid-row: 1; }
-  .header-monitoring-summary { grid-column: 1 / -1; grid-row: 2; }
+  .header-monitoring-summary {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    border-inline: 0;
+    border-block: 1px solid var(--line);
+    padding: 8px 0;
+  }
+  .overview-workspace .header-periods {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-self: end;
+    padding: 0;
+  }
   .topbar-inner:has(.header-monitoring-summary) .topbar-actions { grid-column: 1 / -1; grid-row: 3; }
 }
 

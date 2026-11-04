@@ -99,7 +99,7 @@ History can be filtered by dates, check and result. Dates include both selected 
 
 ### Find and arrange websites
 
-The overview summary sits beside the SiteWatcher logo, with the last-check time and history period in a compact row above the table. On narrow screens the summary wraps below the logo. Previews: [desktop](screenshots/overview-compact-header-desktop.png), [mobile](screenshots/overview-compact-header-mobile.png).
+The overview summary sits between separators beside the SiteWatcher logo and includes the last-check date and time. The history period is in the table header, to the right of Last checked. On narrow screens the summary wraps below the logo. Previews: [desktop](screenshots/overview-compact-header-desktop.png), [mobile](screenshots/overview-compact-header-mobile.png).
 
 Search is beside the **Domain** heading. The **Status** heading opens a filter; changes apply automatically. The 24-hour, 7-day and 30-day choices are beside the last-check summary.
 

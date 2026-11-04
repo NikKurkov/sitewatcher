@@ -1812,3 +1812,6 @@ msgstr "Дополнительная секретная ссылка — сох�
 
 msgid "The additional private link is shown only once. Rotating it revokes that link; the public page address above stays unchanged. Disabling publication closes both addresses."
 msgstr "Дополнительная секретная ссылка показывается один раз. Перевыпуск отзывает её, но не меняет адрес публичной страницы выше. Отключение публикации закрывает оба адреса."
+
+msgid "Checked:"
+msgstr "Проверено:"
