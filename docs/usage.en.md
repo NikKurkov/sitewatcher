@@ -1,6 +1,6 @@
 # SiteWatcher user guide
 
-[← About the app](../README.en.md) · [Русский](usage.ru.md) · **English**
+[← About the app](../README.md) · [Русский](usage.ru.md) · **English**
 
 ## Find what you need
 
