@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Use a plain globe with a coordinate grid for the Signal room toggle.
+
 - Compact signal-room events into single rows with full labels on hover and
   internal horizontal scrolling on phones.
 
