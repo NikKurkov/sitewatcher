@@ -71,7 +71,7 @@ def test_public_headline_uses_plain_language_for_single_multiple_and_failed_site
             key: key == 'http_basic' for key in ChecksModel.model_fields}})
         storage.save_history(731, name, 'http_basic', 'OK', 'up', {'final_code': 200})
     path, _, _ = publish(client, domains=names[:1])
-    assert 'Опубликованный сайт работает' in get(Client(), path).content.decode()
+    assert 'Все сайты работают' in get(Client(), path).content.decode()
     assert client.post('/settings/public', {'action': 'selection', 'domains': '\n'.join(names)},
                        HTTP_HOST='localhost').status_code == 200
     assert 'Все 5 сайтов работают' in get(Client(), path).content.decode()

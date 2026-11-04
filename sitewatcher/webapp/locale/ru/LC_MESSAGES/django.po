@@ -1870,7 +1870,7 @@ msgstr[1] "%(count)s замечания"
 msgstr[2] "%(count)s замечаний"
 
 msgid "Published site is working"
-msgstr "Опубликованный сайт работает"
+msgstr "Все сайты работают"
 
 msgid "Published site is unavailable"
 msgstr "Опубликованный сайт недоступен"
