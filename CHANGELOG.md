@@ -2,8 +2,6 @@
 
 ## Unreleased
 
-- Use a radar icon and the Signal room label for the monitoring-map toggle.
-
 - Compact signal-room events into single rows with full labels on hover and
   internal horizontal scrolling on phones.
 
