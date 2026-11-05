@@ -99,8 +99,10 @@ Both live VPS services now use `sitewatcher:2a6e247`, with zero restarts and no 
 All 17 domains and domain-settings fingerprints match the final backup. SQLite
 integrity is OK, the worker holds the single scheduler lock, and 137 runtime source
 hashes match in each container. Public HTTPS returned 200 for health, 302 for the
-protected root and 200 for login. The backup timer remained active. A live-worker
-DNSBL probe after switching returned OK with three sources and zero hits/errors.
+protected root and 200 for login. The backup timer remained active. The first
+live-worker DNSBL probe after switching returned UNKNOWN with two checked sources:
+DroneBL's control query timed out. This is the intended incomplete-coverage result,
+and is a real availability limitation despite successful pre-switch qualification.
 
 Rollback requires restoring `compose.yaml` and `release.txt` from the private host
 snapshot and running `docker compose up -d --no-build --wait web worker` in
