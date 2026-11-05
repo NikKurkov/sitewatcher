@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, List
+from typing import List
 
 import httpx
 
@@ -13,50 +13,6 @@ from ..utils.http_body import BodyReadError, DEFAULT_MAX_RESPONSE_BYTES
 
 # Module-level logger
 log = logging.getLogger(__name__)
-
-
-def _normalize_keywords(src: Any) -> List[str]:
-    """Normalize keywords setting into a flat list of non-empty strings.
-
-    Accepts:
-      - list/tuple of strings
-      - list/tuple of dicts with 'text' key
-      - list/tuple of (key, value) where value is the text
-      - a single string (comma-separated)
-    """
-    if not src:
-        return []
-    out: List[str] = []
-
-    def _add(val: Any) -> None:
-        if isinstance(val, str):
-            s = val.strip()
-            if s:
-                out.append(s)
-
-    if isinstance(src, str):
-        # allow comma/semicolon separated formats
-        parts = [p.strip() for p in src.replace(";", ",").split(",")]
-        for p in parts:
-            _add(p)
-        return out
-
-    if isinstance(src, (list, tuple, set)):
-        for it in src:
-            if isinstance(it, str):
-                _add(it)
-            elif isinstance(it, dict):
-                _add(it.get("text"))
-            elif isinstance(it, (list, tuple)) and len(it) >= 2:
-                _add(it[1])
-            else:
-                # ignore unknown shapes
-                pass
-        return out
-
-    # Fallback: one value
-    _add(src)
-    return out
 
 
 class KeywordsCheck(BaseCheck):
@@ -70,7 +26,7 @@ class KeywordsCheck(BaseCheck):
         *,
         client: httpx.AsyncClient,
         timeout_s: int = 5,
-        keywords: Any = None,
+        keywords: List[str] | None = None,
         max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
         http_url: str | None = None,
         cycle_context: CheckContext | None = None,
@@ -82,7 +38,7 @@ class KeywordsCheck(BaseCheck):
             domain: Hostname used to identify this check.
             client: Shared httpx.AsyncClient instance.
             timeout_s: Request timeout in seconds.
-            keywords: Iterable of strings (or flexible structure; see _normalize_keywords).
+            keywords: List of phrases to find on the page.
         """
         super().__init__(domain)
         self.cycle_context = cycle_context
@@ -91,7 +47,7 @@ class KeywordsCheck(BaseCheck):
         self.client = client
         self.max_response_bytes = max_response_bytes
         self.timeout_s = int(timeout_s)
-        self._kw_list: List[str] = _normalize_keywords(keywords)
+        self._kw_list = [keyword.strip() for keyword in (keywords or []) if keyword.strip()]
         # Precompute a lowercased version for fast search
         self._kw_lower: List[str] = [k.lower() for k in self._kw_list]
 

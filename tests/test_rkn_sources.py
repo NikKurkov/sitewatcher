@@ -225,7 +225,7 @@ def test_current_failure_keeps_attempt_timestamp_and_configured_schedule(tmp_pat
 
 def test_legacy_rkn_result_is_not_current_cache_or_scheduling_evidence(tmp_path):
     from sitewatcher import storage
-    from sitewatcher.config import AppConfig, ChecksModel
+    from sitewatcher.config import AppConfig, ChecksModel, resolve_settings
     from sitewatcher.dispatcher import Dispatcher
     from sitewatcher.reporting import build_snapshot
     from sitewatcher.scheduler import due_checks
@@ -234,7 +234,8 @@ def test_legacy_rkn_result_is_not_current_cache_or_scheduling_evidence(tmp_path)
         **dict.fromkeys(ChecksModel.model_fields, False), 'rkn_domain': True}}})
     storage.add_domain(1, 'c.t-p.cc')
     storage.save_history(1, 'c.t-p.cc', 'rkn_domain', 'OK', 'Domain not listed', {'source': 'z-i'})
-    assert Dispatcher(cfg)._maybe_cached_result(1, 'c.t-p.cc', 'rkn_domain', lambda _: 1440) is None
+    assert Dispatcher(cfg)._daily_cached_result(
+        1, 'c.t-p.cc', 'rkn_domain', resolve_settings(cfg, 'c.t-p.cc')) is None
     assert due_checks(cfg, 1, 'c.t-p.cc') == ['rkn_domain']
     assert build_snapshot(cfg, 1)['domains'][0]['overall'] != 'OK'
     assert _overall_from_results(_complete_results(cfg, 1, 'c.t-p.cc', [])) != 'OK'

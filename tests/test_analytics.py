@@ -194,7 +194,7 @@ def test_large_history_is_bounded_and_overview_aggregates_owners_domains(databas
 def test_new_request_errors_have_structured_unavailability_without_response_latency(error, monkeypatch):
     async def request(*args, **kwargs):
         raise error('sensitive remote message')
-    monkeypatch.setattr('sitewatcher.checks.http_basic.get_with_retries', request)
+    monkeypatch.setattr('sitewatcher.check_context.get_with_retries', request)
     result = asyncio.run(HttpBasicCheck('example.com', None).run())
     assert result.status is Status.CRIT
     assert result.metrics['availability'] == 'unavailable'

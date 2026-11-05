@@ -78,8 +78,8 @@ class CheckSchedule(ConfigModel):
     cache_ttl_minutes: how long manual runs (/check) may serve cached results (0 = disabled)
     cache_unknown: optional, when True cached UNKNOWN may be served (default False)
     """
-    interval_minutes: int
-    cache_ttl_minutes: int = 0
+    interval_minutes: int = Field(gt=0)
+    cache_ttl_minutes: int = Field(0, ge=0)
     cache_unknown: bool = False
 
 
@@ -110,12 +110,12 @@ class SchedulerConfig(ConfigModel):
     - domain_timeout_s: optional overall timeout per domain execution
     """
     enabled: bool = True
-    interval_minutes: int = 1
-    jitter_seconds: int = 30
+    interval_minutes: int = Field(1, gt=0)
+    jitter_seconds: int = Field(30, ge=0)
     run_on_startup: bool = True
-    domains_concurrency: int = 5
-    per_domain_concurrency: int = 4
-    domain_timeout_s: float | None = None
+    domains_concurrency: int = Field(5, ge=1)
+    per_domain_concurrency: int = Field(4, ge=1)
+    domain_timeout_s: float | None = Field(None, gt=0)
 
 
 class AlertsConfig(ConfigModel):
@@ -123,8 +123,8 @@ class AlertsConfig(ConfigModel):
     enabled: bool = True
     policy: Literal["overall_change", "worsen_only", "all"] = "overall_change"
     # Support both names; alerts code already checks cooldown_sec/debounce_sec
-    debounce_sec: int | None = 300
-    cooldown_sec: int | None = None
+    debounce_sec: int | None = Field(300, ge=0)
+    cooldown_sec: int | None = Field(None, ge=0)
     chat_id: Optional[int] = None
 
 
@@ -165,9 +165,9 @@ class PortSpec(ConfigModel):
 
 class PortsConfig(ConfigModel):
     """TCP ports probing defaults and targets."""
-    connect_timeout_s: float = 3.0
-    read_timeout_s: float = 2.0
-    read_bytes: int = 128
+    connect_timeout_s: float = Field(3.0, gt=0)
+    read_timeout_s: float = Field(2.0, gt=0)
+    read_bytes: int = Field(128, gt=0)
     targets: List[PortSpec] = Field(
         default_factory=lambda: [
             PortSpec(port=80),
@@ -203,10 +203,10 @@ class WhoisConfig(ConfigModel):
     timeout_s: float = 30.0
     refresh_hours: int = 24
     # New field used by checks/whois_info: primary threshold for WARN
-    warn_days: int = 30
+    warn_days: int = Field(30, ge=0)
     # Backward-compat: keep old fields; not required by the new check but validated below
-    expiry_warn_days: int = 30
-    expiry_crit_days: int = 7
+    expiry_warn_days: int = Field(30, ge=0)
+    expiry_crit_days: int = Field(7, ge=0)
     # Raw WHOIS overrides for specific TLDs (e.g., {"ru": {"method": "whois", "host": "whois.tcinet.ru"}})
     tld_overrides: Dict[str, Dict[str, str]] = Field(default_factory=dict)
     # Optional sqlite cache path (used by the check if provided)
@@ -218,12 +218,12 @@ class WhoisConfig(ConfigModel):
 class HttpClientConfig(ConfigModel):
     """Optional HTTP client tuning for httpx.AsyncClient."""
     max_response_bytes: int = Field(8 * 1024 * 1024, gt=0)
-    connect_timeout: float = 5.0
-    read_timeout: float = 10.0
-    write_timeout: float = 10.0
-    pool_timeout: float = 5.0
-    max_connections: int = 100
-    max_keepalive_connections: int = 20
+    connect_timeout: float = Field(5.0, gt=0)
+    read_timeout: float = Field(10.0, gt=0)
+    write_timeout: float = Field(10.0, gt=0)
+    pool_timeout: float = Field(5.0, gt=0)
+    max_connections: int = Field(100, ge=1)
+    max_keepalive_connections: int = Field(20, ge=0)
     proxy: Optional[str] = None
     # optional mapping support; Dispatcher умеет работать с `proxies` как mounts
     proxies: Optional[Dict[str, str]] = None
@@ -324,8 +324,8 @@ class IpBlConfig(ConfigModel):
         'dnsbl.dronebl.org', 'bl.blocklist.de', 'psbl.surriel.com',
     ])
     dns_servers: Optional[List[str]] = None
-    timeout_s: float = 4.0
-    concurrency: int = 8
+    timeout_s: float = Field(4.0, gt=0)
+    concurrency: int = Field(8, ge=1)
     check_ipv6: bool = False
 
 
@@ -379,12 +379,12 @@ class LoggingConfig:
 
 class VTLimits(ConfigModel):
     """Rate limits for VirusTotal Free tier."""
-    per_minute: int = 4
-    per_day: int = 500
-    per_month: int = 15500
+    per_minute: int = Field(4, gt=0)
+    per_day: int = Field(500, gt=0)
+    per_month: int = Field(15500, gt=0)
     # How long we can wait in-place for the nearest window to free a slot.
     # If > 0, the checker may sleep briefly; if 0 -> return UNKNOWN immediately.
-    max_wait_s: float = 2.0
+    max_wait_s: float = Field(2.0, ge=0)
 
 
 class MalwareConfig(ConfigModel):
@@ -399,7 +399,7 @@ class MalwareConfig(ConfigModel):
 
 class HistoryConfig(ConfigModel):
     """Retention and cleanup policy for history tables."""
-    retention_days: int = 30          # keep last N days in history
+    retention_days: int = Field(30, ge=0)          # keep last N days in history
     cleanup_time: str = "03:30"       # HH:MM UTC for daily cleanup job
     vacuum_weekly: bool = True        # run VACUUM/PRAGMA optimize weekly (Sunday)
 
@@ -563,6 +563,8 @@ def get_bot_token_from_env() -> Optional[str]:
 
 def validate_config(cfg: AppConfig) -> None:
     """Validate runtime-critical config invariants. Raise ValueError with a summary on failure."""
+    # Revalidate serialized data because nested models can be mutated after loading.
+    AppConfig.model_validate(cfg.model_dump())
     errors: list[str] = []
 
     # Rebuilding/removing the RKN index must never destroy persistent monitoring/cache state.
@@ -575,51 +577,6 @@ def validate_config(cfg: AppConfig) -> None:
     except (OSError, ValueError):
         errors.append("rkn.index_db_path must be separate from monitoring, WHOIS and IP-change databases")
 
-    # Scheduler
-    if cfg.scheduler.interval_minutes <= 0:
-        errors.append("scheduler.interval_minutes must be > 0")
-    if cfg.scheduler.domains_concurrency < 1:
-        errors.append("scheduler.domains_concurrency must be >= 1")
-    if cfg.scheduler.per_domain_concurrency < 1:
-        errors.append("scheduler.per_domain_concurrency must be >= 1")
-    if cfg.scheduler.domain_timeout_s is not None and cfg.scheduler.domain_timeout_s <= 0:
-        errors.append("scheduler.domain_timeout_s must be > 0 or null")
-    if cfg.scheduler.jitter_seconds < 0:
-        errors.append("scheduler.jitter_seconds must be >= 0")
-
-    # Alerts
-    if cfg.alerts.debounce_sec is not None and cfg.alerts.debounce_sec < 0:
-        errors.append("alerts.debounce_sec must be >= 0")
-    if cfg.alerts.cooldown_sec is not None and cfg.alerts.cooldown_sec < 0:
-        errors.append("alerts.cooldown_sec must be >= 0")
-
-    # Defaults sanity
-    if cfg.defaults.http_timeout_s <= 0:
-        errors.append("defaults.http_timeout_s must be > 0")
-    if cfg.defaults.latency_warn_ms < 0:
-        errors.append("defaults.latency_warn_ms must be >= 0")
-    if cfg.defaults.latency_crit_ms < 0:
-        errors.append("defaults.latency_crit_ms must be >= 0")
-    if cfg.defaults.latency_crit_ms < cfg.defaults.latency_warn_ms:
-        errors.append("defaults.latency_crit_ms must be >= defaults.latency_warn_ms")
-    if cfg.defaults.tls_warn_days < 0:
-        errors.append("defaults.tls_warn_days must be >= 0")
-
-    # Schedules (all checks)
-    schedules = cfg.schedules.model_dump()
-    for name, sch in schedules.items():
-        iv = int(sch.get("interval_minutes", 0) or 0)
-        ttl = int(sch.get("cache_ttl_minutes", 0) or 0)
-        if iv <= 0:
-            errors.append(f"schedules.{name}.interval_minutes must be > 0")
-        if ttl < 0:
-            errors.append(f"schedules.{name}.cache_ttl_minutes must be >= 0")
-        # cache_unknown is optional bool; no strict validation needed
-
-    # History / retention
-    if cfg.history.retention_days < 0:
-        errors.append("history.retention_days must be >= 0")
-
     # cleanup_time must be HH:MM within 24h
     ct = str(getattr(cfg.history, "cleanup_time", "03:30")).strip()
     try:
@@ -629,79 +586,25 @@ def validate_config(cfg: AppConfig) -> None:
     except Exception:
         errors.append("history.cleanup_time must be in HH:MM format (00:00..23:59)")
 
-    # Ports defaults and targets
-    if cfg.ports.connect_timeout_s <= 0:
-        errors.append("ports.connect_timeout_s must be > 0")
-    if cfg.ports.read_timeout_s <= 0:
-        errors.append("ports.read_timeout_s must be > 0")
-    if cfg.ports.read_bytes <= 0:
-        errors.append("ports.read_bytes must be > 0")
-    for i, tgt in enumerate(cfg.ports.targets):
-        p = int(getattr(tgt, "port", 0) or 0)
-        if not (1 <= p <= 65535):
-            errors.append(f"ports.targets[{i}] port must be in 1..65535")
-        ts = getattr(tgt, "timeout_s", None)
-        if ts is not None and ts <= 0:
-            errors.append(f"ports.targets[{i}].timeout_s must be > 0 if set")
-
-    # IpBL
-    if cfg.ipbl.timeout_s <= 0:
-        errors.append("ipbl.timeout_s must be > 0")
-    if cfg.ipbl.concurrency < 1:
-        errors.append("ipbl.concurrency must be >= 1")
     if cfg.ipbl.dns_servers is not None:
         for i, s in enumerate(cfg.ipbl.dns_servers):
             if not str(s).strip():
                 errors.append(f"ipbl.dns_servers[{i}] must be a non-empty string")
 
-    # Whois
+    # Standalone WHOIS checks allow zero to disable caching; full app configs do not.
     if cfg.whois.refresh_hours <= 0:
         errors.append("whois.refresh_hours must be > 0")
-    if cfg.whois.warn_days < 0:
-        errors.append("whois.warn_days must be >= 0")
-    # Back-compat validation (kept harmless even if unused by the check)
-    if cfg.whois.expiry_warn_days < 0:
-        errors.append("whois.expiry_warn_days must be >= 0")
-    if cfg.whois.expiry_crit_days < 0:
-        errors.append("whois.expiry_crit_days must be >= 0")
     if cfg.whois.expiry_crit_days > cfg.whois.expiry_warn_days:
         errors.append("whois.expiry_crit_days must be <= whois.expiry_warn_days")
-
-    # HTTP client tuning (if present)
-    if cfg.http is not None:
-        if cfg.http.connect_timeout <= 0:
-            errors.append("http.connect_timeout must be > 0")
-        if cfg.http.read_timeout <= 0:
-            errors.append("http.read_timeout must be > 0")
-        if cfg.http.write_timeout <= 0:
-            errors.append("http.write_timeout must be > 0")
-        if cfg.http.pool_timeout <= 0:
-            errors.append("http.pool_timeout must be > 0")
-        if cfg.http.max_connections < 1:
-            errors.append("http.max_connections must be >= 1")
-        if cfg.http.max_keepalive_connections < 0:
-            errors.append("http.max_keepalive_connections must be >= 0")
 
     # Malware / VT limits sanity
     try:
         lim = cfg.malware.vt_limits
-        if lim.per_minute <= 0:
-            errors.append("malware.vt_limits.per_minute must be > 0")
-        if lim.per_day <= 0:
-            errors.append("malware.vt_limits.per_day must be > 0")
-        if lim.per_month <= 0:
-            errors.append("malware.vt_limits.per_month must be > 0")
         if lim.per_month < lim.per_day:
             errors.append("malware.vt_limits.per_month must be >= per_day")
-        if lim.max_wait_s < 0:
-            errors.append("malware.vt_limits.max_wait_s must be >= 0")
     except Exception:
         errors.append("malware.vt_limits is invalid or missing")
 
-    if cfg.ipchange.refresh_hours <= 0:
-        errors.append("ipchange.refresh_hours must be > 0")
-    if cfg.malware.timeout_s <= 0:
-        errors.append("malware.timeout_s must be > 0")
     if cfg.logging.destination not in {"console", "file"}:
         errors.append("logging.destination must be console or file")
     levels = [cfg.logging.level, *cfg.logging.third_party_levels.values()]
@@ -729,7 +632,7 @@ def validate_config(cfg: AppConfig) -> None:
         elif not p.is_file():
             errors.append("deface.phrases_path must be a file")
 
-    # Per-domain overrides (ports sanity)
+    # Per-domain overrides must remain compatible with inherited defaults
     for i, dom in enumerate(cfg.domains):
         try:
             resolve_settings(cfg, dom.name)
@@ -737,15 +640,6 @@ def validate_config(cfg: AppConfig) -> None:
             errors.append(f"domains[{i}]: {validation_message(error)}")
         if not dom.name or not str(dom.name).strip():
             errors.append(f"domains[{i}].name must be a non-empty string")
-        if getattr(dom, "ports", None):
-            for j, tgt in enumerate(dom.ports):
-                p = int(getattr(tgt, "port", 0) or 0)
-                if not (1 <= p <= 65535):
-                    errors.append(f"domains[{i}].ports[{j}] port must be in 1..65535")
-                ts = getattr(tgt, "timeout_s", None)
-                if ts is not None and ts <= 0:
-                    errors.append(f"domains[{i}].ports[{j}].timeout_s must be > 0 if set")
-
     if errors:
         lines = "\n  - " + "\n  - ".join(errors)
         raise ConfigurationError(f"Invalid configuration:{lines}")

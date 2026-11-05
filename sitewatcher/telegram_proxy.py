@@ -5,11 +5,10 @@ import ipaddress
 import os
 from pathlib import Path
 import re
-import stat
-import tempfile
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from . import storage
+from .utils.private_file import load_private_file, save_private_file
 
 
 PROXY_ERROR = 'Enter an HTTP(S) or SOCKS5 proxy URL, or a Telegram SOCKS link.'
@@ -95,36 +94,18 @@ def load_proxy() -> str | None:
     explicit = os.getenv('TELEGRAM_PROXY', '').strip()
     if explicit:
         return normalize_proxy(explicit)
-    try:
-        fd = os.open(proxy_path(), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    except FileNotFoundError:
-        return None  # Preserve HTTPX's existing standard proxy environment fallback.
-    except OSError:
-        raise ValueError('Telegram proxy file could not be read securely.') from None
-    with os.fdopen(fd, encoding='utf-8') as stream:
-        metadata = os.fstat(stream.fileno())
-        if not stat.S_ISREG(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o600:
-            raise ValueError('Telegram proxy file requires mode 0600 permissions.')
-        try:
-            return normalize_proxy(stream.read(2049))
-        except (ValueError, UnicodeError):
-            raise ValueError('Telegram proxy file is invalid. Save a new proxy or remove it.') from None
+    # An absent file preserves HTTPX's standard proxy environment fallback.
+    return load_private_file(
+        proxy_path(), normalize_proxy, 2049,
+        read_error='Telegram proxy file could not be read securely.',
+        permissions_error='Telegram proxy file requires mode 0600 permissions.',
+        invalid_error='Telegram proxy file is invalid. Save a new proxy or remove it.',
+    )
 
 
 def save_proxy(value: str) -> None:
     value = normalize_proxy(value)
-    path = proxy_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix='.telegram-proxy-', dir=path.parent)
-    try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
-            stream.write(value)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    save_private_file(proxy_path(), value, '.telegram-proxy-')
 
 
 def remove_proxy() -> None:
