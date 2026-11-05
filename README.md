@@ -50,6 +50,8 @@ Available checks:
 
 Choose which checks to run for each website. See the [user guide](docs/usage.en.md) for details.
 
+TLS, WHOIS, VirusTotal and IP reputation use daily observations even when a site has a shorter operational interval. HTTP, IP changes, ping and ports remain operational. TLS and WHOIS have separate refresh actions in domain details. A failed provider refresh retains confirmed threats with the original evidence age.
+
 ## How does it work?
 
 1. **Add a website address**, such as `example.com` or `example.com/catalog/`.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import hashlib
 import logging
 import socket
 from ipaddress import IPv4Address
@@ -12,6 +13,7 @@ import dns.asyncresolver
 import dns.exception
 import dns.resolver
 
+from .. import probe_cache
 from .base import BaseCheck, CheckOutcome, Status
 
 # Module-level logger for structured events
@@ -69,6 +71,7 @@ class IpBlacklistCheck(BaseCheck):
         timeout_s: float = 2.5,
         concurrency: int = 20,
         check_ipv6: bool = False,
+        cycle_context=None,
     ) -> None:
         """
         Args:
@@ -85,6 +88,7 @@ class IpBlacklistCheck(BaseCheck):
         self.concurrency = max(1, int(concurrency))
         self.check_ipv6 = bool(check_ipv6)
         self.dns_servers = dns_servers
+        self.cycle_context = cycle_context
 
         # Async resolver instance (dnspython)
         self.resolver = dns.asyncresolver.Resolver()
@@ -171,24 +175,50 @@ class IpBlacklistCheck(BaseCheck):
         # Validate both control records before trusting a zone. An offline/retired
         # DNSBL may return NXDOMAIN for everything or list the entire Internet.
         sem = asyncio.Semaphore(self.concurrency)
-        health = await asyncio.gather(*(self._zone_health(sem, zone) for zone in self.zones))
+        health_observations = await asyncio.gather(*(
+            self._cached_health(sem, zone) for zone in self.zones))
+        health = [observation.value.get('error') for observation in health_observations]
         healthy_zones = [zone for zone, error in zip(self.zones, health, strict=True)
                          if error is None]
         zone_errors = [{'zone': zone, 'error': error}
                        for zone, error in zip(self.zones, health, strict=True) if error is not None]
         pairs = [(ip, zone) for ip in ips for zone in healthy_zones]
-        tasks = [self._probe_ip_zone(sem, ip, zone) for ip, zone in pairs]
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for result in results:
-            if isinstance(result, asyncio.CancelledError):
-                raise result
-        hits: List[Hit] = [r for r in results if isinstance(r, Hit)]
-        query_errors = [{'ip': ip, 'zone': zone,
-                         'error': str(result) if isinstance(result, ValueError)
-                         else type(result).__name__}
-                        for (ip, zone), result in zip(pairs, results, strict=True)
-                        if isinstance(result, Exception)]
+        observations = await asyncio.gather(*(
+            self._cached_probe(sem, ip, zone) for ip, zone in pairs))
+        hits = []
+        query_errors = []
+        for (ip, zone), observation in zip(pairs, observations, strict=True):
+            value = observation.value
+            hit = value.get('hit')
+            if hit:
+                hits.append(Hit(ip=ip, zone=zone, a=hit['a'], txt=hit['txt']))
+            if value.get('error'):
+                query_errors.append({'ip': ip, 'zone': zone, 'error': value['error']})
+        # Successful controls validate a source but do not shorten its daily
+        # IP answer lifetime. Failed controls do schedule an earlier coverage retry.
+        deadlines = [*observations, *(item for item in health_observations
+                                      if item.value.get('error'))]
+        if not deadlines:
+            deadlines = health_observations
+        # A failed source health refresh cannot clear a previously confirmed hit.
+        for zone, error in zip(self.zones, health, strict=True):
+            if error is None:
+                continue
+            for ip in ips:
+                old = probe_cache.read('dnsbl-answer', self._cache_key(zone, ip))
+                if old and old.value.get('hit'):
+                    hit = old.value['hit']
+                    hits.append(Hit(ip=ip, zone=zone, a=hit['a'], txt=hit['txt']))
+                    observations.append(old)
+        evidence = [*health_observations, *observations]
+        cached = bool(evidence) and all(item.cached for item in evidence)
+        metrics.update({
+            'cache_hit': cached,
+            'observed_at': min(
+                item.value.get('observed_at', item.fetched_at.isoformat())
+                for item in (observations or health_observations)),
+            'next_refresh_at': min(item.expires_at for item in deadlines).isoformat(),
+        })
         errors_count = len(query_errors) + len(zone_errors)
         queries_total = len(pairs)
         failed_zones = {error['zone'] for error in query_errors}
@@ -241,7 +271,7 @@ class IpBlacklistCheck(BaseCheck):
             message = f"listed: {', '.join(parts)}"
             if errors_count:
                 message += f'; incomplete coverage ({errors_count} errors)'
-            return CheckOutcome(self.name, Status.CRIT, message, metrics)
+            return CheckOutcome(self.name, Status.CRIT, message, metrics, cached=cached)
 
         message = 'not listed'
         if completed_zones and partial_coverage:
@@ -258,9 +288,45 @@ class IpBlacklistCheck(BaseCheck):
             Status.OK if completed_zones else Status.UNKNOWN,
             message,
             metrics,
+            cached=cached,
         )
 
     # ----------------------------- internals -----------------------------
+
+    def _cache_key(self, zone: str, ip: str | None = None) -> str:
+        context = {'version': 3, 'zones': self.zones,
+                   'resolvers': list(self.resolver.nameservers), 'timeout_s': self.timeout_s}
+        fingerprint = hashlib.sha256(json.dumps(context, sort_keys=True).encode()).hexdigest()
+        return f'{fingerprint}:{zone}:{ip or "health"}'
+
+    async def _cached_health(self, sem: asyncio.Semaphore, zone: str):
+        async def fetch():
+            return {'error': await self._zone_health(sem, zone)}
+        return await probe_cache.get_or_fetch(
+            'dnsbl-health', self._cache_key(zone), fetch,
+            ttl_s=lambda value: 900 if value.get('error') else 3600,
+        )
+
+    async def _cached_probe(self, sem: asyncio.Semaphore, ip: str, zone: str):
+        key = self._cache_key(zone, ip)
+
+        async def fetch():
+            try:
+                hit = await self._probe_ip_zone(sem, ip, zone)
+                return {'hit': {'a': hit.a, 'txt': hit.txt} if hit else None}
+            except Exception as error:
+                value = {'error': _safe_error(error)}
+                previous = probe_cache.read('dnsbl-answer', key)
+                if previous and previous.value.get('hit'):
+                    value['hit'] = previous.value['hit']
+                    value['observed_at'] = previous.value.get(
+                        'observed_at', previous.fetched_at.isoformat())
+                return value
+
+        return await probe_cache.get_or_fetch(
+            'dnsbl-answer', key, fetch,
+            ttl_s=lambda value: 900 if value.get('error') else 86400,
+        )
 
     async def _zone_health(self, sem: asyncio.Semaphore, zone: str) -> str | None:
         try:
@@ -272,7 +338,7 @@ class IpBlacklistCheck(BaseCheck):
                 if negative:
                     return 'negative test record is listed'
         except Exception as error:
-            return str(error) if isinstance(error, ValueError) else type(error).__name__
+            return _safe_error(error)
         return None
 
     async def _lookup(self, ip: str, zone: str) -> list[str]:
@@ -303,6 +369,15 @@ class IpBlacklistCheck(BaseCheck):
 
     async def _resolve_ips(self) -> Tuple[List[str], List[str]]:
         """Resolve A/AAAA records using the configured async resolver."""
+        # The shared cycle resolver uses the system getaddrinfo context. Explicit
+        # DNSBL resolvers must also resolve the monitored domain themselves.
+        if self.cycle_context is not None and not self.dns_servers:
+            records = await self.cycle_context.resolve(
+                self.domain, family=socket.AF_UNSPEC if self.check_ipv6 else socket.AF_INET)
+            return (
+                list(dict.fromkeys(item[4][0] for item in records if item[0] == socket.AF_INET)),
+                list(dict.fromkeys(item[4][0] for item in records if item[0] == socket.AF_INET6)),
+            )
         v4: List[str] = []
         v6: List[str] = []
 
@@ -315,14 +390,15 @@ class IpBlacklistCheck(BaseCheck):
         ):
             v4 = []
 
-        try:
-            ans_aaaa = await self.resolver.resolve(self.domain, "AAAA", lifetime=self.timeout_s)
-            v6 = [rr.address for rr in ans_aaaa]
-        except (
-            dns.resolver.NXDOMAIN,
-            dns.resolver.NoAnswer,
-        ):
-            v6 = []
+        if self.check_ipv6:
+            try:
+                ans_aaaa = await self.resolver.resolve(self.domain, "AAAA", lifetime=self.timeout_s)
+                v6 = [rr.address for rr in ans_aaaa]
+            except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+                pass
+            except dns.exception.DNSException:
+                if not v4:
+                    raise
 
         # Deduplicate preserving order
         v4 = list(dict.fromkeys(v4))
@@ -379,6 +455,16 @@ class IpBlacklistCheck(BaseCheck):
 
 
 # ----------------------------- helpers -----------------------------
+
+def _safe_error(error: Exception) -> str:
+    # Only our fixed protocol-validation messages may include response details.
+    if isinstance(error, ValueError) and str(error).startswith((
+        'empty DNSBL answer', 'invalid DNSBL response:', 'DNSBL service error:',
+        'unrecognized DNSBL response:',
+    )):
+        return str(error)[:160]
+    return type(error).__name__
+
 
 def _is_ip(s: str) -> bool:
     """Return True if the string is a valid IPv4/IPv6 address."""

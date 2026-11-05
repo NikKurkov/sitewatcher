@@ -218,6 +218,7 @@ def test_startup_warmup_finishes_before_periodic_checks_or_alerts(monkeypatch, j
         assert storage.get_alert_state(1, 'example.com')['last_overall'] == 'CRIT'
         # A later due tick must resume rather than remaining permanently gated.
         monkeypatch.setattr(storage, 'last_check_ages', lambda *_: {})
+        monkeypatch.setattr(storage, 'latest_check_results', lambda *_: {})
         await periodic(context)
         assert probes == ['example.com', 'example.com'] and sent == []
         assert len(storage.last_results(1, 'example.com')) == 2

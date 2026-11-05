@@ -186,7 +186,7 @@ class RknConfig(ConfigModel):
     # Accepted only for old config files; frozen z-i is never downloaded.
     z_i_url: Optional[str] = Field(None, exclude=True)
     # Refresh policy
-    cache_ttl_hours: int = Field(12, gt=0)
+    cache_ttl_hours: int = Field(24, gt=0)
     max_source_age_hours: int = Field(168, gt=0)
     match_subdomains: bool = True
     check_ip: bool = True

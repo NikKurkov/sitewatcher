@@ -14,7 +14,7 @@ from django.shortcuts import render
 from django.views.decorators.http import require_http_methods, require_POST, require_safe
 
 from sitewatcher import storage, domain_groups
-from sitewatcher.config import AppConfig, ChecksModel
+from sitewatcher.config import AppConfig, ChecksModel, resolve_settings
 from sitewatcher.dispatcher import Dispatcher
 from sitewatcher.reporting import SnapshotError, build_snapshot
 from sitewatcher.utils.domains import normalize_domain
@@ -48,6 +48,64 @@ async def _check_domains(cfg: AppConfig, owner_id: int, names: list[str]) -> Non
 def run_manual_checks(cfg: AppConfig, owner_id: int, names: list[str]) -> None:
     """Run probes without alert delivery; concurrent deletion must never recreate a domain."""
     asyncio.run(_check_domains(cfg, owner_id, names))
+
+
+async def _refresh_metadata(cfg, owner_id, domain, check):
+    if not storage.domain_exists(owner_id, domain):
+        raise Http404('Domain not found')
+    async with Dispatcher(cfg) as dispatcher:
+        async with asyncio.timeout(cfg.scheduler.domain_timeout_s or 120):
+            results = await dispatcher.run_for(
+                owner_id, domain, only_checks=[check], refresh_checks=[check],
+            )
+    storage.save_histories(owner_id, domain, results, create_missing=False, source='manual')
+    return results
+
+
+@owner_required
+@require_POST
+def refresh(request):
+    if settings.SITEWATCHER_READ_ONLY:
+        return _private(HttpResponse(_('Read-only workspace'), status=405))
+    form = dict(request.management_form)
+    form.pop('csrfmiddlewaretoken', None)
+    allowed = {'domain', 'check', 'q', 'status', 'days', 'history'}
+    if request.GET or set(form) - allowed or not {'domain', 'check'} <= set(form):
+        return _private(HttpResponse(_('Invalid request'), status=400))
+    try:
+        check = form['check']
+        if check not in {'tls_cert', 'whois'} or form.get('history', '') not in {'', '1'}:
+            raise ValueError('Invalid metadata check')
+        filters = _list_filters(form)
+        owner_id = request.workspace.owner_id
+        domain = _existing(owner_id, form['domain'])
+        cfg = settings.SITEWATCHER_CONFIG
+        resolved = resolve_settings(cfg, domain, storage.get_domain_override(owner_id, domain))
+        if not getattr(resolved.checks, check):
+            raise ValueError('Check disabled')
+        if not _check_lock.acquire(blocking=False):
+            return _private(HttpResponse(_('Another manual check is running'), status=409))
+        try:
+            results = asyncio.run(_refresh_metadata(cfg, owner_id, domain, check))
+        finally:
+            _check_lock.release()
+        notice = (_('Cached metadata reused; refresh is limited by provider cooldown')
+                  if not results or any(result.cached for result in results)
+                  else _('Metadata refresh completed; results saved'))
+        if form.get('history') == '1':
+            return _private(HttpResponse(status=303, headers={'Location': '/domains/history?' +
+                urlencode({'domain': domain, 'days': filters['days'], 'notice': notice})}))
+        return _redirect(notice, filters)
+    except ValueError:
+        return _private(HttpResponse(_('Invalid request'), status=400))
+    except TimeoutError:
+        return _private(HttpResponse(_('Checks timed out; inspect saved results before retrying'),
+                                     status=504))
+    except Http404:
+        raise
+    except Exception:
+        return _private(HttpResponse(_('Operation failed; inspect saved state before retrying'),
+                                     status=503))
 
 
 def _private(response):
@@ -131,6 +189,7 @@ def _page(request, view, domain='', *, error='', values=None, status=200):
             item['observed'] = local_time(item['created_at'], request.workspace.timezone)
         return _render(request, 'domain_detail', {'report': report_context(report), 'row': row,
                                                  'history': history, 'history_form': history_form,
+                                                 'notice': request.GET.get('notice', ''),
                                                  'history_query': urlencode({
                                                      name: request.GET[name] for name in history_form.fields
                                                      if request.GET.get(name)}),

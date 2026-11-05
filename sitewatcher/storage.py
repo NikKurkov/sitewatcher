@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 
+from .check_policy import assessment_context
+
 DEFAULT_DB = Path(os.getenv("DATABASE_PATH", "./sitewatcher.db"))
 
 SCHEMA_SQL = """
@@ -362,6 +364,7 @@ def save_histories(
     _save_history_rows(owner_id, domain, [
         (result.check, result.status, result.message, result.metrics)
         for result in results if not getattr(result, "cached", False)
+        or getattr(result, "assessment_changed", False)
     ], create_missing=create_missing, source=source)
 
 
@@ -389,6 +392,25 @@ def _save_history_rows(
             "SELECT 1 FROM domains WHERE owner_id=? AND name=?", (int(owner_id), domain),
         ).fetchone():
             return
+        unique_rows = []
+        for item in rows:
+            current_metrics = json.loads(item[5])
+            observation = current_metrics.get('observed_at') if isinstance(current_metrics, dict) else None
+            if observation:
+                previous = conn.execute(
+                    'SELECT status,metrics_json FROM history WHERE owner_id=? AND domain=? '
+                    'AND check_name=? ORDER BY id DESC LIMIT 1', item[:3]).fetchone()
+                try:
+                    prior_metrics = json.loads(previous['metrics_json']) if previous else {}
+                except (ValueError, TypeError):
+                    prior_metrics = {}
+                if (previous and previous['status'] == item[3]
+                        and isinstance(prior_metrics, dict)
+                        and prior_metrics.get('observed_at') == observation
+                        and assessment_context(prior_metrics) == assessment_context(current_metrics)):
+                    continue
+            unique_rows.append(item)
+        rows = unique_rows
         conn.executemany(
             "INSERT INTO history(owner_id, domain, check_name, status, message, "
             "metrics_json, source, created_at) "
@@ -514,7 +536,7 @@ def latest_check_results(owner_id: int, domain: str) -> dict[str, sqlite3.Row]:
 # ---------- Persistent VirusTotal daily request cache ----------
 
 def claim_virustotal_report(owner_id: int, url: str, *, now=None) -> tuple[float | None, dict | None]:
-    """Atomically allow one lookup per owner/URL per rolling 24 hours."""
+    """Return a daily lookup claim plus the preceding observation, if available."""
     _ensure_initialized()
     stamp = (now or datetime.now(timezone.utc)).timestamp()
     with _write_connection() as conn:
@@ -543,26 +565,66 @@ def claim_virustotal_report(owner_id: int, url: str, *, now=None) -> tuple[float
                         break
                 except (ValueError, TypeError, AttributeError):
                     continue
+        row = conn.execute('SELECT outcome_json,requested_at FROM virustotal_reports WHERE owner_id=? '
+                           'AND url=?', (owner_id, url)).fetchone()
+        previous = json.loads(row['outcome_json']) if row and row['outcome_json'] else None
+        if previous is not None:
+            previous = {
+                **previous,
+                'observed_at': (previous.get('metrics', {}).get('observed_at')
+                                or previous.get('observed_at')
+                                or datetime.fromtimestamp(row['requested_at'], timezone.utc).isoformat()),
+                'requested_at': row['requested_at'],
+            }
         cursor = conn.execute(
-            'INSERT INTO virustotal_reports(owner_id,url,requested_at) VALUES(?,?,?) '
+            'INSERT INTO virustotal_reports(owner_id,url,requested_at,outcome_json) VALUES(?,?,?,?) '
             'ON CONFLICT(owner_id,url) DO UPDATE SET requested_at=excluded.requested_at, '
-            'outcome_json=NULL WHERE virustotal_reports.requested_at<=?',
-            (owner_id, url, stamp, stamp - 86400),
+            'outcome_json=excluded.outcome_json WHERE virustotal_reports.requested_at<=?',
+            (owner_id, url, stamp,
+             json.dumps({**previous, '_refresh_inflight': True}) if previous else None,
+             stamp - 86400),
         )
         if cursor.rowcount:
-            return stamp, None
-        row = conn.execute('SELECT outcome_json FROM virustotal_reports WHERE owner_id=? '
-                           'AND url=?', (owner_id, url)).fetchone()
-        return None, json.loads(row['outcome_json']) if row['outcome_json'] else None
+            return stamp, previous
+        if previous is not None:
+            previous['next_refresh_at'] = datetime.fromtimestamp(
+                row['requested_at'] + 86400, timezone.utc).isoformat()
+        return None, previous
 
 
-def save_virustotal_report(owner_id: int, url: str, claim: float, outcome: dict | None) -> None:
-    """An unspent local quota reservation may be retried without waiting a day."""
+def virustotal_pending_until(owner_id: int, url: str) -> datetime | None:
+    """Read the durable guard of an active/interrupted attempt without claiming it.
+
+    A pending attempt may suppress scheduling, but never makes prior clean facts fresh.
+    Completed reports still run once to reconcile their observation into owner history.
+    """
+    _ensure_initialized()
+    with closing(_connect()) as conn:
+        row = conn.execute('SELECT requested_at,outcome_json FROM virustotal_reports '
+                           'WHERE owner_id=? AND url=?', (owner_id, url)).fetchone()
+    if not row:
+        return None
+    payload = json.loads(row['outcome_json']) if row['outcome_json'] else None
+    if payload is None or payload.get('_refresh_inflight'):
+        return datetime.fromtimestamp(row['requested_at'] + 86400, timezone.utc)
+    return None
+
+
+def save_virustotal_report(
+    owner_id: int, url: str, claim: float, outcome: dict | None, previous: dict | None = None,
+) -> None:
+    """Release unspent quota while retaining the preceding provider observation."""
     with _write_connection() as conn:
-        if outcome is None:
+        if outcome is None and previous is not None:
+            conn.execute('UPDATE virustotal_reports SET requested_at=?, outcome_json=? '
+                         'WHERE owner_id=? AND url=? AND requested_at=?',
+                         (previous['requested_at'], json.dumps(previous), owner_id, url, claim))
+        elif outcome is None:
             conn.execute('DELETE FROM virustotal_reports WHERE owner_id=? AND url=? '
                          'AND requested_at=?', (owner_id, url, claim))
         else:
+            outcome = {**outcome}
+            outcome.pop('_refresh_inflight', None)
             conn.execute('UPDATE virustotal_reports SET outcome_json=? WHERE owner_id=? '
                          'AND url=? AND requested_at=?',
                          (json.dumps(outcome), owner_id, url, claim))

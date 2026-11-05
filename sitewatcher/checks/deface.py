@@ -6,6 +6,7 @@ from typing import List, Optional
 
 import httpx
 
+from ..check_context import CheckContext
 from .base import BaseCheck, CheckOutcome, Status
 from ..utils.http_retry import get_with_retries
 from ..utils.http_body import BodyReadError, DEFAULT_MAX_RESPONSE_BYTES
@@ -28,6 +29,8 @@ class DefaceCheck(BaseCheck):
         markers: Optional[List[str]] = None,
         max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
         http_url: str | None = None,
+        cycle_context: CheckContext | None = None,
+        owner_id: int | None = None,
     ) -> None:
         """
         Args:
@@ -37,6 +40,8 @@ class DefaceCheck(BaseCheck):
             markers: Case-insensitive phrases to search for; if None, a built-in set is used.
         """
         super().__init__(domain)
+        self.cycle_context = cycle_context
+        self.owner_id = owner_id
         self.http_url = http_url
         self.client = client
         self.max_response_bytes = max_response_bytes
@@ -71,18 +76,28 @@ class DefaceCheck(BaseCheck):
                     extra={"event": "deface.fetch.try", "domain": self.domain, "url": url, "scheme": scheme},
                 )
                 start = time.perf_counter()
-                r = await get_with_retries(
-                    self.client,
-                    url,
-                    timeout_s=self.timeout_s,
-                    max_response_bytes=self.max_response_bytes,
-                    retries=2,
-                    backoff_s=0.25,
-                    follow_redirects=True,
-                    headers={"User-Agent": "sitewatcher/0.2 (+https://github.com/NikKurkov/sitewatcher)"},
-                    log_extra={"domain": self.domain, "check": self.name},  # pass context for retry logs
+                if self.cycle_context is not None:
+                    observation = await self.cycle_context.fetch_page(
+                        self.client, url, timeout_s=self.timeout_s,
+                        max_response_bytes=self.max_response_bytes,
+                        owner_id=self.owner_id, domain=self.domain,
+                    )
+                    r = observation.content_response()
+                else:
+                    r = await get_with_retries(
+                        self.client,
+                        url,
+                        timeout_s=self.timeout_s,
+                        max_response_bytes=self.max_response_bytes,
+                        retries=2,
+                        backoff_s=0.25,
+                        follow_redirects=True,
+                        headers={"User-Agent": "sitewatcher/0.2 (+https://github.com/NikKurkov/sitewatcher)"},
+                        log_extra={"domain": self.domain, "check": self.name},  # pass context for retry logs
+                    )
+                elapsed_ms = r.extensions.get(
+                    "cycle_latency_ms", int((time.perf_counter() - start) * 1000),
                 )
-                elapsed_ms = int((time.perf_counter() - start) * 1000)
                 redirects = len(r.history)
                 code = r.status_code
 

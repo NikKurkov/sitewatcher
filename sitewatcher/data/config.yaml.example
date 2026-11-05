@@ -26,6 +26,8 @@ scheduler:
   per_domain_concurrency: 4
   domain_timeout_s: 120
 
+# Domain intervals apply to operational probes. Metadata/reputation checks use
+# at least 24h; explicit single-domain TLS/WHOIS refresh is separate.
 schedules:
   http_basic: { interval_minutes: 5, cache_ttl_minutes: 2 }
   tls_cert: { interval_minutes: 1440, cache_ttl_minutes: 1440 }
@@ -58,7 +60,7 @@ ipbl:
 #   vt_proxy: "http://proxy.example:3128"  # optional; VirusTotal only
 # rkn:
 #   source: antifilter             # primary; bol-van is the automatic fallback
-#   cache_ttl_hours: 12
+#   cache_ttl_hours: 24
 #   max_source_age_hours: 168       # reject declared source dates older than 7 days
 #   index_db_path: /var/lib/sitewatcher/z_i_index.db
 # domains:

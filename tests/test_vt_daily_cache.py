@@ -138,3 +138,145 @@ def test_legacy_pending_reports_and_provider_results_hidden_by_local_limits_are_
     claim, result = storage.claim_virustotal_report(7, 'https://example.test/')
     assert claim is None
     assert result['metrics'] == metrics
+
+
+@pytest.mark.parametrize('prior_status', [Status.WARN, Status.CRIT])
+@pytest.mark.parametrize('response_code', [200, 429])
+def test_failed_daily_refresh_preserves_known_threat_and_observation(prior_status, response_code):
+    url = 'https://example.test/'
+    old = datetime.now(timezone.utc) - timedelta(days=2)
+    claim, _ = storage.claim_virustotal_report(7, url, now=old)
+    providers = {'virustotal': {'stats': {'malicious': 2}, 'analysis_date': 123}}
+    storage.save_virustotal_report(7, url, claim, {
+        'status': prior_status.value, 'message': 'known threat',
+        'metrics': {'url': url, 'providers': providers, 'observed_at': old.isoformat()},
+    })
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(response_code, json={'data': {'attributes': {}}})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            return await MalwareScanCheck('example.test', owner_id=7, client=client,
+                                         vt_cfg=_VTConfig(api_key='test')).run()
+
+    first = asyncio.run(run())
+    second = asyncio.run(run())
+    assert first.status is second.status is prior_status
+    assert first.metrics['providers'] == second.metrics['providers'] == providers
+    assert first.metrics['observed_at'] == second.metrics['observed_at'] == old.isoformat()
+    assert first.metrics['attempted_at'] == second.metrics['attempted_at']
+    assert first.metrics['attempted_at'] != old.isoformat()
+    assert first.metrics['next_refresh_at'] == second.metrics['next_refresh_at']
+    assert first.metrics['cache_state'] == second.metrics['cache_state'] == 'stale'
+    assert second.cached
+    assert len(requests) == 1
+
+
+def test_unspent_refresh_retains_standalone_threat_without_consuming_daily_budget():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    old = datetime.now(timezone.utc) - timedelta(days=2)
+    url = 'https://example.test/'
+    claim, _ = storage.claim_virustotal_report(7, url, now=old)
+    storage.save_virustotal_report(7, url, claim, {
+        'status': 'CRIT', 'message': 'known threat',
+        'metrics': {'url': url, 'providers': {'virustotal': {'stats': {'malicious': 1}}},
+                    'observed_at': old.isoformat()},
+    })
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(429)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            limiter = SimpleNamespace(try_acquire=AsyncMock(side_effect=[(False, 10), (True, 0)]))
+            check = MalwareScanCheck('example.test', owner_id=7, client=client,
+                                     vt_cfg=_VTConfig(api_key='test'), vt_limiter=limiter)
+            denied = await check.run()
+            assert denied.status is Status.CRIT
+            assert denied.metrics['observed_at'] == old.isoformat()
+            assert not requests
+            failed = await check.run()
+            assert failed.status is Status.CRIT
+            assert failed.metrics['observed_at'] == old.isoformat()
+            assert len(requests) == 1
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('prior_status', [Status.OK, Status.WARN, Status.CRIT])
+def test_inflight_and_cancelled_refresh_never_reuses_old_clean_verdict(prior_status):
+    from types import SimpleNamespace
+
+    old = datetime.now(timezone.utc) - timedelta(hours=25)
+    url = 'https://example.test/'
+    claim, _ = storage.claim_virustotal_report(7, url, now=old)
+    providers = {'virustotal': {'stats': {'malicious': int(prior_status is Status.CRIT)}}}
+    storage.save_virustotal_report(7, url, claim, {
+        'status': prior_status.value, 'message': 'old observation',
+        'metrics': {'url': url, 'providers': providers, 'observed_at': old.isoformat()},
+    })
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(200)
+
+    async def run():
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def blocked_quota(**kwargs):
+            entered.set()
+            await release.wait()
+            return True, 0
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            leader = asyncio.create_task(MalwareScanCheck('example.test', owner_id=7,
+                client=client, vt_cfg=_VTConfig(api_key='test'),
+                vt_limiter=SimpleNamespace(try_acquire=blocked_quota)).run())
+            await entered.wait()
+            pending = await MalwareScanCheck('example.test', owner_id=7, client=client,
+                                             vt_cfg=_VTConfig(api_key='test')).run()
+            leader.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await leader
+            cancelled = await MalwareScanCheck('example.test', owner_id=7, client=client,
+                                               vt_cfg=_VTConfig(api_key='test')).run()
+            for result in (pending, cancelled):
+                assert result.status is (Status.UNKNOWN if prior_status is Status.OK else prior_status)
+                assert result.cached and result.metrics['cache_inflight']
+                assert result.metrics['cache_state'] == 'stale'
+                assert result.metrics['observed_at'] == old.isoformat()
+                assert result.metrics['providers'] == providers
+                assert result.metrics['attempted_at'] != old.isoformat()
+            assert pending.metrics['next_refresh_at'] == cancelled.metrics['next_refresh_at']
+            assert not requests
+    asyncio.run(run())
+
+
+def test_completed_refresh_removes_inflight_marker():
+    url = 'https://example.test/'
+    old = datetime.now(timezone.utc) - timedelta(hours=25)
+    claim, _ = storage.claim_virustotal_report(7, url, now=old)
+    storage.save_virustotal_report(7, url, claim,
+        {'status': 'OK', 'message': 'old clean', 'metrics': {'url': url}})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request:
+            httpx.Response(200, json={'data': {'attributes': {'last_analysis_stats': {
+                'malicious': 0, 'suspicious': 0, 'harmless': 1}}}}))) as client:
+            first = await MalwareScanCheck('example.test', owner_id=7, client=client,
+                                          vt_cfg=_VTConfig(api_key='test')).run()
+            cached = await MalwareScanCheck('example.test', owner_id=7, client=client,
+                                           vt_cfg=_VTConfig(api_key='test')).run()
+            assert first.status is cached.status is Status.OK
+            assert cached.cached
+            assert not cached.metrics.get('cache_inflight')
+            assert cached.metrics['observed_at'] == first.metrics['observed_at']
+    asyncio.run(run())

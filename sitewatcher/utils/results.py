@@ -16,7 +16,7 @@ def is_pending_malware_report(check: str, status: object, message: str) -> bool:
 
 
 def current_rkn_result(check_name: str, metrics, max_age_hours: int = 168, *, status=None) -> bool:
-    """Frozen-source results remain history, never evidence for a current RKN result."""
+    """Validate source provenance; retained stale threats remain schedulable."""
     if check_name not in {'rkn_domain', 'rkn_ip'}:
         return True
     try:
@@ -29,7 +29,11 @@ def current_rkn_result(check_name: str, metrics, max_age_hours: int = 168, *, st
             return False
         updated = datetime.fromisoformat(data['source_updated_at'].replace('Z', '+00:00'))
         age = datetime.now(timezone.utc) - updated
-        return -timedelta(minutes=5) <= age <= timedelta(hours=max_age_hours)
+        retained_threat = (data.get('registry_version') == '3'
+                           and data.get('source_stale') is True
+                           and status_text(status) in {'WARN', 'CRIT'})
+        return (age >= -timedelta(minutes=5)
+                and (age <= timedelta(hours=max_age_hours) or retained_threat))
     except (ValueError, TypeError, KeyError, AttributeError, RecursionError):
         return False
 

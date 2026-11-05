@@ -81,6 +81,7 @@ urlpatterns = [
 
 # Explicit owner routes and native POST actions.
 urlpatterns += [
+    path('domains/refresh', domains.refresh),
     path('domains/new', domains.management, {'view': 'add'}),
     path('domains/edit', domains.management, {'view': 'edit'}),
     path('domains/delete', domains.management, {'view': 'delete'}),

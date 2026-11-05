@@ -45,6 +45,7 @@
             </div>
         {% endif %}
     </div>
+    {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
     {% if row.error %}
         <div class="notice error-notice" role="alert">
             <strong>{{ row.error }}</strong>
@@ -97,7 +98,18 @@
         <ul class="check-list">
             {% for check in row.checks %}
                 <li>
-                    <span>{{ check.label }}<span class="row-note">{{ check.message }}</span></span>
+                    <span>{{ check.label }}
+                    {% if not read_only and not row.error %}{% if check.name == 'tls_cert' or check.name == 'whois' %}
+                    <form method="post" action="/domains/refresh" class="metadata-refresh">
+                        {% csrf_token %}
+                        <input type="hidden" name="domain" value="{{ report.domain }}">
+                        <input type="hidden" name="check" value="{{ check.name }}">
+                        <input type="hidden" name="days" value="{{ report.days }}">
+                        <input type="hidden" name="history" value="1">
+                        <button type="submit" class="button-small" title="{% translate 'Refresh metadata' %}: {{ check.label }}" aria-label="{% translate 'Refresh metadata' %}: {{ check.label }}">{% translate 'Refresh' %}</button>
+                    </form>
+                    {% endif %}{% endif %}
+                    <span class="row-note">{{ check.message }}</span></span>
                     <span>{% if check.status == 'CRIT' or check.status == 'WARN' %}<span class="badge {{ check.status|lower }}"><span aria-hidden="true">⚠</span>{{ check.status_label }}</span>{% else %}{{ check.status_label }}{% endif %}{% if check.stale %} {% translate '· Overdue' %}{% endif %}</span>
                     <span>{% include 'sitewatcher/partials/time.html' with stamp=check.observed %}</span>
                 </li>

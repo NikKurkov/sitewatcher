@@ -174,7 +174,7 @@ This bot uses `--no-scheduler`. **Never run a scheduled bot and worker for the s
 | --- | --- |
 | `/add`, `/add_domain` | Add domains with the wizard or defaults. |
 | `/remove`, `/remove_all`, `/list` | Manage your domain list. |
-| `/check`, `/check_all` | Run checks; `--force` bypasses cache. An unknown domain is not added. |
+| `/check`, `/check_all` | Run checks; `--force` refreshes operational checks; daily metadata limits remain. An unknown domain is not added. |
 | `/status`, `/history` | Read saved results. |
 | `/cfg`, `/cfg_set`, `/cfg_unset` | Read or change a domain's settings. |
 | `/export_csv`, `/import_csv` | Export or import domain settings. |
@@ -218,11 +218,27 @@ Enable only the checks you need in the domain settings. They can have different 
 | RKN IP listing | Whether the resolved IPv4 appears in the lists; a match is Warning because shared hosting may be affected. |
 | VirusTotal | Existing external reputation reports; an API key is required. |
 
-RKN uses a complete, dated Antifilter bundle first and bol-van as fallback. These are source-list checks, not a test of access from every internet provider. IPv6 is not checked here. The index cache defaults to 12 hours; source files may be at most 168 hours old by default. Missing, future or stale dates do not establish a clean result. A failed refresh keeps the previous index and returns unknown when a clean result cannot be confirmed.
+RKN uses a complete, dated Antifilter bundle first and bol-van as fallback. These are source-list checks, not a test of access from every internet provider. IPv6 is not checked here. The index cache defaults to 24 hours; source files may be at most 168 hours old by default. Missing, future or stale dates do not establish a clean result. A failed refresh keeps the previous index and returns unknown when a clean result cannot be confirmed.
 
 Legacy `checks.rkn_block` and `schedules.rkn_block` configure both split checks unless the new keys are explicit. `rkn.check_ip: false` disables the IP check. Legacy Zapret-Info settings are accepted for migration, but that source is no longer fetched.
 
-WHOIS/RDAP availability depends on the zone; supported Russian zones can fall back to port 43. IP blocklists use DroneBL, Blocklist.de and PSBL by default when the check is enabled. Set `ipbl.zones` to override them; an explicit empty list supplies no sources. Each run verifies the positive (`127.0.0.2`) and negative (`127.0.0.1`) control entries before trusting a source. Failed controls, DNS timeouts, unexpected return codes and access/quota errors are recorded as source failures, never listings. If at least one healthy source completes all IPv4 lookups and finds no listings, the result is OK; failures of other sources appear as a neutral incomplete-coverage note. If no source completes the check, the result is UNKNOWN. Confirmed listings remain CRIT even when another source fails; metrics include source coverage, return codes and per-source errors. Only IPv4 reputation is checked; `check_ipv6` considers AAAA presence, not IPv6 blocklist coverage. Spamhaus ZEN requires eligible access and rejects queries through public resolvers; it is not enabled by default. SpamCop is optional and should be tested from your runtime. Old unvalidated results and results from different source/resolver settings are not reused. UNKNOWN results bypass the IP-blocklist cache unless `schedules.ip_blacklist.cache_unknown` is explicitly enabled. IP-change baselines are separate for each owner and ad hoc scans. To import a legacy standalone baseline once per scope, set `ipchange.db_path`; the old file is retained.
+WHOIS/RDAP availability depends on the zone; supported Russian zones can fall back to port 43. IP blocklists use DroneBL, Blocklist.de and PSBL by default when the check is enabled. Set `ipbl.zones` to override them; an explicit empty list supplies no sources. Source health checks verify the positive (`127.0.0.2`) and negative (`127.0.0.1`) control entries before trusting a source. Failed controls, DNS timeouts, unexpected return codes and access/quota errors are recorded as source failures, never listings. If at least one healthy source completes all IPv4 lookups and finds no listings, the result is OK; failures of other sources appear as a neutral incomplete-coverage note. If no source completes the check, the result is UNKNOWN. Confirmed listings remain CRIT even when another source fails; metrics include source coverage, return codes and per-source errors. Only IPv4 reputation is checked; `check_ipv6` considers AAAA presence, not IPv6 blocklist coverage. Spamhaus ZEN requires eligible access and rejects queries through public resolvers; it is not enabled by default. SpamCop is optional and should be tested from your runtime. Old unvalidated results and results from different source/resolver settings are not reused. Successful DNSBL answers are cached per IP/source for 24 hours; source health is cached for one hour, failures for 15 minutes. Resolver settings are part of the cache identity. Failed sources have a retry cooldown even for UNKNOWN results. IP-change baselines are separate for each owner and ad hoc scans. To import a legacy standalone baseline once per scope, set `ipchange.db_path`; the old file is retained.
+
+## Cache policy and metadata refresh
+
+TLS and WHOIS facts are cached for 24 hours. Expiry severity is assessed locally, so a threshold transition does not require another network request. Use **Refresh metadata** beside TLS or WHOIS in domain details/history. Repeated clicks within one minute reuse the cache; active requests, failures and Retry-After retain their cooldown. General checks and `--force` keep provider cache limits.
+
+```bash
+sitewatcher check_domain example.com --owner 123456789 --refresh-metadata tls_cert,whois
+```
+
+Telegram accepts `/check example.com --refresh=whois` or `--refresh=tls_cert`. Refresh requires an owned, existing domain and an enabled check; bulk metadata refresh is unavailable.
+
+Short domain intervals apply to HTTP, DNS/IP changes, ping and ports. HTTP, keywords and defacement share one bounded page fetch per run; page bodies are never persisted in the cache. Concurrent identical ping/port probes coalesce across processes with a one-second result lifetime. Route diagnostics keep their separate hourly refresh.
+
+RKN prepares its shared registry daily, separately from domain membership checks. Failed downloads use a shared increasing retry cooldown. A changed IP or registry generation invalidates the relevant assessment. Retained stale listings keep their original dates; a stale negative never establishes OK. Back up the index-adjacent `.refresh.sqlite3` state database with the index and monitoring database.
+
+Displayed evidence age tracks the provider observation, not cache reads. Provider failures retain confirmed threats. A local VirusTotal quota refusal without an API request uses the budget retry delay rather than consuming a daily lookup.
 
 ## Public status page
 

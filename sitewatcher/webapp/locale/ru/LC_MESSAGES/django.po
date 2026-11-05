@@ -2357,3 +2357,15 @@ msgstr "Отпустите здесь"
 
 msgid "Move"
 msgstr "Переместить"
+
+msgid "Refresh metadata"
+msgstr "Обновить метаданные"
+
+msgid "Refresh"
+msgstr "Обновить"
+
+msgid "Cached metadata reused; refresh is limited by provider cooldown"
+msgstr "Использованы сохранённые метаданные; действует ограничение частоты запросов"
+
+msgid "Metadata refresh completed; results saved"
+msgstr "Обновление метаданных завершено; результаты сохранены"

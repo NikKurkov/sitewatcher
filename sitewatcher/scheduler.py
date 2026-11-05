@@ -3,12 +3,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 
 from . import storage
 from .config import AppConfig, resolve_settings
 from .dispatcher import Dispatcher
 from .checks.ip_blacklist import current_ipbl_result
 from .utils.results import current_rkn_result
+from .check_policy import (result_deadlines, expiry_assessment_due,
+                           ip_context_current, metrics_from)
+from .checks.rkn_block_sqlite import current_registry_generation
 
 log = logging.getLogger(__name__)
 
@@ -24,9 +28,10 @@ def due_checks(cfg: AppConfig, owner_id: int, domain: str, *, warmup: bool = Fal
         return []
     checks = settings.checks.model_dump()
     ages = storage.last_check_ages(owner_id, domain)
+    latest = storage.latest_check_results(owner_id, domain)
+    now = datetime.now(timezone.utc)
     outdated = set()
     if any(checks.get(name) for name in ('rkn_domain', 'rkn_ip')):
-        latest = storage.latest_check_results(owner_id, domain)
         outdated = {name for name in ('rkn_domain', 'rkn_ip') if name in latest
                     and not current_rkn_result(name, latest[name]['metrics_json'],
                                                cfg.rkn.max_source_age_hours,
@@ -35,13 +40,29 @@ def due_checks(cfg: AppConfig, owner_id: int, domain: str, *, warmup: bool = Fal
         row = storage.last_history_for_check(owner_id, domain, 'ip_blacklist')
         if row and not current_ipbl_result(row['metrics_json'], cfg.ipbl):
             outdated.add('ip_blacklist')
-    return [
-        name for name, enabled in checks.items()
-        if enabled and (name in outdated or name not in ages or ages[name] >= (
-            int(domain_interval) if domain_interval is not None
-            else getattr(cfg.schedules, name).interval_minutes
-        ))
-    ]
+    generation = current_registry_generation(cfg.rkn) if any(
+        checks.get(name) for name in ('rkn_domain', 'rkn_ip')) else None
+    selected = []
+    for name, enabled in checks.items():
+        if not enabled:
+            continue
+        row = latest.get(name)
+        if row is None and name in ages:
+            row = {'created_at': (now - timedelta(minutes=ages[name])).isoformat(),
+                   'status': 'UNKNOWN', 'metrics_json': '{}'}
+        due = result_deadlines(cfg, name, domain_interval, row, now=now)[1]
+        if name == 'malware':
+            pending_until = storage.virustotal_pending_until(
+                owner_id, f'https://{domain.strip().lower().rstrip('.')}/')
+            if pending_until and now < pending_until:
+                continue
+        changed_registry = (name in {'rkn_domain', 'rkn_ip'} and generation and row
+                            and metrics_from(row).get('registry_generation') != generation)
+        if (name in outdated or row is None or now >= due or changed_registry
+                or not ip_context_current(name, row, latest)
+                or expiry_assessment_due(name, row, cfg, settings, now=now)):
+            selected.append(name)
+    return selected
 
 
 async def run_tick(cfg: AppConfig, *, warmup: bool, on_results, run_id: str | None = None) -> None:
@@ -73,6 +94,19 @@ async def run_tick(cfg: AppConfig, *, warmup: bool, on_results, run_id: str | No
     )
 
     async with Dispatcher(cfg) as d:
+        # Start one global preparation without delaying operational probes.
+        rkn_enabled = False
+        for owner in owners:
+            for domain in storage.list_domains(owner):
+                try:
+                    resolved = resolve_settings(cfg, domain,
+                        storage.get_domain_override(owner, domain) or {})
+                    if resolved.interval_minutes != 0:
+                        rkn_enabled |= resolved.checks.rkn_domain or resolved.checks.rkn_ip
+                except (ValueError, TypeError):
+                    continue
+        if rkn_enabled:
+            d.start_registry_refresh(background=True)
 
         async def _run_one(owner_id: int, domain: str) -> None:
             async with sem:

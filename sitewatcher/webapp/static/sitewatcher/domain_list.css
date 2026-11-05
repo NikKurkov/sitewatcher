@@ -205,3 +205,6 @@
 .domain-move-dialog button:disabled { opacity: .45; cursor: not-allowed; }
 
 .domain-move-dialog .domain-move-dialog-error { color: var(--red); }
+
+.metadata-refresh { display: inline-flex; margin: 0 .35rem; }
+.metadata-refresh button { padding: .2rem .45rem; font-size: .75rem; min-height: 1.7rem; }

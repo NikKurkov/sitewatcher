@@ -17,6 +17,7 @@ from weakref import WeakValueDictionary
 import httpx
 
 from .base import BaseCheck, CheckOutcome, Status
+from .rkn_refresh_state import RefreshLeaseLost, RefreshState
 from .. import storage
 from ..config import RknConfig
 from ..utils.domains import DOMAIN_RE, normalize_domain
@@ -128,26 +129,47 @@ class RknBlockCheck(BaseCheck):
     name = 'rkn_domain'
     _refresh_locks = WeakValueDictionary()
 
-    def __init__(self, domain: str, client: httpx.AsyncClient, rkn_cfg: RknConfig) -> None:
+    def __init__(self, domain: str, client: httpx.AsyncClient, rkn_cfg: RknConfig,
+                 *, auto_prepare: bool = True, cycle_context=None) -> None:
         super().__init__(domain)
         self.client, self.cfg = client, rkn_cfg
         self.db_path = rkn_index_path(rkn_cfg).resolve()
+        self.auto_prepare = auto_prepare
+        self.cycle_context = cycle_context
+        self.refresh_state = RefreshState(self.db_path)
+        self._refresh_token = None
 
     async def run(self) -> CheckOutcome:
         try:
-            await self._ensure_index_fresh()
+            if self.auto_prepare:
+                try:
+                    await self._ensure_index_fresh()
+                except Exception as error:
+                    self.log.warning('RKN registry refresh unavailable (%s)', type(error).__name__)
             domain = self.domain.rstrip('.').encode('idna').decode('ascii').lower()
             return await self._lookup(domain)
         except Exception as error:
             self.log.warning('RKN check unavailable (%s)', type(error).__name__)
             return CheckOutcome(self.name, Status.UNKNOWN,
                                 'RKN data unavailable or stale; no clean result confirmed',
-                                {'registry_version': _PARSER_VERSION})
+                                self._observation_metrics())
+
+    def _observation_metrics(self):
+        metrics = {'registry_version': _PARSER_VERSION,
+                   'observed_at': datetime.now(timezone.utc).isoformat()}
+        deadline = self.refresh_state.deadline()
+        if deadline:
+            metrics['next_refresh_at'] = datetime.fromtimestamp(deadline, timezone.utc).isoformat()
+        return metrics
 
     async def _lookup(self, domain: str) -> CheckOutcome:
-        hit, metrics = await asyncio.to_thread(self._query, domain=domain)
-        return CheckOutcome(self.name, Status.CRIT if hit else Status.OK,
-                            f'Domain listed: {hit}' if hit else 'Domain not listed',
+        hit, metrics = await asyncio.to_thread(self._query, domain=domain, validate=True)
+        stale_clean = not hit and metrics.get('source_stale')
+        return CheckOutcome(self.name, Status.CRIT if hit else (
+                                Status.UNKNOWN if stale_clean else Status.OK),
+                            f'Domain listed: {hit}' if hit else (
+                                'RKN registry stale; no clean result confirmed' if stale_clean
+                                else 'Domain not listed'),
                             {**metrics, 'type': 'domain', 'matched': hit})
 
     def _read_meta(self) -> dict[str, str]:
@@ -172,18 +194,67 @@ class RknBlockCheck(BaseCheck):
             return False
 
     async def _ensure_index_fresh(self) -> None:
-        loop = asyncio.get_running_loop()
-        lock = self._refresh_locks.get(loop)
+        key = (asyncio.get_running_loop(), self.db_path)
+        lock = self._refresh_locks.get(key)
         if lock is None:
             lock = asyncio.Lock()
-            self._refresh_locks[loop] = lock
+            self._refresh_locks[key] = lock
         async with lock:
             try:
                 meta = await asyncio.to_thread(self._read_meta)
             except sqlite3.Error:
                 meta = {}
-            if not self._meta_is_fresh(meta):
-                await self._download_with_fallback()
+            if self._meta_is_fresh(meta):
+                return
+            token = await self._claim_refresh()
+            if token is None:
+                return
+            self._refresh_token = token
+            heartbeat = asyncio.create_task(self._renew_claim(token))
+            success = False
+            try:
+                # Recheck after claiming: a different process may just have finished.
+                try:
+                    meta = await asyncio.to_thread(self._read_meta)
+                except sqlite3.Error:
+                    meta = {}
+                if not self._meta_is_fresh(meta):
+                    await self._download_with_fallback()
+                success = True
+            finally:
+                heartbeat.cancel()
+                await asyncio.gather(heartbeat, return_exceptions=True)
+                await _in_thread(self.refresh_state.finish, token, success)
+                self._refresh_token = None
+
+    async def _claim_refresh(self) -> str | None:
+        # Cancellation can arrive after SQLite commits but before the token is returned.
+        # Keep the result so that even this narrow window releases the owned lease.
+        task = asyncio.create_task(asyncio.to_thread(self.refresh_state.claim))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError as cancelled:
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:
+                    break
+            if not task.cancelled() and task.exception() is None:
+                token = task.result()
+                if token is not None:
+                    await _in_thread(self.refresh_state.finish, token, False)
+            raise cancelled
+
+    async def _renew_claim(self, token: str) -> None:
+        while True:
+            await asyncio.sleep(30)
+            await _in_thread(self.refresh_state.renew, token)
+
+    def _publish_index(self, data: RegistryData, fetched_at: datetime) -> None:
+        with self.refresh_state.publishing(self._refresh_token):
+            self._rebuild_index(data, fetched_at)
 
     async def _download_with_fallback(self) -> None:
         order = (self.cfg.source, 'bol-van' if self.cfg.source == 'antifilter' else 'antifilter')
@@ -193,8 +264,10 @@ class RknBlockCheck(BaseCheck):
                 with tempfile.TemporaryDirectory(prefix='.rkn-', dir=self.db_path.parent) as folder:
                     data = await self._download_source(source, Path(folder))
                     await _in_thread(self._check_reduction, data)
-                    await _in_thread(self._rebuild_index, data, datetime.now(timezone.utc))
+                    await _in_thread(self._publish_index, data, datetime.now(timezone.utc))
                     return
+            except RefreshLeaseLost:
+                raise
             except Exception as error:
                 self.log.warning('RKN source %s rejected (%s)', source, type(error).__name__)
         raise RuntimeError('Both RKN sources are unavailable, incomplete or stale')
@@ -341,13 +414,26 @@ class RknBlockCheck(BaseCheck):
                 'domain_count': str(data.domain_count), 'network_count': str(data.network_count),
             }.items())
 
-    def _query(self, *, domain: str | None = None, ips: list[str] | None = None):
+    def _query(self, *, domain: str | None = None, ips: list[str] | None = None,
+               validate: bool = False):
         # The result and provenance must come from the same SQLite snapshot.
         with closing(sqlite3.connect(self.db_path.as_uri() + '?mode=ro', uri=True)) as con:
             con.execute('BEGIN')
             meta = dict(con.execute('SELECT key,value FROM meta'))
+            if validate:
+                if (meta.get('parser_version') != _PARSER_VERSION
+                        or meta.get('source') not in _PROVIDERS):
+                    raise ValueError('RKN registry is incompatible')
+                for key in ('source_updated_at', 'fetched_at'):
+                    if _timestamp(meta[key]) > datetime.now(timezone.utc) + timedelta(minutes=5):
+                        raise ValueError('RKN registry timestamp is in the future')
             metrics = {key: meta[key] for key in ('source', 'source_updated_at', 'fetched_at')}
-            metrics['registry_version'] = _PARSER_VERSION
+            metrics.update(self._observation_metrics())
+            metrics['registry_generation'] = _generation(meta)
+            metrics['source_stale'] = not self._meta_is_fresh(meta)
+            metrics.setdefault('next_refresh_at', (
+                _timestamp(meta['fetched_at']) + timedelta(hours=self.cfg.cache_ttl_hours)
+            ).isoformat())
             if meta.get('source_revision'):
                 metrics['source_revision'] = meta['source_revision']
             metrics['db_path'] = str(self.db_path)
@@ -369,6 +455,9 @@ class RknBlockCheck(BaseCheck):
             return hit, metrics
 
     async def _resolve_ipv4(self, domain: str) -> list[str]:
+        if self.cycle_context is not None:
+            infos = await self.cycle_context.resolve(domain, family=socket.AF_INET)
+            return list(dict.fromkeys(sockaddr[0] for _, _, _, _, sockaddr in infos))
         infos = await asyncio.get_running_loop().getaddrinfo(
             domain, 80, family=socket.AF_INET, type=socket.SOCK_STREAM,
             proto=socket.IPPROTO_TCP, flags=socket.AI_ADDRCONFIG,
@@ -383,11 +472,37 @@ class RknIpCheck(RknBlockCheck):
         ips = await self._resolve_ipv4(domain)
         if not ips:
             return CheckOutcome(self.name, Status.UNKNOWN, 'No IPv4 addresses resolved',
-                                {'registry_version': _PARSER_VERSION})
-        hits, metrics = await asyncio.to_thread(self._query, ips=ips)
+                                self._observation_metrics())
+        hits, metrics = await asyncio.to_thread(self._query, ips=ips, validate=True)
+        stale_clean = not hits and metrics.get('source_stale')
         return CheckOutcome(
-            self.name, Status.WARN if hits else Status.OK,
+            self.name, Status.WARN if hits else (Status.UNKNOWN if stale_clean else Status.OK),
             (f"IP listed: {', '.join(hits)}. May affect another domain on shared hosting."
-             if hits else 'IPv4 addresses not listed'),
-            {**metrics, 'type': 'ip', 'matched': hits},
+             if hits else ('RKN registry stale; no clean result confirmed' if stale_clean
+                           else 'IPv4 addresses not listed')),
+            {**metrics, 'type': 'ip', 'matched': hits, 'ips_v4': sorted(set(ips))},
         )
+
+
+def _generation(meta: dict[str, str]) -> str:
+    return ':'.join(meta.get(key, '') for key in (
+        'parser_version', 'source', 'source_revision', 'source_updated_at', 'fetched_at'))
+
+
+def current_registry_generation(cfg: RknConfig) -> str | None:
+    """Read the published registry identity without preparing or changing state."""
+    check = RknBlockCheck('', None, cfg, auto_prepare=False)
+    try:
+        meta = check._read_meta()
+        return _generation(meta) if check._meta_is_fresh(meta) else None
+    except (sqlite3.Error, ValueError):
+        return None
+
+
+async def prepare_registry(client: httpx.AsyncClient, rkn_cfg: RknConfig) -> None:
+    """Prepare one shared daily registry; durable cooldown also covers other loops/processes."""
+    check = RknBlockCheck('', client, rkn_cfg, auto_prepare=False)
+    try:
+        await check._ensure_index_fresh()
+    except Exception as error:
+        check.log.warning('RKN registry refresh unavailable (%s)', type(error).__name__)

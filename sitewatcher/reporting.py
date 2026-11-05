@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
 
 from . import domain_groups, storage
 from .config import AppConfig, ChecksModel, resolve_settings
+from .check_policy import result_deadlines
 from .utils.results import (
     current_rkn_result, is_missing_malware_report, overall_from_statuses, status_text,
 )
@@ -58,19 +59,10 @@ def _domain_snapshot(cfg, name, raw_override, histories, now):
                 check_name, saved['metrics_json'], cfg.rkn.max_source_age_hours,
                 status=saved['status']):
             saved = None
-        checked_at = _timestamp(saved['created_at']) if saved is not None else None
-        due_at = now
-        stale_at = now
+        checked_at, due_at, stale_at = result_deadlines(
+            cfg, check_name, settings.interval_minutes, saved, now=now)
         if checked_at is not None:
             timestamps.append(checked_at)
-            interval = settings.interval_minutes
-            if interval is None:
-                interval = getattr(cfg.schedules, check_name).interval_minutes
-            try:
-                due_at = checked_at + timedelta(minutes=interval)
-                stale_at = checked_at + timedelta(minutes=3 * interval)
-            except OverflowError:
-                due_at = stale_at = now
         # Allow normal scheduler/network delays; the next run is still due after one interval.
         stale = not row['paused'] and stale_at <= now
         if checked_at is not None and not row['paused']:

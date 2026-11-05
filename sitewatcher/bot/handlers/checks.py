@@ -7,7 +7,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from ... import storage
-from ...config import AppConfig
+from ...config import AppConfig, resolve_settings
 from ...dispatcher import Dispatcher
 from ..formatting import _format_results, _format_results_summary
 from ..utils import safe_reply_html
@@ -36,10 +36,36 @@ async def cmd_check_domain(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     owner_id = update.effective_user.id
 
     force = _parse_force(context.args)
-    names = [arg for arg in context.args if not _parse_force([arg])]
+    refresh_flags = [arg for arg in context.args if arg.startswith('--refresh')]
+    refresh = refresh_flags[0].removeprefix('--refresh=') if refresh_flags else None
+    names = [arg for arg in context.args if not _parse_force([arg])
+             and arg not in refresh_flags]
+    if refresh_flags and (len(refresh_flags) != 1 or refresh not in {'tls_cert', 'whois'}
+                          or len(names) != 1):
+        await update.message.reply_text('Usage: /check example.com --refresh=whois (or tls_cert)')
+        return
     name = normalize_domain(names[0] if names else "")
     if not name or not DOMAIN_RE.fullmatch(name):
         await update.message.reply_text("Enter a valid domain, for example /check example.com")
+        return
+
+    if refresh:
+        if not storage.domain_exists(owner_id, name):
+            await update.message.reply_text('Metadata refresh requires an owned domain')
+            return
+        resolved = resolve_settings(cfg, name, storage.get_domain_override(owner_id, name))
+        if not getattr(resolved.checks, refresh):
+            await update.message.reply_text('Metadata check is disabled')
+            return
+        async with Dispatcher(cfg) as dispatcher:
+            results = await dispatcher.run_for(
+                owner_id, name, only_checks=[refresh], refresh_checks=[refresh],
+            )
+        storage.save_histories(owner_id, name, results, create_missing=False, source='manual')
+        text = await _format_results(owner_id, name, results, persist=False)
+        if not results or any(result.cached for result in results):
+            text += '\nCached metadata reused; refresh is limited by provider cooldown'
+        await safe_reply_html(update.message, text)
         return
 
     log.info(
@@ -95,6 +121,10 @@ async def _check_all(update, context, format_results, separator: str, command: s
     msg = getattr(update, "effective_message", None)
     cfg: AppConfig = context.application.bot_data["cfg"]
     owner_id = update.effective_user.id
+    if any(arg.startswith('--refresh') for arg in (context.args or [])):
+        if msg:
+            await msg.reply_text('Metadata refresh requires /check with one owned domain')
+        return
     names = storage.list_domains(owner_id)
 
     if not names:

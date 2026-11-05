@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, List, Optional, Tuple
 
+from ..check_context import CheckContext
 from .base import BaseCheck, CheckOutcome, Status
 from .. import storage
 
@@ -30,7 +31,10 @@ class IpChangeCheck(BaseCheck):
 
     name = "ip_change"
 
-    def __init__(self, domain: str, *, cfg: Any, owner_id: int | None = None) -> None:
+    def __init__(
+        self, domain: str, *, cfg: Any, owner_id: int | None = None,
+        cycle_context: CheckContext | None = None,
+    ) -> None:
         """
         Args:
             domain: Target domain to resolve.
@@ -44,6 +48,7 @@ class IpChangeCheck(BaseCheck):
         if owner_id is not None and (type(owner_id) is not int or owner_id < 0):
             raise ValueError("owner_id must be a nonnegative integer or None")
         self._owner_id = owner_id
+        self.cycle_context = cycle_context
         self.cfg = cfg
         self._db_path = Path(getattr(cfg, "db_path", None) or storage.DEFAULT_DB)
 
@@ -194,7 +199,11 @@ class IpChangeCheck(BaseCheck):
         """Resolve both A and AAAA using getaddrinfo and split by address family."""
         loop = asyncio.get_running_loop()
         try:
-            infos = await loop.getaddrinfo(self.domain, 80, type=socket.SOCK_STREAM)
+            if self.cycle_context is not None:
+                family = socket.AF_UNSPEC if self.cfg.include_ipv6 else socket.AF_INET
+                infos = await self.cycle_context.resolve(self.domain, family=family)
+            else:
+                infos = await loop.getaddrinfo(self.domain, 80, type=socket.SOCK_STREAM)
         except socket.gaierror as error:
             if error.errno not in {socket.EAI_NONAME, getattr(socket, "EAI_NODATA", None)}:
                 raise
