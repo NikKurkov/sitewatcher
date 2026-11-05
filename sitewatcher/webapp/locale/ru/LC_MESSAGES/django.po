@@ -2166,3 +2166,23 @@ msgstr "Строчные латинские буквы, цифры, дефисы
 
 msgid "Remember me for 30 days"
 msgstr "Запомнить меня на 30 дней"
+
+
+msgid "Copy link"
+msgstr "Копировать ссылку"
+
+
+msgid "Reissue the private link to display and copy it here. The existing link still works."
+msgstr "Перевыпустите приватную ссылку, чтобы открывать и копировать её здесь. Существующая ссылка продолжает работать."
+
+
+msgid "Public pages are open to everyone. Private pages are accessible to anyone with the link. You can open and copy it in Status pages."
+msgstr "Публичная страница доступна всем. Приватная — любому, у кого есть ссылка. Открыть и скопировать её можно в Status pages."
+
+
+msgid "Private links are available in Status pages. Reissuing a link revokes the previous one."
+msgstr "Приватные ссылки доступны в Status pages. Перевыпуск отключает прежнюю ссылку."
+
+
+msgid "This private link is also available in Status pages."
+msgstr "Эта приватная ссылка также доступна в Status pages."

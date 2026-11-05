@@ -1,4 +1,4 @@
 {% load i18n %}
-<p class="field-help">{% translate 'Save this link now. It is only shown once.' %}</p>
+<p class="field-help">{% if saved_link %}{% translate 'This private link is also available in Status pages.' %}{% else %}{% translate 'Save this link now. It is only shown once.' %}{% endif %}</p>
 <div class="field"><label for="private-status-link">{% translate 'Private link' %}</label><input id="private-status-link" value="{{ public_link }}" readonly autocomplete="off" spellcheck="false"></div>
 <div class="copy-link-row"><button type="button" class="copy-public-link" data-copy-target="private-status-link" data-copy-success="{% translate 'Link copied' %}" data-copy-failure="{% translate 'Select and copy the link manually.' %}">{% translate 'Copy public link' %}</button><span data-copy-status role="status"></span></div>

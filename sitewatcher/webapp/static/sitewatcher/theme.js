@@ -11,7 +11,7 @@ document.addEventListener('submit', (event) => {
   button.title = mode === 'dark' ? button.dataset.lightTitle : button.dataset.darkTitle;
 });
 
-// The full bearer link is available only in the immediate publication response.
+// Owner-only link fields support clipboard copying and manual selection.
 document.addEventListener('click', async (event) => {
   const button = event.target.closest('.copy-public-link');
   if (!button) return;
