@@ -17,7 +17,7 @@ def clean_environment(monkeypatch):
     monkeypatch.delenv('VIRUSTOTAL_PROXY', raising=False)
 
 
-def test_missing_report_submits_once_across_new_checks_then_recovers():
+def test_missing_report_submits_once_across_new_checks_then_recovers(expire_vt_report):
     requests = []
     ready = False
 
@@ -43,12 +43,13 @@ def test_missing_report_submits_once_across_new_checks_then_recovers():
             assert first.metrics['vt_analysis_id'] == 'analysis-private-id'
             assert (await probe()).message == first.message
             ready = True
+            expire_vt_report()
             assert (await probe()).status is Status.OK
     asyncio.run(scenario())
-    assert [r.method for r in requests] == ['GET', 'POST', 'GET', 'GET']
+    assert [r.method for r in requests] == ['GET', 'POST', 'GET']
 
 
-def test_submission_consumes_a_second_quota_slot_and_releases_unattempted_claim():
+def test_submission_consumes_a_second_quota_slot_and_releases_unattempted_claim(expire_vt_report):
     methods = []
     def handler(request):
         methods.append(request.method)
@@ -62,6 +63,8 @@ def test_submission_consumes_a_second_quota_slot_and_releases_unattempted_claim(
             check = MalwareScanCheck('example.test', client=client,
                 vt_cfg=_VTConfig(api_key='key'), vt_limiter=limiter, owner_id=41)
             assert (await check.run()).message.startswith('VT rate limited')
+            assert (await check.run()).cached
+            expire_vt_report()
             assert (await check.run()).message == 'VirusTotal analysis is pending'
         assert limiter.try_acquire.await_count == 4
     asyncio.run(scenario())
@@ -100,7 +103,7 @@ def test_submission_claim_is_atomic_durable_and_owner_scoped(monkeypatch):
 
 
 @pytest.mark.parametrize('failure', ['rejected', 'timeout', 'invalid'])
-def test_rejected_submissions_retry_but_ambiguous_attempts_keep_the_claim(failure, caplog):
+def test_submission_errors_are_cached_without_repeating_ambiguous_posts(failure, caplog):
     posts = 0
     def handler(request):
         nonlocal posts
@@ -121,12 +124,9 @@ def test_rejected_submissions_retry_but_ambiguous_attempts_keep_the_claim(failur
             first, second = await probe.run(), await probe.run()
             assert first.status is second.status is Status.UNKNOWN
             assert 'private-provider-payload' not in str(first) + str(second) + caplog.text
-            if failure == 'rejected':
-                assert second.message == 'VirusTotal analysis is pending'
-            else:
-                assert 'could not be confirmed' in second.message
+            assert second.cached and second.message == first.message
     asyncio.run(scenario())
-    assert posts == (2 if failure == 'rejected' else 1)
+    assert posts == 1
 
 
 def test_concurrent_probes_submit_only_once():

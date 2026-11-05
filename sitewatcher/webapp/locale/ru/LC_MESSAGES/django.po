@@ -2330,3 +2330,6 @@ msgstr "Выбранные отдельно сайты показываются 
 
 msgid "Other sites"
 msgstr "Другие сайты"
+
+msgid "VirusTotal result is not available yet. Requests are limited to once per day."
+msgstr "Результат VirusTotal пока недоступен. Запросы выполняются не чаще раза в сутки."

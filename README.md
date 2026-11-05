@@ -40,7 +40,7 @@ Available checks:
 - **Availability and speed** — whether the page opens, its response code and response time.
 - **HTTPS certificate and domain registration** — when they expire.
 - **Page content** — required words and signs of website defacement.
-- **Website reputation** — threat reports from VirusTotal; an API key is required.
+- **Website reputation** — threat reports from VirusTotal; an API key is required. Each owner/domain report, including provider failures, is cached in the database for 24 hours. Manual checks and shorter schedules cannot bypass this limit. A missing report may require both a lookup and URL submission; the next lookup takes place after a day.
 - **IP addresses** — address changes and IP blocklist checks through DroneBL,
   Blocklist.de and PSBL by default. Each source must pass positive and negative
   control queries. At least one completed clean source is enough for OK; missing

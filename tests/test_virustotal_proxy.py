@@ -86,7 +86,7 @@ def test_private_proxy_storage_precedence_and_symlink_safety(tmp_path, monkeypat
     assert load_vt_proxy() is None
 
 
-def test_proxy_reload_is_isolated_from_shared_http_client(monkeypatch):
+def test_proxy_reload_is_isolated_from_shared_http_client(monkeypatch, expire_vt_report):
     from sitewatcher.virustotal_settings import (
         save_vt_proxy, remove_vt_proxy, save_vt_proxy_enabled, load_vt_proxy,
     )
@@ -120,12 +120,15 @@ def test_proxy_reload_is_isolated_from_shared_http_client(monkeypatch):
             )
             save_vt_proxy("http://first.example:3128")
             assert (await probe.run()).message == 'VirusTotal analysis is pending'
+            expire_vt_report()
             save_vt_proxy_enabled(False)
             await probe.run()
             assert load_vt_proxy() == "http://first.example:3128"
+            expire_vt_report()
             save_vt_proxy_enabled(True)
             save_vt_proxy("socks5://second.example:1080")
             await probe.run()
+            expire_vt_report()
             remove_vt_proxy()
             await probe.run()
 

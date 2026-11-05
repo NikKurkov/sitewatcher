@@ -113,6 +113,14 @@ CREATE TABLE IF NOT EXISTS whois_state (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS virustotal_reports (
+  owner_id INTEGER NOT NULL,
+  url TEXT NOT NULL,
+  requested_at REAL NOT NULL,
+  outcome_json TEXT,
+  PRIMARY KEY(owner_id, url)
+);
+
 CREATE TABLE IF NOT EXISTS virustotal_submissions (
   owner_id INTEGER NOT NULL,
   url TEXT NOT NULL,
@@ -501,6 +509,58 @@ def latest_check_results(owner_id: int, domain: str) -> dict[str, sqlite3.Row]:
         ).fetchall()
     return {row["check_name"]: row for row in rows
             if is_current_observation(domain, row["metrics_json"])}
+
+
+# ---------- Persistent VirusTotal daily request cache ----------
+
+def claim_virustotal_report(owner_id: int, url: str, *, now=None) -> tuple[float | None, dict | None]:
+    """Atomically allow one lookup per owner/URL per rolling 24 hours."""
+    _ensure_initialized()
+    stamp = (now or datetime.now(timezone.utc)).timestamp()
+    with _write_connection() as conn:
+        # Adopt a recent pre-upgrade provider response without spending another request.
+        domain = url.removeprefix('https://').rstrip('/')
+        row = conn.execute(
+            "SELECT * FROM history WHERE owner_id=? AND domain=? AND check_name='malware' "
+            "ORDER BY id DESC LIMIT 1", (owner_id, domain)).fetchone()
+        if row:
+            try:
+                fetched = datetime.fromisoformat(row['created_at'])
+                fetched = fetched.replace(tzinfo=timezone.utc) if fetched.tzinfo is None else fetched
+                metrics = json.loads(row['metrics_json'])
+                if (stamp - 86400 < fetched.timestamp() <= stamp
+                        and metrics.get('url') == url
+                        and (metrics.get('vt_error')
+                             or metrics.get('providers', {}).get('virustotal'))):
+                    outcome = {'status': row['status'], 'message': row['message'], 'metrics': metrics}
+                    conn.execute('INSERT OR IGNORE INTO virustotal_reports '
+                                 '(owner_id,url,requested_at,outcome_json) VALUES(?,?,?,?)',
+                                 (owner_id, url, fetched.timestamp(), json.dumps(outcome)))
+            except (ValueError, TypeError, AttributeError):
+                pass
+        cursor = conn.execute(
+            'INSERT INTO virustotal_reports(owner_id,url,requested_at) VALUES(?,?,?) '
+            'ON CONFLICT(owner_id,url) DO UPDATE SET requested_at=excluded.requested_at, '
+            'outcome_json=NULL WHERE virustotal_reports.requested_at<=?',
+            (owner_id, url, stamp, stamp - 86400),
+        )
+        if cursor.rowcount:
+            return stamp, None
+        row = conn.execute('SELECT outcome_json FROM virustotal_reports WHERE owner_id=? '
+                           'AND url=?', (owner_id, url)).fetchone()
+        return None, json.loads(row['outcome_json']) if row['outcome_json'] else None
+
+
+def save_virustotal_report(owner_id: int, url: str, claim: float, outcome: dict | None) -> None:
+    """An unspent local quota reservation may be retried without waiting a day."""
+    with _write_connection() as conn:
+        if outcome is None:
+            conn.execute('DELETE FROM virustotal_reports WHERE owner_id=? AND url=? '
+                         'AND requested_at=?', (owner_id, url, claim))
+        else:
+            conn.execute('UPDATE virustotal_reports SET outcome_json=? WHERE owner_id=? '
+                         'AND url=? AND requested_at=?',
+                         (json.dumps(outcome), owner_id, url, claim))
 
 
 # ---------- VirusTotal submission cooldowns ----------

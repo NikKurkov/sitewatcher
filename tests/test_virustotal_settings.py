@@ -67,7 +67,7 @@ def test_save_replaces_symlink_and_remove_never_changes_target(tmp_path):
     assert target.read_text() == 'leave-target-alone'
 
 
-def test_existing_probe_reloads_key_and_environment_without_restart(monkeypatch):
+def test_existing_probe_reloads_key_and_environment_without_restart(monkeypatch, expire_vt_report):
     from sitewatcher.virustotal_settings import remove_api_key, save_api_key
     seen = []
     def handler(request):
@@ -81,10 +81,13 @@ def test_existing_probe_reloads_key_and_environment_without_restart(monkeypatch)
             assert (await probe.run()).message.endswith('API key is missing')
             save_api_key('saved-one')
             assert (await probe.run()).status is Status.OK
+            expire_vt_report()
             save_api_key('saved-two')
             await probe.run()
+            expire_vt_report()
             monkeypatch.setenv('VIRUSTOTAL_API_KEY', 'environment-key')
             await probe.run()
+            expire_vt_report()
             remove_api_key()
             await probe.run()
             monkeypatch.delenv('VIRUSTOTAL_API_KEY')
