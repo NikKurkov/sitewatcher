@@ -193,3 +193,12 @@ def test_persisted_foreign_group_never_expands_public_scope(owner, client):
     assert all(event['domain'] == 'one.example' for event in payload['events'])
     body = get(page.public_path).content.decode()
     assert 'Foreign secret name' not in body and 'foreign.example' not in body
+
+
+def test_listing_counts_effective_members_from_groups(owner, client):
+    gid = domain_groups.create_group(731, 'Published group')
+    domain_groups.move_domains(731, ['one.example', 'two.example'], gid)
+    assert save(client, **{f'group.{gid}': 'on'}).status_code == 303
+    response = client.get('/settings/status-pages', HTTP_HOST='localhost')
+    assert '2 domains' in response.content.decode()
+    assert '0 domains' not in response.content.decode()

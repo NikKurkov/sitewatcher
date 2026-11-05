@@ -19,7 +19,7 @@ from sitewatcher import domain_groups, storage
 from .accounts import owner_required
 from .models import StatusPage, Workspace
 from .status_page_links import private_token
-from .public import RESERVED_PUBLIC_SLUGS
+from .public import RESERVED_PUBLIC_SLUGS, _published_names
 
 
 class StatusPageForm(forms.Form):
@@ -84,6 +84,11 @@ def listing(request):
         path = page.public_path if page.public_enabled and page.access_mode == 'public' else page.private_path
         page.view_url = request.build_absolute_uri(path) if path else ''
     try:
+        if pages:
+            from sitewatcher.reporting import build_snapshot
+            snapshot = build_snapshot(settings.SITEWATCHER_CONFIG, request.workspace.owner_id)
+            for page in pages:
+                page.domain_count = len(_published_names(page, snapshot))
         return render(request, 'sitewatcher/status_pages.html', {
             'pages': pages, 'read_only': settings.SITEWATCHER_READ_ONLY,
             'notice': _('Status page saved.') if request.GET.get('saved') else '',
