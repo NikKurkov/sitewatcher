@@ -109,7 +109,7 @@ assert.equal(p.timers.size, 0);
 assert.equal(JSON.parse(p.storage.get(focusKey)).id, 'q', 'native Enter also remembers focus');
 console.log('Automatic filters: debounce, external form controls, Enter, IME, focus and disclosure restoration passed.');
 
-function refreshPage(stored, {sceneOpen = false, tooltipOpen = false, hidden = false} = {}) {
+function refreshPage(stored, {sceneOpen = false, tooltipOpen = false, hidden = false, moveOpen = false, cooldown = false} = {}) {
   const values = new Map([['refresh', stored]]);
   let interval;
   let reloads = 0;
@@ -117,7 +117,9 @@ function refreshPage(stored, {sceneOpen = false, tooltipOpen = false, hidden = f
     document: {hidden, activeElement: {matches: () => false}, addEventListener() {},
       querySelector: selector => selector === '[data-auto-refresh]' ? {}
         : selector === '[data-live-activity]:not([hidden])' && sceneOpen ? {}
-        : selector.includes('.chart-tooltip') && tooltipOpen ? {} : null,
+        : selector.includes('.chart-tooltip') && tooltipOpen ? {}
+        : selector.includes('data-domain-move-dialog') && moveOpen ? {}
+        : selector.includes('data-move-cooldown') && cooldown ? {} : null,
       querySelectorAll: () => []},
     sessionStorage: {getItem: key => values.get(key) ?? null},
     location: {pathname: '/', reload: () => { reloads++; }},
@@ -131,7 +133,7 @@ for (const stored of ['off', 'on', null]) {
   refresh.tick();
   assert.equal(refresh.reloads(), 1, 'Refresh stays on even with an old disabled preference');
 }
-for (const options of [{sceneOpen: true}, {tooltipOpen: true}, {hidden: true}]) {
+for (const options of [{sceneOpen: true}, {tooltipOpen: true}, {hidden: true}, {moveOpen: true}, {cooldown: true}]) {
   const refresh = refreshPage('on', options);
   refresh.tick();
   assert.equal(refresh.reloads(), 0, 'Active reading and hidden pages defer refresh');
@@ -162,7 +164,7 @@ console.log('Shared toolbar: live navigation remembers the panel without form re
 
 // Run navigation round trips against the actual shipped script and storage format.
 function disclosurePage(storage, {scope = 'owner-1', pathname = '/', activeInput = false,
-  dragging = false, missing = false} = {}) {
+  dragging = false, missing = false, externalName = false} = {}) {
   const handlers = {};
   const windowEvents = {};
   const rowEvents = {};
@@ -180,7 +182,7 @@ function disclosurePage(storage, {scope = 'owner-1', pathname = '/', activeInput
   const nested = {open: false};
   const nameEvents = {};
   const nameAttrs = {};
-  const name = {setAttribute: (key, value) => { nameAttrs[key] = value; },
+  const name = {target: externalName ? '_blank' : '', setAttribute: (key, value) => { nameAttrs[key] = value; },
     addEventListener: (key, fn) => { nameEvents[key] = fn; },
     click: () => nameEvents.click({preventDefault() {}})};
   const domain = {dataset: {domainKey: '1'},
@@ -389,3 +391,10 @@ console.log('Response averages: native touch popovers, mouse hover, keyboard foc
   assert.equal(input.value, 'shop-health');
 }
 console.log('Status-page access: hide private address and preserve its draft passed.');
+
+const externalName = disclosurePage(new Map(), {externalName: true});
+assert.equal(externalName.nameEvents.click, undefined, 'External domain links must keep native navigation');
+assert.equal(externalName.nameAttrs.role, undefined, 'External links are not disclosure buttons');
+externalName.button.click();
+assert.equal(externalName.panel.hidden, false, 'Disclosure chevron remains functional');
+console.log('External domain names keep native new-tab navigation.');

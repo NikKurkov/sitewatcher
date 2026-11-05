@@ -2269,3 +2269,5 @@ html { scrollbar-gutter: stable; }
   .status-pages-heading { flex-direction: column; align-items: stretch; }
   .status-pages-heading .primary { align-self: flex-start; }
 }
+
+[data-new-group-field][hidden] { display: none !important; }

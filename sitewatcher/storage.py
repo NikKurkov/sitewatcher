@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 
+from .check_policy import assessment_context
+
 DEFAULT_DB = Path(os.getenv("DATABASE_PATH", "./sitewatcher.db"))
 
 SCHEMA_SQL = """
@@ -34,6 +36,25 @@ CREATE TABLE IF NOT EXISTS domains (
   created_at TEXT DEFAULT (datetime('now')),
   PRIMARY KEY(owner_id, name),
   FOREIGN KEY(owner_id) REFERENCES users(telegram_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS domain_groups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  name_key TEXT NOT NULL,
+  UNIQUE(owner_id, id),
+  UNIQUE(owner_id, name_key),
+  FOREIGN KEY(owner_id) REFERENCES users(telegram_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS domain_group_members (
+  owner_id INTEGER NOT NULL,
+  domain TEXT NOT NULL,
+  group_id INTEGER NOT NULL,
+  PRIMARY KEY(owner_id, domain),
+  FOREIGN KEY(owner_id, domain) REFERENCES domains(owner_id, name) ON DELETE CASCADE,
+  FOREIGN KEY(owner_id, group_id) REFERENCES domain_groups(owner_id, id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS domain_overrides (
@@ -92,6 +113,14 @@ CREATE TABLE IF NOT EXISTS whois_state (
   snapshot_json TEXT NOT NULL,
   fetched_at TEXT NOT NULL,
   updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS virustotal_reports (
+  owner_id INTEGER NOT NULL,
+  url TEXT NOT NULL,
+  requested_at REAL NOT NULL,
+  outcome_json TEXT,
+  PRIMARY KEY(owner_id, url)
 );
 
 CREATE TABLE IF NOT EXISTS virustotal_submissions (
@@ -335,6 +364,7 @@ def save_histories(
     _save_history_rows(owner_id, domain, [
         (result.check, result.status, result.message, result.metrics)
         for result in results if not getattr(result, "cached", False)
+        or getattr(result, "assessment_changed", False)
     ], create_missing=create_missing, source=source)
 
 
@@ -362,6 +392,25 @@ def _save_history_rows(
             "SELECT 1 FROM domains WHERE owner_id=? AND name=?", (int(owner_id), domain),
         ).fetchone():
             return
+        unique_rows = []
+        for item in rows:
+            current_metrics = json.loads(item[5])
+            observation = current_metrics.get('observed_at') if isinstance(current_metrics, dict) else None
+            if observation:
+                previous = conn.execute(
+                    'SELECT status,metrics_json FROM history WHERE owner_id=? AND domain=? '
+                    'AND check_name=? ORDER BY id DESC LIMIT 1', item[:3]).fetchone()
+                try:
+                    prior_metrics = json.loads(previous['metrics_json']) if previous else {}
+                except (ValueError, TypeError):
+                    prior_metrics = {}
+                if (previous and previous['status'] == item[3]
+                        and isinstance(prior_metrics, dict)
+                        and prior_metrics.get('observed_at') == observation
+                        and assessment_context(prior_metrics) == assessment_context(current_metrics)):
+                    continue
+            unique_rows.append(item)
+        rows = unique_rows
         conn.executemany(
             "INSERT INTO history(owner_id, domain, check_name, status, message, "
             "metrics_json, source, created_at) "
@@ -482,6 +531,103 @@ def latest_check_results(owner_id: int, domain: str) -> dict[str, sqlite3.Row]:
         ).fetchall()
     return {row["check_name"]: row for row in rows
             if is_current_observation(domain, row["metrics_json"])}
+
+
+# ---------- Persistent VirusTotal daily request cache ----------
+
+def claim_virustotal_report(owner_id: int, url: str, *, now=None) -> tuple[float | None, dict | None]:
+    """Return a daily lookup claim plus the preceding observation, if available."""
+    _ensure_initialized()
+    stamp = (now or datetime.now(timezone.utc)).timestamp()
+    with _write_connection() as conn:
+        # Adopt the latest actual provider observation, skipping later local quota refusals.
+        exists = conn.execute('SELECT 1 FROM virustotal_reports WHERE owner_id=? AND url=?',
+                              (owner_id, url)).fetchone()
+        if not exists:
+            domain = url.removeprefix('https://').rstrip('/')
+            rows = conn.execute(
+                "SELECT * FROM history WHERE owner_id=? AND domain=? AND check_name='malware' "
+                "AND created_at>=datetime(?,'unixepoch') ORDER BY id DESC",
+                (owner_id, domain, stamp - 86400))
+            for row in rows:
+                try:
+                    fetched = datetime.fromisoformat(row['created_at'])
+                    fetched = fetched.replace(tzinfo=timezone.utc) if fetched.tzinfo is None else fetched
+                    metrics = json.loads(row['metrics_json'])
+                    if (stamp - 86400 < fetched.timestamp() <= stamp
+                            and metrics.get('url') == url
+                            and (metrics.get('vt_error') or metrics.get('vt_analysis_id')
+                                 or metrics.get('providers', {}).get('virustotal'))):
+                        outcome = {'status': row['status'], 'message': row['message'], 'metrics': metrics}
+                        conn.execute('INSERT INTO virustotal_reports '
+                                     '(owner_id,url,requested_at,outcome_json) VALUES(?,?,?,?)',
+                                     (owner_id, url, fetched.timestamp(), json.dumps(outcome)))
+                        break
+                except (ValueError, TypeError, AttributeError):
+                    continue
+        row = conn.execute('SELECT outcome_json,requested_at FROM virustotal_reports WHERE owner_id=? '
+                           'AND url=?', (owner_id, url)).fetchone()
+        previous = json.loads(row['outcome_json']) if row and row['outcome_json'] else None
+        if previous is not None:
+            previous = {
+                **previous,
+                'observed_at': (previous.get('metrics', {}).get('observed_at')
+                                or previous.get('observed_at')
+                                or datetime.fromtimestamp(row['requested_at'], timezone.utc).isoformat()),
+                'requested_at': row['requested_at'],
+            }
+        cursor = conn.execute(
+            'INSERT INTO virustotal_reports(owner_id,url,requested_at,outcome_json) VALUES(?,?,?,?) '
+            'ON CONFLICT(owner_id,url) DO UPDATE SET requested_at=excluded.requested_at, '
+            'outcome_json=excluded.outcome_json WHERE virustotal_reports.requested_at<=?',
+            (owner_id, url, stamp,
+             json.dumps({**previous, '_refresh_inflight': True}) if previous else None,
+             stamp - 86400),
+        )
+        if cursor.rowcount:
+            return stamp, previous
+        if previous is not None:
+            previous['next_refresh_at'] = datetime.fromtimestamp(
+                row['requested_at'] + 86400, timezone.utc).isoformat()
+        return None, previous
+
+
+def virustotal_pending_until(owner_id: int, url: str) -> datetime | None:
+    """Read the durable guard of an active/interrupted attempt without claiming it.
+
+    A pending attempt may suppress scheduling, but never makes prior clean facts fresh.
+    Completed reports still run once to reconcile their observation into owner history.
+    """
+    _ensure_initialized()
+    with closing(_connect()) as conn:
+        row = conn.execute('SELECT requested_at,outcome_json FROM virustotal_reports '
+                           'WHERE owner_id=? AND url=?', (owner_id, url)).fetchone()
+    if not row:
+        return None
+    payload = json.loads(row['outcome_json']) if row['outcome_json'] else None
+    if payload is None or payload.get('_refresh_inflight'):
+        return datetime.fromtimestamp(row['requested_at'] + 86400, timezone.utc)
+    return None
+
+
+def save_virustotal_report(
+    owner_id: int, url: str, claim: float, outcome: dict | None, previous: dict | None = None,
+) -> None:
+    """Release unspent quota while retaining the preceding provider observation."""
+    with _write_connection() as conn:
+        if outcome is None and previous is not None:
+            conn.execute('UPDATE virustotal_reports SET requested_at=?, outcome_json=? '
+                         'WHERE owner_id=? AND url=? AND requested_at=?',
+                         (previous['requested_at'], json.dumps(previous), owner_id, url, claim))
+        elif outcome is None:
+            conn.execute('DELETE FROM virustotal_reports WHERE owner_id=? AND url=? '
+                         'AND requested_at=?', (owner_id, url, claim))
+        else:
+            outcome = {**outcome}
+            outcome.pop('_refresh_inflight', None)
+            conn.execute('UPDATE virustotal_reports SET outcome_json=? WHERE owner_id=? '
+                         'AND url=? AND requested_at=?',
+                         (json.dumps(outcome), owner_id, url, claim))
 
 
 # ---------- VirusTotal submission cooldowns ----------
@@ -628,7 +774,8 @@ def domain_override_revision(data: dict | None) -> str:
 def set_domain_override(
     owner_id: int, domain: str, patch: dict, *, replace: bool = False,
     create_missing: bool = False, create_only: bool = False,
-    expected_revision: str | None = None,
+    expected_revision: str | None = None, group_id: int | None = None,
+    expected_group_id: int | None = None, new_group_name: str | None = None,
 ) -> dict:
     """Atomically merge settings; explicit creation includes the domain in the same transaction."""
     _ensure_initialized()
@@ -654,6 +801,10 @@ def set_domain_override(
                 _read_domain_override(conn, owner_id, domain)
             ) != expected_revision:
                 raise ValueError("Settings changed; reload this page before saving")
+        if expected_group_id is not None:
+            from .domain_groups import _group_for_domain
+            if not exists or _group_for_domain(conn, owner_id, domain) != expected_group_id:
+                raise ValueError("Settings changed; reload this page before saving")
         if create_missing:
             conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES(?)", (int(owner_id),))
             conn.execute("INSERT OR IGNORE INTO domains(owner_id,name) VALUES(?,?)",
@@ -665,12 +816,20 @@ def set_domain_override(
         current = {} if replace else (_read_domain_override(conn, owner_id, domain) or {})
         _merge(current, patch)
         _store_domain_override(conn, owner_id, domain, current)
+        if new_group_name is not None:
+            from .domain_groups import _create
+            group_id = _create(conn, owner_id, new_group_name)
+        if group_id is not None:
+            from .domain_groups import _assign
+            _assign(conn, owner_id, [domain], group_id)
     return current
 
 
 
 def rename_domain(owner_id: int, old: str, new: str, override: dict, *,
-                  expected_revision: str) -> None:
+                  expected_revision: str, group_id: int | None = None,
+                  expected_group_id: int | None = None,
+                  new_group_name: str | None = None) -> None:
     """Move one owned monitor atomically, retaining history/order and resetting host state."""
     _ensure_initialized()
     with _write_connection() as conn:
@@ -680,6 +839,10 @@ def rename_domain(owner_id: int, old: str, new: str, override: dict, *,
             raise ValueError('Domain not found')
         if domain_override_revision(_read_domain_override(conn, owner_id, old)) != expected_revision:
             raise ValueError('Settings changed; reload this page before saving')
+        if expected_group_id is not None:
+            from .domain_groups import _group_for_domain
+            if _group_for_domain(conn, owner_id, old) != expected_group_id:
+                raise ValueError('Settings changed; reload this page before saving')
         if conn.execute('SELECT 1 FROM domains WHERE owner_id=? AND name=?',
                         (owner_id, new)).fetchone():
             raise ValueError('Domain already exists')
@@ -725,10 +888,19 @@ def rename_domain(owner_id: int, old: str, new: str, override: dict, *,
                                  (json.dumps(names), stamp, page['id']))
         conn.execute('DELETE FROM owner_dns_state WHERE owner_id=? AND domain IN (?,?)',
                      (owner_id, old, new))
+        from .domain_groups import _assign, _group_for_domain
+        if new_group_name is not None:
+            from .domain_groups import _create
+            group_id = _create(conn, owner_id, new_group_name)
+        target_group = group_id if group_id is not None else _group_for_domain(conn, owner_id, old)
+        _assign(conn, owner_id, [new], target_group)
         # Cascades discard old route/activity/alert state rather than attaching it to another host.
         conn.execute('DELETE FROM domains WHERE owner_id=? AND name=?', (owner_id, old))
 
-def create_domains_with_overrides(owner_id: int, overrides: dict[str, dict]) -> None:
+def create_domains_with_overrides(
+    owner_id: int, overrides: dict[str, dict], *, group_id: int | None = None,
+    new_group_name: str | None = None,
+) -> None:
     """Create a validated batch for one owner, rolling back on conflicts or write errors."""
     _ensure_initialized()
     with _write_connection() as conn:
@@ -739,6 +911,12 @@ def create_domains_with_overrides(owner_id: int, overrides: dict[str, dict]) -> 
                 raise ValueError("Domain already exists")
             conn.execute("INSERT INTO domains(owner_id,name) VALUES(?,?)", (int(owner_id), domain))
             _store_domain_override(conn, owner_id, domain, data)
+        if new_group_name is not None:
+            from .domain_groups import _create
+            group_id = _create(conn, owner_id, new_group_name)
+        if group_id is not None:
+            from .domain_groups import _assign
+            _assign(conn, owner_id, list(overrides), group_id)
 
 
 def _domain_reset_revision(conn: sqlite3.Connection, owner_id: int, domain: str) -> str:

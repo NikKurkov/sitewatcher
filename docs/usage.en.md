@@ -174,7 +174,7 @@ This bot uses `--no-scheduler`. **Never run a scheduled bot and worker for the s
 | --- | --- |
 | `/add`, `/add_domain` | Add domains with the wizard or defaults. |
 | `/remove`, `/remove_all`, `/list` | Manage your domain list. |
-| `/check`, `/check_all` | Run checks; `--force` bypasses cache. An unknown domain is not added. |
+| `/check`, `/check_all` | Run checks; `--force` refreshes operational checks; daily metadata limits remain. An unknown domain is not added. |
 | `/status`, `/history` | Read saved results. |
 | `/cfg`, `/cfg_set`, `/cfg_unset` | Read or change a domain's settings. |
 | `/export_csv`, `/import_csv` | Export or import domain settings. |
@@ -218,11 +218,27 @@ Enable only the checks you need in the domain settings. They can have different 
 | RKN IP listing | Whether the resolved IPv4 appears in the lists; a match is Warning because shared hosting may be affected. |
 | VirusTotal | Existing external reputation reports; an API key is required. |
 
-RKN uses a complete, dated Antifilter bundle first and bol-van as fallback. These are source-list checks, not a test of access from every internet provider. IPv6 is not checked here. The index cache defaults to 12 hours; source files may be at most 168 hours old by default. Missing, future or stale dates do not establish a clean result. A failed refresh keeps the previous index and returns unknown when a clean result cannot be confirmed.
+RKN uses a complete, dated Antifilter bundle first and bol-van as fallback. These are source-list checks, not a test of access from every internet provider. IPv6 is not checked here. The index cache defaults to 24 hours; source files may be at most 168 hours old by default. Missing, future or stale dates do not establish a clean result. A failed refresh keeps the previous index and returns unknown when a clean result cannot be confirmed.
 
 Legacy `checks.rkn_block` and `schedules.rkn_block` configure both split checks unless the new keys are explicit. `rkn.check_ip: false` disables the IP check. Legacy Zapret-Info settings are accepted for migration, but that source is no longer fetched.
 
-WHOIS/RDAP availability depends on the zone; supported Russian zones can fall back to port 43. DNSBL depends on DNS replies. IP-change baselines are separate for each owner and ad hoc scans. To import a legacy standalone baseline once per scope, set `ipchange.db_path`; the old file is retained.
+WHOIS/RDAP availability depends on the zone; supported Russian zones can fall back to port 43. IP blocklists use DroneBL, Blocklist.de and PSBL by default when the check is enabled. Set `ipbl.zones` to override them; an explicit empty list supplies no sources. Source health checks verify the positive (`127.0.0.2`) and negative (`127.0.0.1`) control entries before trusting a source. Failed controls, DNS timeouts, unexpected return codes and access/quota errors are recorded as source failures, never listings. If at least one healthy source completes all IPv4 lookups and finds no listings, the result is OK; failures of other sources appear as a neutral incomplete-coverage note. If no source completes the check, the result is UNKNOWN. Confirmed listings remain CRIT even when another source fails; metrics include source coverage, return codes and per-source errors. Only IPv4 reputation is checked; `check_ipv6` considers AAAA presence, not IPv6 blocklist coverage. Spamhaus ZEN requires eligible access and rejects queries through public resolvers; it is not enabled by default. SpamCop is optional and should be tested from your runtime. Old unvalidated results and results from different source/resolver settings are not reused. Successful DNSBL answers are cached per IP/source for 24 hours; source health is cached for one hour, failures for 15 minutes. Resolver settings are part of the cache identity. Failed sources have a retry cooldown even for UNKNOWN results. IP-change baselines are separate for each owner and ad hoc scans. To import a legacy standalone baseline once per scope, set `ipchange.db_path`; the old file is retained.
+
+## Cache policy and metadata refresh
+
+TLS and WHOIS facts are cached for 24 hours. Expiry severity is assessed locally, so a threshold transition does not require another network request. Use **Refresh metadata** beside TLS or WHOIS in domain details/history. Repeated clicks within one minute reuse the cache; active requests, failures and Retry-After retain their cooldown. General checks and `--force` keep provider cache limits.
+
+```bash
+sitewatcher check_domain example.com --owner 123456789 --refresh-metadata tls_cert,whois
+```
+
+Telegram accepts `/check example.com --refresh=whois` or `--refresh=tls_cert`. Refresh requires an owned, existing domain and an enabled check; bulk metadata refresh is unavailable.
+
+Short domain intervals apply to HTTP, DNS/IP changes, ping and ports. HTTP, keywords and defacement share one bounded page fetch per run; page bodies are never persisted in the cache. Concurrent identical ping/port probes coalesce across processes with a one-second result lifetime. Route diagnostics keep their separate hourly refresh.
+
+RKN prepares its shared registry daily, separately from domain membership checks. Failed downloads use a shared increasing retry cooldown. A changed IP or registry generation invalidates the relevant assessment. Retained stale listings keep their original dates; a stale negative never establishes OK. Back up the index-adjacent `.refresh.sqlite3` state database with the index and monitoring database.
+
+Displayed evidence age tracks the provider observation, not cache reads. Provider failures retain confirmed threats. A local VirusTotal quota refusal without an API request uses the budget retry delay rather than consuming a daily lookup.
 
 ## Public status page
 
@@ -355,3 +371,39 @@ until Follow latest is selected.
 The public status page distinguishes page refresh time from saved site checks. Site check ages come first, with exact local dates underneath and no timezone label. Successful checks describe the selected period, not continuous uptime. The history legend separates unavailable sites, unknown results and intervals without measurements. Expanded checks use a compact two-column checklist (one column on phones), with names and statuses; diagnostic notes and individual times are available on hover. Graphs show a compact average label and three mean successful response times for the last 15 minutes, hour and day (hover, focus or tap a number to see its period), independently of the selected chart period; touch and arrow keys inspect individual bucket averages. If VirusTotal has no stored URL report, the public page says so; An enabled malware check automatically submits the canonical home URL for analysis when its report is missing.
 
 VirusTotal submission uses the same private proxy and counts as a separate API request. A persistent owner/URL claim prevents repeat submissions for 24 hours, including after restarts. Subsequent configured checks retrieve the report; UNKNOWN malware results bypass the cache by default. Pending analysis remains UNKNOWN and neutral, never a clean verdict. Definite request rejections release the claim; an ambiguous timeout keeps it because the submission may have been accepted. Submitted URLs can enter the shared VirusTotal dataset. Public-page reads never submit URLs or reveal analysis IDs.
+
+## Site groups
+
+Clicking a domain name in the owner table opens its configured website address in a new tab. Use the row chevron or empty row area to expand checks; Full history remains inside the details.
+
+Main is permanent and contains existing/unassigned sites. With one group the owner
+list is an ordinary table; multiple group headers independently collapse their
+sites while retaining problem counts. Search spans all groups and opens results.
+Disclosure state is saved per owner/browser. There are no selection checkboxes or
+global disclosure buttons in the list; group management is linked from Settings.
+
+Add/edit forms select an existing group or New. A new name is saved atomically with
+the domain or batch; validation failures and cancellation create no orphan groups.
+A stale edit cannot undo a newer group transfer. Reload after a conflict.
+
+Drag a domain by its handle onto another group's header or domain row, including
+empty/collapsed groups. Briefly hovering opens a collapsed destination. After
+confirmation, the existing row moves smoothly without reloading the page; open
+checks/charts, favorites and canonical ordering are preserved. Group counts and
+critical badges update together. Click/tap the same handle (or press Enter) to
+choose a group with keyboard or touch. With only one group the handle only reorders.
+If the server response is lost, SiteWatcher reads the current group before reporting
+the outcome and never repeats the move automatically. If confirmation remains
+unavailable, the original row stays visible with a clear message. Group management
+is in Settings; deleting a group returns its sites to Main with history/settings retained.
+
+Status-page editors can select one or several groups. Current members and future
+additions are dynamically published, unioned with explicitly selected domains.
+Only selected group names may enter public HTML. Existing pages default to no
+selected groups and retain their old site selection. Moving a domain changes its
+visibility on group-bound pages. Public data/activity use the same owner-bound
+selection; JSON stays flat and contains no internal group identifiers.
+
+Response charts require enabled HTTP checks and observations in the selected
+period; otherwise the chart section is hidden. Failed/unknown HTTP observations
+still count as observations. Other checks remain visible.

@@ -1,7 +1,7 @@
 {% extends 'sitewatcher/base.html' %}
 {% load i18n %}
 {% block title %}{% translate 'Overview · SiteWatcher' %}{% endblock %}
-{% block page_scripts %}<link rel="stylesheet" href="{% url 'asset' 'domain_list.css' %}"><link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'route_view.js' %}"></script><script defer src="{% url 'asset' 'activity.js' %}"></script>{% if not read_only %}<script defer src="{% url 'asset' 'domain_order.js' %}"></script>{% endif %}{% endblock %}
+{% block page_scripts %}<link rel="stylesheet" href="{% url 'asset' 'domain_list.css' %}"><link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'route_view.js' %}"></script><script defer src="{% url 'asset' 'activity.js' %}"></script><script defer src="{% url 'asset' 'domain_groups.js' %}"></script>{% if not read_only %}<script defer src="{% url 'asset' 'domain_order.js' %}"></script>{% endif %}{% endblock %}
 {% block header_summary %}
     {% if total %}
         <section class="header-monitoring-summary {% if attention %}needs-attention{% elif summary.unknown == total or summary.paused == total %}is-neutral{% endif %}"
@@ -28,9 +28,14 @@
         {% include 'sitewatcher/partials/activity.html' %}
         <section class="panel domain-list" data-disclosure-scope="owner-{{ request.workspace.pk }}" aria-label="{% translate 'Domains' %}">
             <p class="sr-only" data-order-status role="status"></p>
-            <table class="domains-table"{% if not read_only %} data-domain-order
+            <table class="domains-table" data-domain-groups data-group-storage-key="sitewatcher-groups-{{ request.workspace.pk }}" data-group-filtered="{{ group_filtered|yesno:'true,false' }}"{% if not read_only %} data-domain-order
                 data-saved="{% translate 'Domain order saved' %}"
                 data-failed="{% translate 'Could not confirm the new order. Reload the page and try again.' %}"
+                data-saving="{% translate 'Saving move…' %}"
+                data-moved="{% translate 'Domain moved' %}"
+                data-move-changed="{% translate 'The group changed in another session. The list is up to date.' %}"
+                data-drop-target="{% translate 'Move to {group}' %}"
+                data-move-failed="{% translate 'Could not confirm the group move. Reload the page to check the saved group.' %}"
                 data-group="{% translate 'Favorites stay at the top. Move domains within their group.' %}"{% endif %}>
                 <caption class="sr-only">{% translate 'Domains, with favorites first. Historical percentages describe HTTP checks in the selected period.' %}</caption>
                 <colgroup>
@@ -67,17 +72,21 @@
                         </th>
                     </tr>
                 </thead>
-                    {% for row in rows %}
-                    <tbody data-domain-key="{{ row.name }}" data-domain-name="{{ row.name }}" data-favorite="{{ row.favorite|yesno:'true,false' }}">
+                    {% for group in groups %}
+                    {% if show_groups %}
+                    {% include 'sitewatcher/partials/group_heading.html' %}
+                    {% endif %}
+                    {% for row in group.rows %}
+                    <tbody data-domain-key="{{ row.name }}" data-domain-name="{{ row.name }}" data-group-id="{{ group.id }}" data-favorite="{{ row.favorite|yesno:'true,false' }}">
                         <tr data-domain-summary>
                             <th scope="row" data-label="{% translate 'Domain' %}">
                                 <div class="domain-heading">
                                     {% if not read_only %}<button type="button" class="domain-reorder-handle" data-domain-drag draggable="true" hidden
-                                        title="{% translate 'Drag to reorder. Keyboard: Alt + Up or Down.' %}"
+                                        title="{% if show_groups %}{% translate 'Drag to move, or click to choose a group. Keyboard: Alt + Up or Down to reorder.' %}{% else %}{% translate 'Drag to reorder. Keyboard: Alt + Up or Down.' %}{% endif %}"
                                         aria-label="{% blocktranslate with domain=row.name %}Move {{ domain }}{% endblocktranslate %}"><svg width="12" height="18" viewBox="0 0 12 18" aria-hidden="true"><g fill="currentColor"><circle cx="3" cy="4" r="1.3"/><circle cx="9" cy="4" r="1.3"/><circle cx="3" cy="9" r="1.3"/><circle cx="9" cy="9" r="1.3"/><circle cx="3" cy="14" r="1.3"/><circle cx="9" cy="14" r="1.3"/></g></svg></button>{% endif %}
                                     {% include 'sitewatcher/partials/favorite.html' %}
                                     <div class="domain-heading-name">
-                                        <a class="domain-name" href="/domains/history?domain={{ row.name|urlencode }}&amp;days={{ report.days }}">{{ row.name }}</a>
+                                        <a class="domain-name" href="{% if row.site_url %}{{ row.site_url }}{% else %}https://{{ row.name }}/{% endif %}" target="_blank" rel="noopener noreferrer">{{ row.name }}</a>
                                         {% if row.error %}
                                             <span class="row-note">{{ row.error }}</span>
                                         {% endif %}
@@ -136,30 +145,42 @@
                                         <a class="button icon-button" href="/domains/history?domain={{ row.name|urlencode }}" title="{% translate 'History' %}" aria-label="{% translate 'History' %}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></a>
                                     {% endif %}
                                     <button type="button" class="icon-button domain-expand" data-domain-toggle hidden
-                                        aria-expanded="false" aria-controls="domain-details-{{ forloop.counter }}"
+                                        aria-expanded="false" aria-controls="domain-details-{{ group.id }}-{{ forloop.counter }}"
                                         aria-label="{% blocktranslate with domain=row.name %}Show checks and chart for {{ domain }}{% endblocktranslate %}"
                                     ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
                                 </div>
                             </td>
                         </tr>
-                        <tr id="domain-details-{{ forloop.counter }}" class="domain-detail-row" hidden>
+                        <tr id="domain-details-{{ group.id }}-{{ forloop.counter }}" class="domain-detail-row" hidden>
                             <td colspan="6">
-                                {% include 'sitewatcher/partials/domain_details.html' with report=row.report checks=row.checks common_observed=row.checks_common_observed owner_detail=True domain_name=row.name settings_error=row.error %}
+                                {% include 'sitewatcher/partials/domain_details.html' with report=row.report http_enabled=row.http_enabled checks=row.checks common_observed=row.checks_common_observed owner_detail=True domain_name=row.name settings_error=row.error %}
                             </td>
                         </tr>
                     </tbody>
                     {% empty %}
-                    <tbody>
-                        <tr>
-                            <td colspan="6" class="empty-filter">
-                                {% translate 'No domains match this filter.' %}
-                                <a href="/?days={{ report.days }}">{% translate 'Show all domains' %}</a>
-                            </td>
-                        </tr>
-                    </tbody>
+                    {% include 'sitewatcher/partials/group_empty.html' %}
+                    {% endfor %}
+                    {% empty %}<tbody><tr><td colspan="6" class="empty-filter">{% translate 'No domains match this filter.' %} <a href="/?days={{ report.days }}">{% translate 'Show all domains' %}</a></td></tr></tbody>
                     {% endfor %}
             </table>
         </section>
+        {% if not read_only and show_groups %}
+        <dialog class="domain-move-dialog" data-domain-move-dialog aria-labelledby="domain-move-heading" aria-describedby="domain-move-domain">
+            <form data-domain-move-form>
+                <h2 id="domain-move-heading">{% translate 'Move domain' %}</h2>
+                <p class="muted" id="domain-move-domain" data-move-domain></p>
+                <label for="move-group">{% translate 'Group' %}</label>
+                <select id="move-group" name="group_id">
+                    {% for choice in group_choices %}<option value="{{ choice.id }}">{% if choice.is_default %}{% translate 'Main' %}{% else %}{{ choice.name }}{% endif %}</option>{% endfor %}
+                </select>
+                <p class="muted" data-move-status role="status" hidden></p>
+                <div class="domain-move-dialog-actions">
+                    <button type="button" data-move-cancel>{% translate 'Cancel' %}</button>
+                    <button class="primary" type="submit" data-move-confirm disabled>{% translate 'Move' %}</button>
+                </div>
+            </form>
+        </dialog>
+        {% endif %}
     {% else %}
         <section class="panel empty-state">
             <div class="empty-symbol" aria-hidden="true">◎</div>

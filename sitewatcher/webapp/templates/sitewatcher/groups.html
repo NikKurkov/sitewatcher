@@ -1,0 +1,34 @@
+{% extends 'sitewatcher/base.html' %}
+{% load i18n %}
+{% block title %}{% translate 'Groups' %} · SiteWatcher{% endblock %}
+{% block page_scripts %}<link rel="stylesheet" href="{% url 'asset' 'domain_list.css' %}">{% endblock %}
+{% block main_class %}form-page{% endblock %}
+{% block content %}
+<a class="back-link" href="/">{% translate '← All domains' %}</a>
+<div class="page-heading"><div><h1>{% translate 'Groups' %}</h1><p class="subtitle">{% translate 'Organize sites without changing their monitoring settings.' %}</p></div></div>
+{% if error %}<p class="notice error-notice" role="alert">{{ error }}</p>{% endif %}
+{% if not read_only %}<form method="post" class="panel form-section group-create">
+    {% csrf_token %}<input type="hidden" name="operation" value="create">
+    <div class="field"><label for="new-group-name">{% translate 'New group' %}</label><input id="new-group-name" name="name" required maxlength="80" placeholder="{% translate 'For example, Shops' %}"></div>
+    <button class="primary" type="submit">{% translate 'Create group' %}</button>
+</form>{% endif %}
+<div class="group-management-list">
+{% for group in groups %}
+<section class="panel form-section">
+    <div class="group-management-heading"><h2>{% if group.is_default %}{% translate 'Main' %}{% else %}{{ group.name }}{% endif %}</h2><span class="muted">{% blocktranslate count count=group.count %}{{ count }} site{% plural %}{{ count }} sites{% endblocktranslate %}</span></div>
+    {% if group.is_default %}<p class="field-help">{% translate 'Existing sites and sites without a custom group appear here.' %}</p>
+    {% elif not read_only %}
+    <form method="post" class="group-rename">{% csrf_token %}<input type="hidden" name="operation" value="rename"><input type="hidden" name="group_id" value="{{ group.id }}">
+        <div class="field"><label for="group-name-{{ group.id }}">{% translate 'Group name' %}</label><input id="group-name-{{ group.id }}" name="name" value="{{ group.name }}" maxlength="80" required></div><button type="submit">{% translate 'Save name' %}</button>
+    </form>
+    <details class="group-delete"><summary>{% translate 'Delete group' %}</summary>
+        <form method="post">{% csrf_token %}<input type="hidden" name="operation" value="delete"><input type="hidden" name="group_id" value="{{ group.id }}">
+            <label class="checkbox-label"><input type="checkbox" name="confirm" value="on" required>{% translate 'Move sites to Main and delete this group. Sites and history are retained.' %}</label>
+            <button type="submit" class="danger-button">{% translate 'Delete group' %}</button>
+        </form>
+    </details>
+    {% endif %}
+</section>
+{% endfor %}
+</div>
+{% endblock %}

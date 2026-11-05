@@ -40,11 +40,17 @@ Available checks:
 - **Availability and speed** — whether the page opens, its response code and response time.
 - **HTTPS certificate and domain registration** — when they expire.
 - **Page content** — required words and signs of website defacement.
-- **Website reputation** — threat reports from VirusTotal; an API key is required.
-- **IP addresses** — address changes and entries in configured IP blacklists.
+- **Website reputation** — threat reports from VirusTotal; an API key is required. Each owner/domain report, including provider failures, is cached in the database for 24 hours. Manual checks and shorter schedules cannot bypass this limit. A missing report may require both a lookup and URL submission; the next lookup takes place after a day.
+- **IP addresses** — address changes and IP blocklist checks through DroneBL,
+  Blocklist.de and PSBL by default. Each source must pass positive and negative
+  control queries. At least one completed clean source is enough for OK; missing
+  sources are noted as incomplete coverage. If none completes, the result is unknown.
+  Access errors never become false listings. Override sources with `ipbl.zones` in YAML.
 - **Network** — connection latency, TCP port availability and the route to the server.
 
 Choose which checks to run for each website. See the [user guide](docs/usage.en.md) for details.
+
+TLS, WHOIS, VirusTotal and IP reputation use daily observations even when a site has a shorter operational interval. HTTP, IP changes, ping and ports remain operational. TLS and WHOIS have separate refresh actions in domain details. A failed provider refresh retains confirmed threats with the original evidence age.
 
 ## How does it work?
 

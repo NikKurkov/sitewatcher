@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import json
 import ssl
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
 from .base import BaseCheck, CheckOutcome, Status
+from .. import probe_cache, storage
+from ..check_policy import timestamp
 
 # Module-level logger for structured events
 log = logging.getLogger(__name__)
@@ -129,6 +132,8 @@ class TlsCertCheck(BaseCheck):
         warn_days: int = 30,
         port: int = 443,
         timeout_s: float = 10.0,
+        owner_id: int = 0,
+        force_refresh: bool = False,
     ) -> None:
         """
         Args:
@@ -141,8 +146,72 @@ class TlsCertCheck(BaseCheck):
         self.warn_days = int(warn_days)
         self.port = int(port)
         self.timeout_s = float(timeout_s)
+        self.owner_id = owner_id
+        self.force_refresh = force_refresh
+        self.cache_key = json.dumps([owner_id, domain.strip().lower().rstrip('.'), self.port])
 
     async def run(self) -> CheckOutcome:
+        previous = await asyncio.to_thread(probe_cache.read, 'tls-cert', self.cache_key)
+        if previous is None:
+            legacy = await asyncio.to_thread(storage.last_history_for_check,
+                                             self.owner_id, self.domain, self.name)
+            if legacy:
+                try:
+                    metrics = json.loads(legacy['metrics_json'])
+                    fetched = timestamp(metrics.get('fetched_at')) or timestamp(legacy['created_at'])
+                    if (fetched and int(metrics.get('port', 443)) == self.port
+                            and metrics.get('original_domain', self.domain) == self.domain):
+                        await asyncio.to_thread(probe_cache.seed, 'tls-cert', self.cache_key,
+                            {'status': legacy['status'], 'message': legacy['message'], 'metrics': metrics},
+                            fetched_at=fetched, ttl_s=900 if legacy['status'] == 'UNKNOWN' else 86400)
+                        previous = await asyncio.to_thread(probe_cache.read, 'tls-cert', self.cache_key)
+                except (ValueError, TypeError, AttributeError):
+                    pass
+
+        async def fetch():
+            result = await self._run_uncached()
+            value = {'status': result.status.value, 'message': result.message, 'metrics': result.metrics}
+            if result.status is Status.UNKNOWN:
+                value['error'] = 'unavailable'
+                if previous and previous.value.get('status') in {'CRIT', 'WARN'}:
+                    value = {**previous.value, 'error': 'unavailable',
+                             'message': previous.value['message'] + '; TLS refresh unavailable',
+                             'metrics': {**previous.value['metrics'], 'source_stale': True,
+                                 'observed_at': previous.value['metrics'].get('observed_at',
+                                     previous.fetched_at.isoformat())}}
+            return value
+
+        observation = await probe_cache.get_or_fetch('tls-cert', self.cache_key, fetch,
+            ttl_s=lambda value: 900 if value.get('error') or value['status'] == 'UNKNOWN' else 86400,
+            force=self.force_refresh)
+        value = observation.value
+        metrics = {**value['metrics'], 'observed_at': (
+                   value['metrics'].get('observed_at') if value.get('error')
+                   else None) or observation.fetched_at.isoformat(),
+                   'next_refresh_at': observation.expires_at.isoformat(),
+                   'cache_hit': observation.cached}
+        result = CheckOutcome(self.name, value['status'], value['message'], metrics,
+                              cached=observation.cached)
+        # Assess time-sensitive expiry from facts; a cache hit never freezes a verdict.
+        expires = timestamp(metrics.get('expires_at'))
+        if expires:
+            days = int((expires - datetime.now(timezone.utc)).total_seconds() // 86400)
+            status = Status.CRIT if days <= 3 else Status.WARN if days <= self.warn_days else Status.OK
+            if metrics.get('host_matches') is False and status is Status.OK:
+                status = Status.WARN
+            if value.get('error') and value['status'] == 'CRIT':
+                status = Status.CRIT
+            elif value.get('error') and status is Status.OK:
+                status = Status.WARN
+            result.status = status
+            result.metrics['days_left'] = days
+            suffix = result.message.split(';', 1)[1] if ';' in result.message else ''
+            expiry = (f'expired {-days}d ago ({expires.date()} UTC)' if days < 0
+                      else f'expires in {days}d ({expires.date()} UTC)')
+            result.message = expiry + (';' + suffix if suffix else '')
+        return result
+
+    async def _run_uncached(self) -> CheckOutcome:
         """Open a TLS connection, parse the leaf certificate and classify status."""
         # Start event for diagnostics
         log.debug(

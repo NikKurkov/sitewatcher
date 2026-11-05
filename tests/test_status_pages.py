@@ -183,7 +183,8 @@ def test_migration_preserves_existing_public_and_bearer_addresses(web_database):
     from django.db import connection
     from django.db.migrations.executor import MigrationExecutor
     old_target = [('webapp', '0005_workspace_public_slug')]
-    new_target = [('webapp', '0007_statuspage_private_token_nonce')]
+    previous_target = [('webapp', '0007_statuspage_private_token_nonce')]
+    new_target = [('webapp', '0008_statuspage_public_groups')]
     executor = MigrationExecutor(connection)
     executor.migrate(old_target)
     try:
@@ -194,8 +195,15 @@ def test_migration_preserves_existing_public_and_bearer_addresses(web_database):
             user_id=user.pk, owner_id=891, public_enabled=True, public_slug='legacy-status',
             public_domains=['legacy.example'], public_token_hash=hashlib.sha256(token.encode()).hexdigest())
         storage.add_domain(891, 'legacy.example')
+        previous_executor = MigrationExecutor(connection)
+        previous_executor.migrate(previous_target)
+        previous_apps = previous_executor.loader.project_state(previous_target).apps
+        previous_page = previous_apps.get_model('webapp', 'StatusPage').objects.get(
+            workspace_id=workspace.pk)
+        assert previous_page.public_domains == ['legacy.example']
         MigrationExecutor(connection).migrate(new_target)
         page = StatusPage.objects.get(workspace_id=workspace.pk)
+        assert page.public_groups == []
         assert page.legacy_primary and page.public_enabled
         assert page.public_domains == ['legacy.example']
         assert page.public_slug == 'legacy-status' and page.public_token_hash == workspace.public_token_hash

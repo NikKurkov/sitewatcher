@@ -142,7 +142,7 @@ def test_dispatcher_routes_target_checks_and_external_service_through_selected_p
                     assert all(client.is_closed for client in clients)
         assert {result.check for result in results} == {'http_basic', 'keywords', 'deface', 'whois'}
         assert {result.status.value for result in results} == {'OK'}
-        assert target_routes == ['target.example:443'] * 3
+        assert target_routes == ['target.example:443']  # Shared HTTP/keywords/deface fetch.
         assert global_routes == ['external.example:443']
     asyncio.run(scenario())
 

@@ -160,7 +160,7 @@ def test_large_alert_is_delivered_in_valid_bounded_messages(alert_context):
         HTMLParser().feed(message["text"])
 
 
-def test_recovery_uses_resolved_yaml_domain_interval(alert_context):
+def test_recovery_requires_daily_metadata_even_with_long_domain_interval(alert_context):
     from contextlib import closing
     from sitewatcher.config import DomainConfig
 
@@ -171,6 +171,11 @@ def test_recovery_uses_resolved_yaml_domain_interval(alert_context):
     with closing(storage._connect()) as connection:
         connection.execute("UPDATE history SET created_at=datetime('now', '-2 days')")
     establish_baseline("CRIT")
+    asyncio.run(maybe_send_alert(None, context, 1, "example.com", [
+        CheckOutcome("ping", Status.OK, "online", {}),
+    ]))
+    assert sent == []  # Two-day-old TLS evidence cannot confirm recovery.
+    storage.save_history(1, "example.com", "tls_cert", "OK", "fresh", {})
     asyncio.run(maybe_send_alert(None, context, 1, "example.com", [
         CheckOutcome("ping", Status.OK, "online", {}),
     ]))

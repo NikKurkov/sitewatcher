@@ -194,3 +194,138 @@ def test_legacy_canonical_timestamp_can_refresh(tmp_path, timestamp):
             assert (await check.run()).status == Status.OK
             assert len(calls) == 1
     asyncio.run(run())
+
+
+def test_cached_snapshot_has_stable_observation_and_recomputes_expiry(tmp_path):
+    check = WhoisInfoCheck('example.com', None, WhoisConfig(db_path=str(tmp_path / 'cache.db')))
+    fetched = datetime.now(timezone.utc) - timedelta(hours=1)
+    check._db_upsert({'expires_at': '2000-01-01T00:00:00+00:00'}, fetched)
+    result = asyncio.run(check.run())
+    assert result.status == Status.CRIT
+    assert result.cached
+    assert result.metrics['observed_at'] == fetched.isoformat()
+    assert result.metrics['next_refresh_at'] == (fetched + timedelta(hours=24)).isoformat()
+
+
+def test_force_refresh_bypasses_success_ttl_after_debounce(tmp_path):
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        return httpx.Response(200, json={'events': [
+            {'eventAction': 'expiration', 'eventDate': '2099-01-01T00:00:00Z'},
+        ]})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            cfg = WhoisConfig(db_path=str(tmp_path / 'cache.db'))
+            check = WhoisInfoCheck('example.com', client, cfg)
+            first = await check.run()
+            force = WhoisInfoCheck('www.example.com', client, cfg, force_refresh=True)
+            assert (await force.run()).cached
+            old = datetime.now(timezone.utc) - timedelta(seconds=61)
+            with check._connect() as conn:
+                conn.execute('UPDATE whois_state SET fetched_at=?', (old.isoformat(),))
+                conn.execute('UPDATE whois_attempts SET attempted_at=?', (old.isoformat(),))
+            updated = await force.run()
+            assert len(calls) == 2
+            assert not updated.cached
+            assert updated.metrics['observed_at'] != first.metrics['observed_at']
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('expiry, expected', [
+    ('2000-01-01T00:00:00+00:00', Status.CRIT),
+    ((datetime.now(timezone.utc) + timedelta(days=20)).isoformat(), Status.WARN),
+    ('2099-01-01T00:00:00+00:00', Status.UNKNOWN),
+])
+def test_force_failure_preserves_expiry_and_retry_observation(tmp_path, expiry, expected):
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(429, headers={'Retry-After': '172800'}),
+        )) as client:
+            cfg = WhoisConfig(db_path=str(tmp_path / 'cache.db'))
+            check = WhoisInfoCheck('example.com', client, cfg, force_refresh=True)
+            fetched = datetime.now(timezone.utc) - timedelta(hours=1)
+            check._db_upsert({'expires_at': expiry, 'registrar': 'known'}, fetched)
+            failed = await check.run()
+            blocked = await check.run()
+            regular = await WhoisInfoCheck('example.com', None, cfg).run()
+            assert failed.status == blocked.status == regular.status == expected
+            assert not failed.cached
+            assert blocked.cached and regular.cached
+            assert failed.metrics['registrar'] == blocked.metrics['registrar'] == 'known'
+            assert failed.metrics['observed_at'] == blocked.metrics['observed_at']
+            assert blocked.metrics['observed_at'] == fetched.isoformat()
+            assert blocked.metrics['attempted_at'] == failed.metrics['attempted_at']
+            assert blocked.metrics['attempted_at'] != fetched.isoformat()
+            assert blocked.metrics['next_refresh_at'] == failed.metrics['next_retry_at']
+            assert blocked.metrics['cache_state'] == 'stale'
+    asyncio.run(run())
+
+
+def test_force_refresh_cannot_bypass_active_claim_with_fresh_snapshot(tmp_path):
+    cfg = WhoisConfig(db_path=str(tmp_path / 'cache.db'))
+    check = WhoisInfoCheck('example.com', None, cfg, force_refresh=True)
+    now = datetime.now(timezone.utc)
+    check._db_upsert({'expires_at': '2099-01-01T00:00:00+00:00'}, now - timedelta(hours=1))
+    assert check._claim_refresh(now) is None
+    blocked = asyncio.run(WhoisInfoCheck('www.example.com', None, cfg, force_refresh=True).run())
+    assert blocked.cached
+    assert blocked.status == Status.UNKNOWN
+    assert 'pending' in blocked.message
+
+
+def test_cached_snapshot_reassesses_expiry_as_clock_advances(tmp_path, monkeypatch):
+    import sitewatcher.checks.whois_info as whois_module
+
+    start = datetime(2030, 1, 1, tzinfo=timezone.utc)
+
+    class Clock(datetime):
+        current = start
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.current
+
+    monkeypatch.setattr(whois_module, 'datetime', Clock)
+    check = WhoisInfoCheck('example.com', None, WhoisConfig(db_path=str(tmp_path / 'cache.db')))
+    check._db_upsert({'expires_at': (start + timedelta(days=31)).isoformat()}, start)
+    first = asyncio.run(check.run())
+    Clock.current += timedelta(hours=12)
+    second = asyncio.run(check.run())
+    assert first.status == Status.OK
+    assert second.status == Status.WARN
+    assert first.cached and second.cached
+    assert first.metrics['observed_at'] == second.metrics['observed_at'] == start.isoformat()
+    assert first.metrics['next_refresh_at'] == second.metrics['next_refresh_at']
+
+
+def test_failed_cached_snapshot_reassesses_critical_expiry_without_network(tmp_path, monkeypatch):
+    import sitewatcher.checks.whois_info as whois_module
+
+    start = datetime(2030, 1, 1, tzinfo=timezone.utc)
+
+    class Clock(datetime):
+        current = start
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.current
+
+    monkeypatch.setattr(whois_module, 'datetime', Clock)
+    cfg = WhoisConfig(db_path=str(tmp_path / 'cache.db'))
+    check = WhoisInfoCheck('example.com', None, cfg)
+    fetched = start - timedelta(days=1)
+    check._db_upsert({'expires_at': (start + timedelta(days=8)).isoformat()}, fetched)
+    assert check._claim_refresh(start) is None
+    check._finish_attempt(Status.UNKNOWN, 'RDAP rate-limited', start, '172800')
+    first = asyncio.run(check.run())
+    Clock.current += timedelta(hours=12)
+    second = asyncio.run(check.run())
+    assert first.status == Status.WARN
+    assert second.status == Status.CRIT
+    assert first.cached and second.cached
+    assert first.metrics['observed_at'] == second.metrics['observed_at'] == fetched.isoformat()
+    assert first.metrics['attempted_at'] == second.metrics['attempted_at'] == start.isoformat()
+    assert first.metrics['next_retry_at'] == second.metrics['next_retry_at']

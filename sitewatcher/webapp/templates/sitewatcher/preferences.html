@@ -207,6 +207,11 @@
             </form>
         {% endif %}
     </section>
+    <section class="panel form-section" id="site-groups">
+        <h2>{% translate 'Groups' %}</h2>
+        <p>{% translate 'Organize sites without changing their monitoring settings.' %}</p>
+        <a class="button" href="{% url 'domain_groups' %}">{% translate 'Manage groups' %}</a>
+    </section>
     <section class="panel form-section publication-settings" id="public-status">
         <h2>Status pages</h2>
         <p class="field-help">{% translate 'Create separate pages with their own title, access and selected domains.' %}</p>

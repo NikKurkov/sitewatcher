@@ -40,13 +40,45 @@ def _totals(value):
     return result
 
 
-def public_report(workspace, *, days):
+def _published_names(page, snapshot):
+    """Intersect explicit and live group selections with current owner-owned monitors."""
+    owned_groups = {group['id'] for group in snapshot.get('groups', [])}
+    selected = {gid for gid in getattr(page, 'public_groups', [])
+                if type(gid) is int and gid in owned_groups}
+    explicit = set(page.public_domains)
+    return sorted(row['name'] for row in snapshot['domains']
+                  if row['name'] in explicit or row.get('group_id', 0) in selected)
+
+
+def _published_sections(page, snapshot, reports):
+    """Only selected group labels may enter HTML; internal IDs never enter its context."""
+    selected = {gid for gid in getattr(page, 'public_groups', []) if type(gid) is int}
+    membership = {row['name']: row.get('group_id', 0) for row in snapshot['domains']}
+    sections = []
+    assigned = set()
+    for group in snapshot.get('groups', []):
+        if group['id'] not in selected:
+            continue
+        items = [row for row in reports if membership[row['domain']] == group['id']]
+        if items:
+            sections.append({'label': _('Main') if group['is_default'] else group['name'],
+                             'domains': items})
+            assigned.update(row['domain'] for row in items)
+    others = [row for row in reports if row['domain'] not in assigned]
+    if others:
+        sections.append({'label': _('Other sites'), 'domains': others})
+    if not selected or len(sections) < 2:
+        return [{'label': '', 'domains': reports}]
+    return sections
+
+
+def public_report(workspace, *, days, snapshot=None):
     """Project safe domain DTOs; never use the whole-owner overview totals/cache."""
-    names = set(storage.list_domains(workspace.owner_id))
-    snapshot = build_snapshot(settings.SITEWATCHER_CONFIG, workspace.owner_id)
+    if snapshot is None:
+        snapshot = build_snapshot(settings.SITEWATCHER_CONFIG, workspace.owner_id)
     current = {row['name']: row for row in snapshot['domains']}
     reports = []
-    for name in sorted(set(workspace.public_domains) & names):
+    for name in _published_names(workspace, snapshot):
         raw = analytics.domain_report(workspace.owner_id, name, days=days,
                                       timezone=workspace.timezone)
         report = {key: raw[key] for key in ('domain', 'days', 'timezone', 'window_start',
@@ -95,8 +127,9 @@ def public_report(workspace, *, days):
 
 
 def public_activity(workspace):
+    snapshot = build_snapshot(settings.SITEWATCHER_CONFIG, workspace.owner_id)
     events, domains = check_activity.published_activity(
-        workspace.owner_id, sorted(set(workspace.public_domains)),
+        workspace.owner_id, _published_names(workspace, snapshot),
     )
     present_events(events)
     for event in events:
@@ -151,11 +184,13 @@ def _status_page(request, workspace, *, data):
             return response
     except ValueError:
         return HttpResponse(_('Not found'), status=404)
-    report = public_report(workspace, days=days)
+    snapshot = build_snapshot(settings.SITEWATCHER_CONFIG, workspace.owner_id)
+    report = public_report(workspace, days=days, snapshot=snapshot)
     if data:
         return JsonResponse(report)
     for item in report['domains']:
         report_context(item, public=True)
+        item['http_enabled'] = any(check['name'] == 'http_basic' for check in item['checks'])
         for check in item['checks']:
             check['label'] = check_label(check['name'])
             check['status_label'] = (_('Analysis pending') if check.get('pending')
@@ -181,6 +216,7 @@ def _status_page(request, workspace, *, data):
                 if item['last_checked_at']), default=None)
     return render(request, 'sitewatcher/public.html', {
         'public_view': True, 'public_timezone': workspace.timezone, 'report': report,
+        'published_sections': _published_sections(workspace, snapshot, report['domains']),
         'status_page_title': workspace.title,
         'public_activity_url': (workspace.public_path + '/activity'
                                 if getattr(request, 'public_alias', False) else 'activity'),

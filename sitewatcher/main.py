@@ -16,7 +16,7 @@ load_dotenv(Path.cwd() / ".env")
 
 from . import storage
 from .bot import run_bot
-from .config import AppConfig, ChecksModel, load_config, validate_config, validation_message
+from .config import AppConfig, ChecksModel, resolve_settings, load_config, validate_config, validation_message
 from .dispatcher import Dispatcher
 from .logging_setup import setup_logging
 from .utils.domains import DOMAIN_RE, normalize_domain
@@ -39,7 +39,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--port", type=int, default=8080, help="Web port (loopback by default)")
     p.add_argument("name", nargs="?", help="Domain for 'check_domain' or 'scan'")
     p.add_argument("--config", default=None, help="Path to config.yaml")
-    p.add_argument("--force", action="store_true", help="Ignore cache and run all checks live")
+    p.add_argument("--force", action="store_true", help="Bypass operational cache; metadata keeps provider cache limits")
     p.add_argument(
         "--only",
         default=None,
@@ -51,7 +51,16 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Owner ID (required for check_domain; optional mapping assertion for web).",
     )
-    return p.parse_args()
+    p.add_argument('--refresh-metadata', default=None,
+                   help='Refresh selected TLS/WHOIS metadata for an owned check_domain')
+    args = p.parse_args()
+    if args.refresh_metadata is not None:
+        checks = args.refresh_metadata.split(',')
+        if (args.mode != 'check_domain' or not args.name or args.owner is None
+                or not checks or any(check not in {'tls_cert', 'whois'} for check in checks)
+                or len(set(checks)) != len(checks) or args.only):
+            p.error('--refresh-metadata requires check_domain, --owner and tls_cert,whois only')
+    return args
 
 
 # ---------- Helpers ----------
@@ -69,6 +78,7 @@ async def _run_and_persist(
     only_checks: Optional[list[str]] = None,
     use_cache: bool = True,
     run_id: Optional[str] = None,
+    refresh_checks: Optional[list[str]] = None,
 ) -> list:
     """Run checks for a single domain and persist results to storage."""
     async with Dispatcher(cfg) as d:
@@ -78,8 +88,12 @@ async def _run_and_persist(
             only_checks=only_checks,
             use_cache=use_cache,
             run_id=run_id,
+            **({"refresh_checks": refresh_checks} if refresh_checks else {}),
         )
-    storage.save_histories(owner_id, domain, results, source="manual")
+    storage.save_histories(
+        owner_id, domain, results, source="manual",
+        **({"create_missing": False} if refresh_checks else {}),
+    )
     return results
 
 
@@ -174,10 +188,24 @@ async def _cmd_check_one(
     only: Optional[list[str]],
     use_cache: bool,
     run_id: str,
+    refresh_checks: Optional[list[str]] = None,
 ) -> None:
     """Run checks for a single domain and persist results to storage."""
     log = logging.getLogger("sitewatcher.main")
-    results = await _run_and_persist(cfg, owner_id, name, only_checks=only, use_cache=use_cache, run_id=run_id)
+    if refresh_checks:
+        if not storage.domain_exists(owner_id, name):
+            raise SystemExit('Metadata refresh requires an owned domain')
+        resolved = resolve_settings(cfg, name, storage.get_domain_override(owner_id, name))
+        if any(check not in {'tls_cert', 'whois'} or not getattr(resolved.checks, check)
+               for check in refresh_checks):
+            raise SystemExit('Metadata refresh requires enabled TLS/WHOIS checks')
+        only = refresh_checks
+    results = await _run_and_persist(
+        cfg, owner_id, name, only_checks=only, use_cache=use_cache, run_id=run_id,
+        **({'refresh_checks': refresh_checks} if refresh_checks else {}),
+    )
+    if refresh_checks and (not results or any(result.cached for result in results)):
+        print('Cached metadata reused; refresh is limited by provider cooldown')
     overall = _overall_from(results)
     checks_summary = ", ".join(f"{r.check}:{_status_str(r.status)}" for r in results)
     print(f"[{owner_id}] {_status_emoji(overall)} {name} — {overall} -> {checks_summary}")
@@ -299,7 +327,10 @@ def main() -> None:
             "Example:\n"
             "  sitewatcher check_domain example.com --owner 123456789 --only http_basic,tls_cert"
         )
-    asyncio.run(_cmd_check_one(cfg, args.owner, args.name, only=only, use_cache=use_cache, run_id=run_id))
+    asyncio.run(_cmd_check_one(
+        cfg, args.owner, args.name, only=only, use_cache=use_cache, run_id=run_id,
+        **({'refresh_checks': args.refresh_metadata.split(',')} if args.refresh_metadata else {}),
+    ))
 
 
 if __name__ == "__main__":

@@ -18,11 +18,18 @@
             {% endfor %}
             <p class="field-help">{% translate 'Public pages are open to everyone. Private pages are accessible to anyone with the link. You can open and copy it in Status pages.' %}</p>
             <fieldset class="status-page-domain-picker">
+                <legend>{% translate 'Publish groups' %}</legend>
+                <div class="publication-domains">
+                    {% for group in groups %}<label><input type="checkbox" name="group.{{ group.id }}" {% if group.selected %}checked{% endif %}> <span>{{ group.label }}</span></label>{% endfor %}
+                </div>
+                <p class="field-help">{% translate 'All current and future sites in selected groups appear on this page.' %}</p>
+            </fieldset>
+            <fieldset class="status-page-domain-picker">
                 <legend>{% translate 'Domains' %}</legend>
                 <div class="publication-domains">
                     {% for item in domains %}<label><input type="checkbox" name="domain.{{ item.name }}" {% if item.selected %}checked{% endif %}> <span>{{ item.name }}</span></label>{% empty %}<p class="muted">{% translate 'Add a domain to your workspace to publish it here.' %}</p>{% endfor %}
                 </div>
-                <p class="field-help">{% translate 'Only selected domains appear on this page. Monitoring settings stay in your workspace.' %}</p>
+                <p class="field-help">{% translate 'Selected domains appear alongside selected groups. Monitoring settings stay in your workspace.' %}</p>
             </fieldset>
             <div class="detail-actions"><button class="primary" type="submit" name="action" value="save">{% if page %}{% translate 'Save' %}{% else %}{% translate 'Create page' %}{% endif %}</button><a class="button" href="/settings/status-pages">{% translate 'Cancel' %}</a></div>
             {% if page %}

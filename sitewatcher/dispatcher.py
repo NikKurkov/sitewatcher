@@ -5,17 +5,24 @@ import json
 import logging
 import uuid
 from functools import lru_cache
+from contextvars import ContextVar
+from datetime import datetime, timedelta, timezone
+import hashlib
 from typing import Iterable, List, Optional, Tuple
 
 import httpx
 
-from . import check_activity, storage
+from . import check_activity, storage, probe_cache
+from .check_context import CheckContext
+from .check_policy import (DAILY_CHECKS, REFRESHABLE_CHECKS, result_deadlines,
+                           expiry_assessment_due, ip_context_current, metrics_from, timestamp,
+                           assessment_context)
 from .utils.http_body import DEFAULT_MAX_RESPONSE_BYTES
 from .utils.results import overall_from_results, status_text, strip_cached_suffix
 from .checks.base import CheckOutcome, Status
 from .checks.deface import DefaceCheck
 from .checks.http_basic import HttpBasicCheck
-from .checks.ip_blacklist import IpBlacklistCheck
+from .checks.ip_blacklist import IpBlacklistCheck, current_ipbl_result
 from .checks.ip_change import IpChangeCheck
 from .checks.keywords import KeywordsCheck
 from .checks.ping import PingCheck
@@ -28,6 +35,7 @@ from .config import AppConfig, ResolvedSettings, resolve_settings, _validate_pro
 
 
 log = logging.getLogger(__name__)
+_cycle = ContextVar('sitewatcher_check_cycle', default=None)
 
 
 @lru_cache(maxsize=8)
@@ -47,7 +55,8 @@ def _new_run_id() -> str:
 
 # Optional RKN plugin (kept soft to avoid import-time failures)
 try:  # pragma: no cover
-    from .checks.rkn_block_sqlite import RknBlockCheck, RknIpCheck  # type: ignore
+    from .checks.rkn_block_sqlite import (RknBlockCheck, RknIpCheck,
+        prepare_registry, current_registry_generation)  # type: ignore
     log.debug("RKN plugin loaded: rkn_block_sqlite")
 except Exception as e:  # pragma: no cover
     RknBlockCheck = None  # type: ignore
@@ -75,7 +84,9 @@ class Dispatcher:
         self._http_client_kwargs: dict = {}
         self._default_per_domain_concurrency = max(1, int(max_concurrency))
         # Shared VT rate limiter (process-local for this Dispatcher lifetime)
-        self._vt_limiter: Optional[MultiWindowRateLimiter] = None  # NEW
+        self._vt_limiter: Optional[MultiWindowRateLimiter] = None
+        self._rkn_preparation = None
+        self._rkn_background = False
 
     # ---------- lifecycle ----------
 
@@ -128,6 +139,10 @@ class Dispatcher:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
+        if self._rkn_preparation is not None:
+            if exc_type is not None and not self._rkn_preparation.done():
+                self._rkn_preparation.cancel()
+            await asyncio.gather(self._rkn_preparation, return_exceptions=True)
         clients = list(self._proxy_clients.values())
         if self._client is not None:
             clients.append(self._client)
@@ -137,7 +152,30 @@ class Dispatcher:
 
     # ---------- public API ----------
 
-    async def run_for(
+    def start_registry_refresh(self, *, background=False):
+        self._rkn_background |= background
+        if self._rkn_preparation is None:
+            self._rkn_preparation = asyncio.create_task(prepare_registry(self._client, self.cfg.rkn))
+        return self._rkn_preparation
+
+    async def run_for(self, owner_id: int, domain: str, *, only_checks=None,
+                      use_cache: bool = False, run_id=None, ephemeral: bool = False,
+                      refresh_checks=()):
+        refresh_checks = frozenset(refresh_checks)
+        if not refresh_checks <= REFRESHABLE_CHECKS:
+            raise ValueError('Only TLS and WHOIS metadata can be explicitly refreshed')
+        if ephemeral and refresh_checks:
+            raise ValueError('Explicit refresh requires an owned domain')
+        async with CheckContext() as context:
+            token = _cycle.set(context)
+            try:
+                return await self._run_for(owner_id, domain, only_checks=only_checks,
+                    use_cache=use_cache, run_id=run_id, ephemeral=ephemeral,
+                    refresh_checks=refresh_checks)
+            finally:
+                _cycle.reset(token)
+
+    async def _run_for(
         self,
         owner_id: int,
         domain: str,
@@ -145,6 +183,7 @@ class Dispatcher:
         use_cache: bool = False,
         run_id: Optional[str] = None,
         ephemeral: bool = False,
+        refresh_checks=frozenset(),
     ) -> List[CheckOutcome]:
         """
         Run checks for a single domain (owner-aware).
@@ -158,6 +197,9 @@ class Dispatcher:
         use_cache = use_cache and not ephemeral
         all_checks = self._build_checks(settings, owner_id=0 if ephemeral else owner_id)
         checks = self._filter_checks(all_checks, only_checks)
+        for check in checks:
+            if check.name in refresh_checks:
+                check.force_refresh = True
 
         if not checks:
             log.info(
@@ -216,7 +258,32 @@ class Dispatcher:
                     if activity_task is not None:
                         await asyncio.shield(activity_task)
                     start = asyncio.get_running_loop().time()
-                    res = await chk.run()
+                    if name in {'rkn_domain', 'rkn_ip'}:
+                        preparation = self.start_registry_refresh()
+                        if not self._rkn_background:
+                            await asyncio.shield(preparation)
+                    if name in {'ping', 'ports'} and not ephemeral:
+                        context_key = json.dumps([owner_id, settings.name, name,
+                            self.cfg.ports.model_dump() if name == 'ports' else {},
+                            settings.ports], default=str, sort_keys=True)
+                        context_key = hashlib.sha256(context_key.encode()).hexdigest()
+                        async def fetch_probe():
+                            outcome = await chk.run()
+                            return {'status': outcome.status.value, 'message': outcome.message,
+                                    'metrics': outcome.metrics}
+                        observation = await probe_cache.get_or_fetch(
+                            'operational-' + name, context_key, fetch_probe, ttl_s=1)
+                        res = CheckOutcome(name, observation.value['status'],
+                            observation.value['message'], observation.value['metrics'],
+                            cached=observation.cached)
+                    else:
+                        res = await chk.run()
+                    if name in DAILY_CHECKS and not res.metrics.get('cache_inflight'):
+                        observed = datetime.now(timezone.utc)
+                        res.metrics.setdefault('observed_at', observed.isoformat())
+                        retry = 900 if res.status is Status.UNKNOWN else 86400
+                        res.metrics.setdefault('next_refresh_at',
+                            (observed + timedelta(seconds=retry)).isoformat())
                     activity_status = status_text(res.status)
                     elapsed_ms = int((asyncio.get_running_loop().time() - start) * 1000)
                     # Enrich metrics with elapsed time (non-invasive)
@@ -264,7 +331,12 @@ class Dispatcher:
         # Prepare tasks, honoring cache if enabled
         for i, chk in enumerate(checks):
             name = getattr(chk, "name", "")
-            if use_cache:
+            if name in DAILY_CHECKS and name not in refresh_checks and not ephemeral:
+                cached = self._daily_cached_result(owner_id, domain, name, settings)
+                if cached is not None:
+                    results_ordered[i] = cached
+                    continue
+            if use_cache and name not in DAILY_CHECKS:
                 cached = self._maybe_cached_result(owner_id, domain, name, _ttl_minutes)
                 if cached is not None and name in {'http_basic', 'keywords', 'deface'}:
                     if cached.metrics.get('http_target', f'https://{settings.name}/') != settings.http_url:
@@ -335,6 +407,22 @@ class Dispatcher:
 
         results: List[CheckOutcome] = [r for r in results_ordered if r is not None]
 
+        # A new assessment from cached facts is still an observable severity transition.
+        if not ephemeral:
+            for result in results:
+                if (result.check not in DAILY_CHECKS or not result.cached
+                        or result.metrics.get('cache_inflight')):
+                    continue
+                previous = storage.last_history_for_check(owner_id, domain, result.check)
+                observed = timestamp(result.metrics.get('observed_at'))
+                old_observed = (result_deadlines(self.cfg, result.check,
+                    settings.interval_minutes, previous)[0] if previous else None)
+                if (not previous or status_text(previous['status']) != result.status.value
+                        or observed and (not old_observed or observed > old_observed)
+                        or assessment_context(result.metrics) != assessment_context(
+                            metrics_from(previous))):
+                    result.assessment_changed = True
+
         # Log summary
         overall = overall_from_results(results)
         checks_summary = {r.check: status_text(r.status) for r in results}
@@ -392,6 +480,7 @@ class Dispatcher:
             target_client = self._proxy_clients[proxy]
 
         out: List = []
+        context = _cycle.get()
 
         if getattr(settings.checks, "http_basic", False):
             out.append(
@@ -403,12 +492,12 @@ class Dispatcher:
                     timeout_s=settings.http_timeout_s,
                     latency_warn_ms=settings.latency_warn_ms,
                     latency_crit_ms=settings.latency_crit_ms,
-                    proxy=None,
+                    proxy=None, cycle_context=context, owner_id=owner_id,
                 )
             )
 
         if getattr(settings.checks, "tls_cert", False):
-            out.append(TlsCertCheck(settings.name, warn_days=settings.tls_warn_days))
+            out.append(TlsCertCheck(settings.name, warn_days=settings.tls_warn_days, owner_id=owner_id or 0))
 
         if getattr(settings.checks, "keywords", False):
             out.append(
@@ -418,7 +507,7 @@ class Dispatcher:
                     client=target_client,
                     max_response_bytes=max_response_bytes,
                     timeout_s=settings.http_timeout_s,
-                    keywords=settings.keywords,
+                    keywords=settings.keywords, cycle_context=context, owner_id=owner_id,
                 )
             )
 
@@ -442,7 +531,7 @@ class Dispatcher:
 
             out.append(DefaceCheck(settings.name, client=target_client, timeout_s=timeout_s,
                                   markers=markers, max_response_bytes=max_response_bytes,
-                                  http_url=settings.http_url))
+                                  http_url=settings.http_url, cycle_context=context, owner_id=owner_id))
         else:
             log.debug("DefaceCheck: disabled for %s", settings.name)
 
@@ -453,9 +542,11 @@ class Dispatcher:
             out.append(PingCheck(settings.name))
 
         if settings.checks.rkn_domain and RknBlockCheck is not None:
-            out.append(RknBlockCheck(settings.name, client=self._client, rkn_cfg=self.cfg.rkn))
+            out.append(RknBlockCheck(settings.name, client=self._client, rkn_cfg=self.cfg.rkn,
+                                     auto_prepare=False, cycle_context=context))
         if settings.checks.rkn_ip and RknIpCheck is not None:
-            out.append(RknIpCheck(settings.name, client=self._client, rkn_cfg=self.cfg.rkn))
+            out.append(RknIpCheck(settings.name, client=self._client, rkn_cfg=self.cfg.rkn,
+                                     auto_prepare=False, cycle_context=context))
 
         if getattr(settings.checks, "ports", False):
             targets = settings.ports if settings.ports is not None else self.cfg.ports.targets
@@ -472,12 +563,12 @@ class Dispatcher:
                     dns_servers=self.cfg.ipbl.dns_servers,
                     timeout_s=self.cfg.ipbl.timeout_s,
                     concurrency=self.cfg.ipbl.concurrency,
-                    check_ipv6=self.cfg.ipbl.check_ipv6,
+                    check_ipv6=self.cfg.ipbl.check_ipv6, cycle_context=context,
                 )
             )
 
         if getattr(settings.checks, "ip_change", False):
-            out.append(IpChangeCheck(settings.name, cfg=self.cfg.ipchange, owner_id=owner_id))
+            out.append(IpChangeCheck(settings.name, cfg=self.cfg.ipchange, owner_id=owner_id, cycle_context=context))
 
         # Malware reputation: report lookup and missing-URL submission share the limiter.
         if getattr(settings.checks, "malware", False):
@@ -526,6 +617,37 @@ class Dispatcher:
         val = getattr(sched, name, None)
         return val if isinstance(val, (int, float)) and val > 0 else default
 
+    def _daily_cached_result(self, owner_id, domain, name, settings):
+        row = storage.last_history_for_check(owner_id, domain, name)
+        if not row:
+            return None
+        metrics = metrics_from(row)
+        if metrics.get('original_domain', domain) != domain:
+            return None
+        if (name != 'malware' and row['status'] == 'UNKNOWN'
+                and not metrics.get('next_refresh_at') and not metrics.get('next_retry_at')):
+            return None
+        now = datetime.now(timezone.utc)
+        if now >= result_deadlines(self.cfg, name, settings.interval_minutes, row, now=now)[1]:
+            return None
+        if expiry_assessment_due(name, row, self.cfg, settings, now=now):
+            return None
+        if name == 'ip_blacklist' and not current_ipbl_result(metrics, self.cfg.ipbl):
+            return None
+        if name in {'ip_blacklist', 'rkn_ip'} and not ip_context_current(
+                name, row, storage.latest_check_results(owner_id, domain)):
+            return None
+        if name in {'rkn_domain', 'rkn_ip'}:
+            from .utils.results import current_rkn_result
+            if not current_rkn_result(name, metrics, self.cfg.rkn.max_source_age_hours,
+                                      status=row['status']):
+                return None
+            generation = current_registry_generation(self.cfg.rkn)
+            if generation and metrics.get('registry_generation') != generation:
+                return None
+        return CheckOutcome(name, row['status'], strip_cached_suffix(row['message']),
+                            {**metrics, 'cache_hit': True}, cached=True)
+
     def _maybe_cached_result(
         self,
         owner_id: int,
@@ -536,7 +658,7 @@ class Dispatcher:
         """
         Return cached CheckOutcome if fresh enough, otherwise None. (owner-aware)
 
-        For WHOIS, RKN and malware we do not serve cached UNKNOWN by default,
+        For WHOIS, RKN, IP blocklists and malware we do not serve cached UNKNOWN by default,
         to allow recovery from missing evidence. Override per check with cache_unknown: true.
         """
         ttl = ttl_fn(check_name)
@@ -548,7 +670,7 @@ class Dispatcher:
             return None
 
         # Missing evidence must be retried unless unknown-result caching was explicitly enabled.
-        if check_name in {'whois', 'rkn_domain', 'rkn_ip', 'malware'}:
+        if check_name in {'whois', 'rkn_domain', 'rkn_ip', 'ip_blacklist', 'malware'}:
             try:
                 status_str = str(row["status"]).upper()
             except Exception:
@@ -578,6 +700,9 @@ class Dispatcher:
             metrics = {}
 
         if isinstance(metrics, dict) and metrics.get('original_domain', domain) != domain:
+            return None
+
+        if check_name == 'ip_blacklist' and not current_ipbl_result(metrics, self.cfg.ipbl):
             return None
 
         from .utils.results import current_rkn_result

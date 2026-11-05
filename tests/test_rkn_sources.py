@@ -117,7 +117,7 @@ def test_ipv4_membership_in_exact_addresses_and_cidr(tmp_path, monkeypatch, addr
     assert result.status is status and result.metrics['source'] == 'antifilter'
 
 
-def test_both_failed_sources_keep_last_index_and_return_unknown(tmp_path):
+def test_both_failed_sources_keep_last_index_and_known_listing(tmp_path):
     mock, _ = transport()
     _, check = run_check(tmp_path, mock)
     with sqlite3.connect(check.db_path) as con:
@@ -126,7 +126,8 @@ def test_both_failed_sources_keep_last_index_and_return_unknown(tmp_path):
         before = dict(con.execute('SELECT key,value FROM meta'))
     mock, _ = transport(fail_primary=True, fail_backup=True)
     result, check = run_check(tmp_path, mock)
-    assert result.status is Status.UNKNOWN
+    assert result.status is Status.CRIT
+    assert result.metrics['source_stale'] is True
     with sqlite3.connect(check.db_path) as con:
         assert dict(con.execute('SELECT key,value FROM meta')) == before
         assert con.execute("SELECT 1 FROM domains WHERE domain='c.t-p.cc'").fetchone()

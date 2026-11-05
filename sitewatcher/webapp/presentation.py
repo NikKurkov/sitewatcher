@@ -27,6 +27,11 @@ _STATUS_LABELS = {'OK': _('OK'), 'WARN': _('WARN'), 'CRIT': _('CRIT'),
 
 
 _DIAGNOSTIC_MESSAGES = {
+    'no zones configured': _('IP blocklists are not configured'),
+    'IP blocklists are not configured': _('IP blocklists are not configured'),
+    'IP blocklists require an IPv4 address': _('IP blocklists require an IPv4 address'),
+    'not listed': _('Not found in the configured IP blocklists'),
+    'Not listed; incomplete DNSBL coverage': _('Not listed; incomplete DNSBL coverage'),
     'VirusTotal analysis is pending': _('VirusTotal analysis is pending'),
     'VirusTotal submission could not be confirmed. Try again later.':
         _('VirusTotal submission could not be confirmed. Try again later.'),
@@ -203,3 +208,16 @@ def domain_form_context(context, error):
     context['numeric_fields'] = numeric[1:]
     context['advanced_error'] = bool(error)
     return context
+
+
+def domain_state(row):
+    return 'warn' if row['error'] else 'paused' if row['paused'] else row['overall'].lower()
+
+
+def group_presentation(group, members):
+    """One severity/count policy for page headings and confirmed drag responses."""
+    return {**group, 'label': _('Main') if group['is_default'] else group['name'],
+            'total': len(members),
+            'critical': any(domain_state(row) == 'crit' for row in members),
+            'attention': sum(bool(row['error']) or (
+                row['overall'] in {'CRIT', 'WARN'} and not row['paused']) for row in members)}

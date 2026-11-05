@@ -35,5 +35,17 @@ def web_database(isolated_workspace, transactional_db, monkeypatch):
     # pytest-django flushes its own tables; legacy tables are deliberately unmanaged.
     with storage._write_connection() as conn:
         for table in ('users', 'whois_state', 'dns_state', 'owner_dns_state',
-                      'virustotal_submissions'):
+                      'virustotal_submissions', 'virustotal_reports'):
             conn.execute(f'DELETE FROM {table}')
+        for table in ('probe_cache', 'whois_attempts'):
+            if conn.execute('SELECT 1 FROM sqlite_master WHERE name=?', (table,)).fetchone():
+                conn.execute(f'DELETE FROM {table}')
+
+
+@pytest.fixture
+def expire_vt_report():
+    """Advance the daily provider cache without changing credentials/network behavior."""
+    def expire():
+        with storage._write_connection() as conn:
+            conn.execute('UPDATE virustotal_reports SET requested_at=requested_at-86400')
+    return expire

@@ -139,12 +139,16 @@ class WhoisInfoCheck(BaseCheck):
     """WHOIS/RDAP change & expiry check with local SQLite snapshot cache."""
     name = "whois"
 
-    def __init__(self, domain: str, client: httpx.AsyncClient, cfg: WhoisConfig) -> None:
+    def __init__(
+        self, domain: str, client: httpx.AsyncClient, cfg: WhoisConfig,
+        force_refresh: bool = False,
+    ) -> None:
         super().__init__(domain)
         self.legacy_key = domain.lower()
         self.cache_key = registrable_domain(domain)
         self.client = client
         self.cfg = cfg
+        self.force_refresh = force_refresh
         # SSOT: rely on storage.DEFAULT_DB, not env lookups here.
         self.db_path = Path(getattr(cfg, "db_path", None) or storage.DEFAULT_DB)
 
@@ -153,43 +157,60 @@ class WhoisInfoCheck(BaseCheck):
         prev = self._db_get()
         now = datetime.now(timezone.utc)
 
-        # Cache policy: refresh if data is older than refresh_hours
-        must_refresh = True
-        if prev:
-            age_hours = (now - prev.fetched_at).total_seconds() / 3600.0
-            must_refresh = age_hours >= float(getattr(self.cfg, "refresh_hours", 24))
-
+        blocked = self._claim_refresh(now)
+        if blocked:
+            return blocked
+        # Another process may have completed a refresh since our first read.
+        prev = self._db_get()
         rx_metrics: Dict[str, Any] = {}
-        if must_refresh:
-            blocked = self._claim_refresh(now)
-            if blocked:
-                return blocked
-            # Another process may have completed a refresh since our first read.
-            prev = self._db_get()
-            try:
-                snap, fetched_at, rx_metrics = await self._fetch_snapshot(self.domain)
-                self._db_upsert(snap, fetched_at)
-                self._finish_attempt(Status.UNKNOWN, "WHOIS refresh completed", now)
-            except Exception as exc:
-                status = Status.UNKNOWN
-                message = f"WHOIS refresh failed: {exc.__class__.__name__}"
-                retry_after = None
-                if isinstance(exc, httpx.HTTPStatusError):
-                    code = exc.response.status_code
-                    rx_metrics["status_code"] = code
-                    message = "RDAP rate-limited" if code == 429 else f"RDAP HTTP {code}"
-                    status = Status.UNKNOWN
-                    retry_after = exc.response.headers.get("Retry-After")
-                next_retry = self._finish_attempt(status, message, now, retry_after)
-                return CheckOutcome(self.name, status, message, {
-                    **rx_metrics, "next_retry_at": next_retry.isoformat(),
-                    "fetched_at": prev.fetched_at.isoformat() if prev else None,
-                    "cache_state": "stale" if prev else "unavailable",
-                })
-        else:
-            snap = json.loads(prev.snapshot_json)
-            fetched_at = prev.fetched_at
+        try:
+            snap, fetched_at, rx_metrics = await self._fetch_snapshot(self.domain)
+            self._db_upsert(snap, fetched_at)
+            self._finish_attempt(Status.UNKNOWN, "WHOIS refresh completed", now)
+        except Exception as exc:
+            message = f"WHOIS refresh failed: {exc.__class__.__name__}"
+            retry_after = None
+            if isinstance(exc, httpx.HTTPStatusError):
+                code = exc.response.status_code
+                rx_metrics["status_code"] = code
+                message = "RDAP rate-limited" if code == 429 else f"RDAP HTTP {code}"
+                retry_after = exc.response.headers.get("Retry-After")
+            next_retry = self._finish_attempt(Status.UNKNOWN, message, now, retry_after)
+            return self._failed_outcome(
+                prev, message, now.isoformat(), next_retry.isoformat(), rx_metrics,
+            )
+        return self._assess_snapshot(snap, fetched_at, prev, rx_metrics)
 
+    def _failed_outcome(
+        self, prev: Optional[_WhoisRow], message: str, attempted_at: str,
+        next_retry_at: str, diagnostics: Dict[str, Any], *, cached: bool = False,
+    ) -> CheckOutcome:
+        """Keep known expiry risks while exposing a failed or pending observation."""
+        status = Status.UNKNOWN
+        metrics: Dict[str, Any] = {}
+        if prev:
+            assessed = self._assess_snapshot(
+                json.loads(prev.snapshot_json), prev.fetched_at, cached=True,
+            )
+            metrics.update(assessed.metrics)
+            if assessed.status in (Status.WARN, Status.CRIT):
+                status = assessed.status
+                message = f"{assessed.message}; {message}"
+        metrics.update({
+            **diagnostics,
+            "observed_at": prev.fetched_at.isoformat() if prev else attempted_at,
+            "attempted_at": attempted_at,
+            "next_refresh_at": next_retry_at,
+            "next_retry_at": next_retry_at,
+            "fetched_at": prev.fetched_at.isoformat() if prev else None,
+            "cache_state": "stale" if prev else "unavailable",
+        })
+        return CheckOutcome(self.name, status, message, metrics, cached=cached)
+
+    def _assess_snapshot(
+        self, snap: Dict[str, Any], fetched_at: datetime, prev: Optional[_WhoisRow] = None,
+        rx_metrics: Optional[Dict[str, Any]] = None, *, cached: bool = False,
+    ) -> CheckOutcome:
         # 1) Expiry assessment
         expires_at = snap.get("expires_at")
         expiry_status, expiry_msg, days_left = self._expiry_status(expires_at)
@@ -246,9 +267,12 @@ class WhoisInfoCheck(BaseCheck):
             "nameservers": snap.get("nameservers"),
             "status_list": snap.get("status"),
             "fetched_at": fetched_at.isoformat(),
-            **rx_metrics,
+            "observed_at": fetched_at.isoformat(),
+            "next_refresh_at": self._refresh_deadline(fetched_at).isoformat(),
+            "cache_state": "cached" if cached else "fresh",
+            **(rx_metrics or {}),
         }
-        return CheckOutcome(self.name, status, message, metrics)
+        return CheckOutcome(self.name, status, message, metrics, cached=cached)
 
     # ------------------------------- Fetch helpers ------------------------------
     async def _fetch_snapshot(self, domain: str) -> Tuple[Dict[str, Any], datetime, Dict[str, Any]]:
@@ -494,43 +518,48 @@ class WhoisInfoCheck(BaseCheck):
         with contextlib.closing(self._connect()) as conn, conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
-                "SELECT next_retry_at, status, message FROM whois_attempts WHERE domain=?",
+                "SELECT next_retry_at, status, message, attempted_at "
+                "FROM whois_attempts WHERE domain=?", (self.cache_key,),
+            ).fetchone()
+            saved = conn.execute(
+                "SELECT snapshot_json, fetched_at FROM whois_state WHERE domain=?",
                 (self.cache_key,),
             ).fetchone()
-            if row and datetime.fromisoformat(row[0]) > now:
-                saved = conn.execute(
-                    "SELECT fetched_at FROM whois_state WHERE domain=?", (self.cache_key,),
-                ).fetchone()
-                diagnostics = {}
-                if row[2] == "RDAP rate-limited":
-                    diagnostics["status_code"] = 429
-                elif row[2].startswith("RDAP HTTP "):
-                    code = row[2].removeprefix("RDAP HTTP ")
-                    if len(code) == 3 and code.isascii() and code.isdigit():
-                        diagnostics["status_code"] = int(code)
-                return CheckOutcome(self.name, Status(row[1]), row[2], {
-                    **diagnostics,
-                    "next_retry_at": row[0],
-                    "fetched_at": saved[0] if saved else None,
-                    "cache_state": "stale" if saved else "unavailable",
-                })
-            # Recheck success under the same write lock to avoid a duplicate
-            # refresh when another worker finished between the read and claim.
-            cached = conn.execute(
-                "SELECT fetched_at FROM whois_state WHERE domain=?", (self.cache_key,),
-            ).fetchone()
-            cached_at = datetime.min.replace(tzinfo=timezone.utc)
-            if cached:
+            prev = None
+            if saved:
                 try:
-                    cached_at = datetime.fromisoformat(cached[0])
+                    cached_at = datetime.fromisoformat(saved[1])
                     if cached_at.tzinfo is None:
                         cached_at = cached_at.replace(tzinfo=timezone.utc)
+                    prev = _WhoisRow(saved[0], cached_at)
                 except (ValueError, TypeError):
                     pass
-            if cached_at > now - timedelta(hours=float(self.cfg.refresh_hours)):
-                return CheckOutcome(self.name, Status.UNKNOWN, "WHOIS cache updated; awaiting result", {
-                    "fetched_at": cached[0], "cache_state": "cached",
-                })
+            # A completed success has a TTL, while failed/pending attempts have
+            # a hard retry deadline that explicit refresh must also respect.
+            if row and row[2] != "WHOIS refresh completed":
+                if datetime.fromisoformat(row[0]) > now:
+                    diagnostics = {}
+                    if row[2] == "RDAP rate-limited":
+                        diagnostics["status_code"] = 429
+                    elif row[2].startswith("RDAP HTTP "):
+                        code = row[2].removeprefix("RDAP HTTP ")
+                        if len(code) == 3 and code.isascii() and code.isdigit():
+                            diagnostics["status_code"] = int(code)
+                    return self._failed_outcome(
+                        prev, row[2], row[3], row[0], diagnostics, cached=True,
+                    )
+            if prev:
+                refresh_at = self._refresh_deadline(prev.fetched_at)
+                if self.force_refresh:
+                    refresh_at = prev.fetched_at + timedelta(seconds=60)
+                    if row and row[2] == "WHOIS refresh completed":
+                        refresh_at = max(
+                            refresh_at, datetime.fromisoformat(row[3]) + timedelta(seconds=60),
+                        )
+                if refresh_at > now:
+                    return self._assess_snapshot(
+                        json.loads(prev.snapshot_json), prev.fetched_at, cached=True,
+                    )
             conn.execute(
                 "INSERT INTO whois_attempts VALUES (?, ?, ?, ?, ?) "
                 "ON CONFLICT(domain) DO UPDATE SET attempted_at=excluded.attempted_at, "

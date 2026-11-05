@@ -15,6 +15,7 @@
 }
 .domain-detail-layout > section { min-width: 0; }
 .domain-detail-checks { border-top: 1px solid var(--line); padding-top: 16px; font-size: 13px; }
+.domain-detail-checks:first-child { border-top: 0; padding-top: 0; }
 .domain-detail-layout h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
 .domain-check-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; list-style: none; margin: 0; padding: 0; }
 .domain-check-list > li { padding: 10px 0; border-bottom: 1px solid var(--line); }
@@ -130,3 +131,80 @@
 .history-legend .legend-no-data { background: color-mix(in srgb, var(--muted) 20%, transparent); border: 1px dashed var(--muted); }
 .public-status .chart-y-axis, .public-status .chart-frame .chart-axis { font-size: 12px; }
 .public-status-summary p { font-size: 13px; }
+
+/* Shared table columns keep dense monitoring rows aligned across collapsible groups. */
+.group-header-content,
+.group-management-heading, .group-rename, .group-create { display: flex; align-items: center; gap: 12px; }
+[data-domain-groups] > tbody[hidden] { display: none !important; }
+.domains-table > .domain-group-heading > tr > th { padding: 0; background: var(--surface-soft); border-block: 1px solid var(--line); }
+.group-header-content { gap: 16px; padding: 6px 12px; }
+.group-toggle { flex: 1; min-width: 0; justify-content: flex-start; flex-wrap: wrap; gap: 10px 14px; text-align: left; padding: 8px 4px; border: 0; background: transparent; }
+.group-toggle:hover { background: transparent; }
+.group-chevron { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; flex-shrink: 0; }
+.group-toggle[aria-expanded=true] .group-chevron { transform: rotate(90deg); }
+.group-name { font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+.group-count { color: var(--muted); font-size: 13px; font-weight: 400; }
+.group-attention, .group-healthy { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; }
+.group-attention { color: var(--amber); }
+.group-healthy { color: var(--green); }
+.group-management-list { display: grid; gap: 16px; }
+.group-management-heading { justify-content: space-between; margin-bottom: 16px; }
+.group-management-heading h2 { margin: 0; overflow-wrap: anywhere; }
+.group-rename, .group-create { align-items: flex-end; }
+.group-rename .field, .group-create .field { flex: 1; margin-bottom: 0; }
+.group-create { margin-bottom: 20px; }
+.group-delete { margin-top: 20px; }
+.group-delete summary { cursor: pointer; color: var(--muted); padding-block: 8px; }
+.group-delete form { display: grid; justify-items: start; gap: 16px; margin-top: 12px; }
+@media (max-width: 1000px) {
+  .domains-table > .domain-group-heading { display: block; margin: 16px 0 8px; }
+  .domains-table > .domain-group-heading > tr { display: block; padding: 0; margin: 0; border: 0; box-shadow: none; }
+  .domains-table > .domain-group-heading > tr > th { display: block; border: 1px solid var(--line); border-radius: 8px; }
+  .group-header-content { flex-wrap: nowrap; gap: 8px; padding: 6px 10px; }
+  .group-healthy, .group-attention { margin-left: 32px; }
+}
+@media (max-width: 560px) {
+  .group-rename, .group-create { align-items: stretch; flex-direction: column; }
+}
+@media (max-width: 1000px) {
+  .domains-table > .domain-group-empty { display: block; }
+  .domains-table > .domain-group-empty > tr { display: block; padding: 0; border: 0; }
+  .domains-table > .domain-group-empty > tr > td { display: block; padding: 16px; }
+}
+.domains-table > .domain-drop-group > tr { box-shadow: inset 0 0 0 2px var(--green); background: var(--green-soft); }
+.domain-is-moving { opacity: .5; }
+
+/* Moving uses the existing rows, with restrained feedback instead of navigation. */
+.domain-order-notice:not(.sr-only) { position: fixed; z-index: 110; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; width: max-content; max-width: calc(100vw - 32px); padding: 12px 18px; margin: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); box-shadow: 0 8px 30px rgb(0 0 0 / .12); font-size: 13px; pointer-events: none; }
+.domain-order-notice.domain-order-error { color: var(--red); }
+.domain-order-notice.is-saving::before { content: ''; width: 14px; height: 14px; flex-shrink: 0; border: 2px solid var(--line); border-top-color: var(--green); border-radius: 50%; animation: domain-move-spin .8s linear infinite; }
+.domain-drag-preview { position: fixed; top: -10000px; left: -10000px; max-width: 320px; padding: 14px 20px; border: 1px solid var(--green); border-radius: 10px; background: var(--surface); color: var(--text); box-shadow: 0 12px 32px rgb(0 0 0 / .2); font: 600 14px system-ui; overflow-wrap: anywhere; }
+.domain-drop-group .group-header-content::after { content: attr(data-drop-label); color: var(--green); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.domain-move-arrived > tr[data-domain-summary] { animation: domain-move-arrive 1s ease-out; }
+.domain-is-moving .domain-reorder-handle { color: var(--green); }
+.domain-move-dialog { width: min(420px, calc(100vw - 32px)); padding: 24px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--text); box-shadow: 0 24px 80px rgb(0 0 0 / .2); }
+.domain-move-dialog::backdrop { background: rgb(0 0 0 / .35); }
+.domain-move-dialog h2 { margin: 0 0 8px; font-size: 20px; }
+.domain-move-dialog [data-move-domain] { margin: 0 0 24px; overflow-wrap: anywhere; }
+.domain-move-dialog label { display: block; margin-bottom: 8px; }
+.domain-move-dialog select { width: 100%; min-height: 44px; }
+.domain-move-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+@keyframes domain-move-arrive { from { background: var(--green-soft); } to { background: transparent; } }
+@keyframes domain-move-spin { to { transform: rotate(360deg); } }
+@media (max-width: 720px) {
+  .domain-reorder-handle { flex-basis: 32px; width: 32px; min-height: 44px; }
+  .domain-drop-group .group-header-content { flex-wrap: wrap; }
+  .domain-drop-group .group-header-content::after { margin-left: 32px; }
+  .domain-move-dialog { margin: auto auto 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .domain-move-arrived > tr[data-domain-summary], .domain-order-notice.is-saving::before { animation: none; }
+}
+
+.domains-table > .domain-drop-group > tr > :is(th, td) { background: var(--green-soft); box-shadow: inset 0 0 0 2px var(--green); transition: background-color .12s ease; }
+.domain-move-dialog button:disabled { opacity: .45; cursor: not-allowed; }
+
+.domain-move-dialog .domain-move-dialog-error { color: var(--red); }
+
+.metadata-refresh { display: inline-flex; margin: 0 .35rem; }
+.metadata-refresh button { padding: .2rem .45rem; font-size: .75rem; min-height: 1.7rem; }

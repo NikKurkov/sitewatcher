@@ -186,7 +186,7 @@ class RknConfig(ConfigModel):
     # Accepted only for old config files; frozen z-i is never downloaded.
     z_i_url: Optional[str] = Field(None, exclude=True)
     # Refresh policy
-    cache_ttl_hours: int = Field(12, gt=0)
+    cache_ttl_hours: int = Field(24, gt=0)
     max_source_age_hours: int = Field(168, gt=0)
     match_subdomains: bool = True
     check_ip: bool = True
@@ -320,10 +320,12 @@ class DomainConfig(DomainOverride):
 
 class IpBlConfig(ConfigModel):
     """DNSBL/RBL config."""
-    zones: List[str] = Field(default_factory=list)
+    zones: List[str] = Field(default_factory=lambda: [
+        'dnsbl.dronebl.org', 'bl.blocklist.de', 'psbl.surriel.com',
+    ])
     dns_servers: Optional[List[str]] = None
-    timeout_s: float = 2.0
-    concurrency: int = 50
+    timeout_s: float = 4.0
+    concurrency: int = 8
     check_ipv6: bool = False
 
 

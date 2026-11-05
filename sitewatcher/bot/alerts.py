@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from sitewatcher.check_policy import result_deadlines
+
 import asyncio
 import html
 import logging
@@ -184,6 +186,7 @@ def _is_fresh_ok_for_all(
     current_map: dict[str, str] = {
         getattr(r, "check", ""): _status_text(getattr(r, "status", ""))
         for r in current_results if not getattr(r, "cached", False)
+        or getattr(r, "assessment_changed", False)
     }
 
     # A failed settings read cannot confirm that a recovery is fresh.
@@ -206,18 +209,10 @@ def _is_fresh_ok_for_all(
         if not row:
             return False  # no data -> not confirmed
 
-        # Freshness: use domain-level interval if set; otherwise per-check schedule
-        if domain_iv is not None:
-            ttl_min = domain_iv
-        else:
-            sched = getattr(cfg.schedules, check, None)
-            ttl_min = int(getattr(sched, "interval_minutes", 0) or 0)
-            if ttl_min <= 0:
-                return False  # no interval -> treat as stale
-
-        mins = storage.minutes_since_last(owner_id, domain, check)
-        if mins is None or mins > ttl_min:
-            return False  # stale -> not confirmed
+        # Same evidence deadline as scheduling/reporting, including daily caches.
+        _, due_at, _ = result_deadlines(cfg, check, domain_iv, row)
+        if datetime.now(timezone.utc) >= due_at:
+            return False
 
         # Stored status must be OK
         st = str((row.get("status") if isinstance(row, dict) else row["status"])).upper()

@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
 
-from . import storage
+from . import domain_groups, storage
 from .config import AppConfig, ChecksModel, resolve_settings
+from .check_policy import result_deadlines
 from .utils.results import (
     current_rkn_result, is_missing_malware_report, overall_from_statuses, status_text,
 )
@@ -44,6 +45,7 @@ def _domain_snapshot(cfg, name, raw_override, histories, now):
         row['error'] = 'Invalid domain settings'
         return row
 
+    row['site_url'] = settings.http_url
     row['paused'] = not cfg.scheduler.enabled or settings.interval_minutes == 0
     timestamps = []
     due_times = []
@@ -57,19 +59,10 @@ def _domain_snapshot(cfg, name, raw_override, histories, now):
                 check_name, saved['metrics_json'], cfg.rkn.max_source_age_hours,
                 status=saved['status']):
             saved = None
-        checked_at = _timestamp(saved['created_at']) if saved is not None else None
-        due_at = now
-        stale_at = now
+        checked_at, due_at, stale_at = result_deadlines(
+            cfg, check_name, settings.interval_minutes, saved, now=now)
         if checked_at is not None:
             timestamps.append(checked_at)
-            interval = settings.interval_minutes
-            if interval is None:
-                interval = getattr(cfg.schedules, check_name).interval_minutes
-            try:
-                due_at = checked_at + timedelta(minutes=interval)
-                stale_at = checked_at + timedelta(minutes=3 * interval)
-            except OverflowError:
-                due_at = stale_at = now
         # Allow normal scheduler/network delays; the next run is still due after one interval.
         stale = not row['paused'] and stale_at <= now
         if checked_at is not None and not row['paused']:
@@ -141,6 +134,20 @@ def build_snapshot(cfg: AppConfig, owner_id: int, *, now: datetime | None = None
                     'GROUP BY domain, check_name'
                     ') latest ON h.id=latest.latest_id WHERE h.owner_id=?', (owner_id, owner_id),
                 ).fetchall()
+            group_tables = {row['name'] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name IN ('domain_groups','domain_group_members')",
+            )}
+            groups = [domain_groups._default_group()]
+            memberships = {}
+            if 'domain_groups' in group_tables:
+                groups += [dict(row, is_default=False) for row in conn.execute(
+                    'SELECT id,name FROM domain_groups WHERE owner_id=? ORDER BY id', (owner_id,),
+                )]
+            if 'domain_group_members' in group_tables:
+                memberships = {row['domain']: row['group_id'] for row in conn.execute(
+                    'SELECT domain,group_id FROM domain_group_members WHERE owner_id=?', (owner_id,),
+                )}
             conn.rollback()
     except (sqlite3.Error, OSError, ValueError):
         raise SnapshotError('Monitoring database is unavailable') from None
@@ -148,11 +155,11 @@ def build_snapshot(cfg: AppConfig, owner_id: int, *, now: datetime | None = None
     histories = {(row['domain'], row['check_name']): row for row in history
                  if storage.is_current_observation(row['domain'], row['metrics_json'])}
     rows = [{**_domain_snapshot(cfg, row['name'], row['data_json'], histories, now),
-             'favorite': bool(row['favorite'])} for row in domains]
+             'favorite': bool(row['favorite']), 'group_id': memberships.get(row['name'], 0)} for row in domains]
     summary = dict.fromkeys(('total', 'ok', 'warn', 'crit', 'unknown', 'paused', 'stale'), 0)
     summary['total'] = len(rows)
     for row in rows:
         summary[row['overall'].lower()] += 1
         summary['paused'] += int(row['paused'])
         summary['stale'] += int(row['stale'])
-    return {'generated_at': now.isoformat(), 'summary': summary, 'domains': rows}
+    return {'generated_at': now.isoformat(), 'summary': summary, 'domains': rows, 'groups': groups}
