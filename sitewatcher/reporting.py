@@ -44,6 +44,7 @@ def _domain_snapshot(cfg, name, raw_override, histories, now):
         row['error'] = 'Invalid domain settings'
         return row
 
+    row['site_url'] = settings.http_url
     row['paused'] = not cfg.scheduler.enabled or settings.interval_minutes == 0
     timestamps = []
     due_times = []

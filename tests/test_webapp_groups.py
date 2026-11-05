@@ -265,3 +265,21 @@ def test_group_move_snapshot_is_owner_scoped_without_raw_check_data(owner, clien
     for private in ('foreign.example', 'Foreign private group', 'private-provider-sentinel',
                     'private-metric-sentinel'):
         assert private not in body
+
+
+@pytest.mark.parametrize('url', ['https://link.example/', 'http://link.example:8080/status'])
+def test_domain_name_opens_configured_website_in_new_tab(owner, client, url):
+    from html.parser import HTMLParser
+    storage.add_domain(41, 'link.example')
+    storage.set_domain_override(41, 'link.example', {'http_url': url})
+    links = []
+    class Links(HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == 'a' and attrs.get('class') == 'domain-name':
+                links.append(attrs)
+    Links().feed(get(client, '/').content.decode())
+    assert len(links) == 1
+    assert links[0]['href'] == url
+    assert links[0].get('target') == '_blank'
+    assert {'noopener', 'noreferrer'} <= set(links[0].get('rel', '').split())

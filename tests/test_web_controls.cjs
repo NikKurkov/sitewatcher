@@ -164,7 +164,7 @@ console.log('Shared toolbar: live navigation remembers the panel without form re
 
 // Run navigation round trips against the actual shipped script and storage format.
 function disclosurePage(storage, {scope = 'owner-1', pathname = '/', activeInput = false,
-  dragging = false, missing = false} = {}) {
+  dragging = false, missing = false, externalName = false} = {}) {
   const handlers = {};
   const windowEvents = {};
   const rowEvents = {};
@@ -182,7 +182,7 @@ function disclosurePage(storage, {scope = 'owner-1', pathname = '/', activeInput
   const nested = {open: false};
   const nameEvents = {};
   const nameAttrs = {};
-  const name = {setAttribute: (key, value) => { nameAttrs[key] = value; },
+  const name = {target: externalName ? '_blank' : '', setAttribute: (key, value) => { nameAttrs[key] = value; },
     addEventListener: (key, fn) => { nameEvents[key] = fn; },
     click: () => nameEvents.click({preventDefault() {}})};
   const domain = {dataset: {domainKey: '1'},
@@ -391,3 +391,10 @@ console.log('Response averages: native touch popovers, mouse hover, keyboard foc
   assert.equal(input.value, 'shop-health');
 }
 console.log('Status-page access: hide private address and preserve its draft passed.');
+
+const externalName = disclosurePage(new Map(), {externalName: true});
+assert.equal(externalName.nameEvents.click, undefined, 'External domain links must keep native navigation');
+assert.equal(externalName.nameAttrs.role, undefined, 'External links are not disclosure buttons');
+externalName.button.click();
+assert.equal(externalName.panel.hidden, false, 'Disclosure chevron remains functional');
+console.log('External domain names keep native new-tab navigation.');

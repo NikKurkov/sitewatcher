@@ -43,7 +43,10 @@ if (disclosureRoot) {
   const domains = [...disclosureRoot.querySelectorAll('[data-domain-key]')];
   const toggles = [...disclosureRoot.querySelectorAll('[data-domain-toggle]')];
   const panelFor = (button) => document.getElementById(button.getAttribute('aria-controls'));
-  const nameFor = (button) => button.closest('[data-domain-key]')?.querySelector('.domain-name');
+  const nameFor = (button) => {
+    const name = button.closest('[data-domain-key]')?.querySelector('.domain-name');
+    return name?.target === '_blank' ? null : name;
+  };
   const setOpen = (button, open) => {
     const panel = panelFor(button);
     if (!panel) return;

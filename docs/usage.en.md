@@ -358,6 +358,8 @@ VirusTotal submission uses the same private proxy and counts as a separate API r
 
 ## Site groups
 
+Clicking a domain name in the owner table opens its configured website address in a new tab. Use the row chevron or empty row area to expand checks; Full history remains inside the details.
+
 Main is permanent and contains existing/unassigned sites. With one group the owner
 list is an ordinary table; multiple group headers independently collapse their
 sites while retaining problem counts. Search spans all groups and opens results.
