@@ -81,6 +81,36 @@ def test_classification_uses_http_evidence_never_check_status_or_messages(databa
     assert 'metrics_json' not in json.dumps(result)
 
 
+@pytest.mark.parametrize('days', [1, 7, 30])
+def test_response_windows_use_exact_recent_samples_independent_of_chart_period(
+        database, monkeypatch, days):
+    from sitewatcher.webapp import analytics
+
+    now = datetime(2026, 11, 5, 9, tzinfo=timezone.utc)
+    monkeypatch.setattr(analytics, '_now', lambda: now)
+    for minutes, latency in [(1, 100), (2, 300), (15, 500), (16, 900), (60, 1200),
+                              (61, 1600), (1440, 2000), (1441, 90000), (-1, 99999)]:
+        observation({'final_code': 200, 'response_latency_ms': latency},
+                    at=(now - timedelta(minutes=minutes)).replace(tzinfo=None).isoformat(' '))
+    for metrics in ({'final_code': 503, 'response_latency_ms': 99999},
+                    {'final_code': True, 'response_latency_ms': 99999},
+                    {'final_code': 200, 'response_latency_ms': True}):
+        observation(metrics, at=(now - timedelta(minutes=1)).replace(tzinfo=None).isoformat(' '))
+    storage.save_history(2, 'example.com', 'http_basic', 'OK', 'private',
+                         {'final_code': 200, 'response_latency_ms': 99999})
+    with storage._connect() as conn:
+        conn.execute('UPDATE history SET created_at=? WHERE owner_id=2',
+                     ((now - timedelta(minutes=1)).replace(tzinfo=None).isoformat(' '),))
+    windows = report(days=days)['response_times']
+    assert [window['minutes'] for window in windows] == [15, 60, 1440]
+    assert [window['sample_count'] for window in windows] == [3, 5, 7]
+    assert [window['latency_ms'] for window in windows] == pytest.approx([300, 600, 6600 / 7])
+
+
+def test_empty_response_windows_do_not_show_zero_latency(database):
+    assert [window['latency_ms'] for window in report()['response_times']] == [None] * 3
+
+
 def test_sources_cached_skip_and_numeric_latency_allowlist(database):
     observation({'final_code': 200, 'latency_ms_total': True}, source='manual')
     observation({'final_code': 200, 'latency_ms_total': float('inf')}, source='scheduled')

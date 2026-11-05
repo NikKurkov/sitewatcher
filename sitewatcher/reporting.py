@@ -59,6 +59,7 @@ def _domain_snapshot(cfg, name, raw_override, histories, now):
             saved = None
         checked_at = _timestamp(saved['created_at']) if saved is not None else None
         due_at = now
+        stale_at = now
         if checked_at is not None:
             timestamps.append(checked_at)
             interval = settings.interval_minutes
@@ -66,12 +67,13 @@ def _domain_snapshot(cfg, name, raw_override, histories, now):
                 interval = getattr(cfg.schedules, check_name).interval_minutes
             try:
                 due_at = checked_at + timedelta(minutes=interval)
+                stale_at = checked_at + timedelta(minutes=3 * interval)
             except OverflowError:
-                due_at = now
-        # Give the dashboard notice one extra interval without treating old results as fresh.
+                due_at = stale_at = now
+        # Allow normal scheduler/network delays; the next run is still due after one interval.
+        stale = not row['paused'] and stale_at <= now
         if checked_at is not None and not row['paused']:
-            row['overdue'] |= (now - checked_at).total_seconds() >= interval * 120
-        stale = not row['paused'] and due_at <= now
+            row['overdue'] |= stale
         raw_status = saved['status'] if saved is not None else 'UNKNOWN'
         status = status_text(raw_status)
         if status not in {'OK', 'WARN', 'CRIT', 'UNKNOWN'} or (stale and status == 'OK'):

@@ -4,7 +4,6 @@
         {% if report %}
             {% if not report.totals.sample_count %}<p class="no-data">{% translate 'No HTTP observations in this period.' %}</p>{% endif %}
             {% include 'sitewatcher/partials/chart.html' with report=report %}
-            {% include 'sitewatcher/partials/chart_data.html' with report=report %}
         {% else %}
             <p class="no-data">{% translate 'No HTTP observations in this period.' %}</p>
         {% endif %}
@@ -12,23 +11,21 @@
     <section class="domain-detail-checks" aria-label="{% translate 'Latest monitoring checks' %}">
         <div class="domain-checks-heading">
             <h3>{% translate 'Checks' %}</h3>
-            {% if common_observed %}<span aria-hidden="true">·</span><time datetime="{{ common_observed.iso }}" title="{{ common_observed.label }}">{{ common_observed.checks_updated_label }}</time>{% endif %}
+            {% if common_observed %}<span aria-hidden="true">·</span><time datetime="{{ common_observed.iso }}" title="{% if public_view %}{{ common_observed.display_label }}{% else %}{{ common_observed.label }}{% endif %}">{{ common_observed.checks_updated_label }}</time>{% endif %}
         </div>
         {% if settings_error and owner_detail %}
             <p class="notice error-notice">{% translate 'Checks unavailable until settings are recovered.' %}</p>
         {% endif %}
         <ul class="domain-check-list">
             {% for check in checks %}
-                <li{% if check.attention %} class="check-needs-attention"{% endif %}>
+                <li{% if check.attention %} class="check-needs-attention"{% endif %} title="{% if owner_detail and check.message %}{{ check.message }}{% elif check.public_note %}{{ check.public_note }}{% endif %}{% if check.observed %}{% if owner_detail and check.message or check.public_note %} · {% endif %}{{ check.observed.updated_label }} ({% if public_view %}{{ check.observed.display_label }}{% else %}{{ check.observed.label }}{% endif %}){% endif %}">
                     <div class="domain-check-heading">
                         <strong>{{ check.label }}</strong>
-                        {% if check.status == 'OK' %}<span class="check-ok"><span class="status-dot" aria-hidden="true"></span>{{ check.status_label }}</span>{% else %}<span class="badge {{ check.status|lower }}">{{ check.status_label }}</span>{% endif %}
+                        <span class="domain-check-status">
+                            {% if check.status == 'OK' %}<span class="check-ok"><span class="status-dot" aria-hidden="true"></span>{{ check.status_label }}</span>{% else %}<span class="badge {{ check.status|lower }}">{{ check.status_label }}</span>{% endif %}
+                            {% if check.stale %}<span class="check-freshness">{% translate 'Awaiting update' %}</span>{% endif %}
+                        </span>
                     </div>
-                    {% if owner_detail and check.message %}<p>{{ check.message }}</p>{% endif %}
-                    {% if check.show_observed %}<div class="domain-check-time">
-                        {% if check.observed %}<time datetime="{{ check.observed.iso }}" title="{{ check.observed.label }}">{{ check.observed.updated_label }}</time>{% else %}{% translate 'Not checked yet' %}{% endif %}
-                        {% if check.stale %}<span class="check-freshness">{% translate 'Awaiting update' %}</span>{% endif %}
-                    </div>{% endif %}
                 </li>
             {% empty %}
                 <li>{% translate 'No data' %}</li>

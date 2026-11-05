@@ -34,5 +34,6 @@ def web_database(isolated_workspace, transactional_db, monkeypatch):
     yield storage.DEFAULT_DB
     # pytest-django flushes its own tables; legacy tables are deliberately unmanaged.
     with storage._write_connection() as conn:
-        for table in ('users', 'whois_state', 'dns_state', 'owner_dns_state'):
+        for table in ('users', 'whois_state', 'dns_state', 'owner_dns_state',
+                      'virustotal_submissions'):
             conn.execute(f'DELETE FROM {table}')

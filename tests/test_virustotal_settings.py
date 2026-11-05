@@ -73,13 +73,14 @@ def test_existing_probe_reloads_key_and_environment_without_restart(monkeypatch)
     def handler(request):
         assert request.method == 'GET'
         seen.append(request.headers['x-apikey'])
-        return httpx.Response(404)
+        return httpx.Response(200, json={'data': {'attributes': {'last_analysis_stats': {
+            'malicious': 0, 'suspicious': 0, 'harmless': 1}}}})
     async def scenario():
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             probe = MalwareScanCheck('example.test', client=client)
             assert (await probe.run()).message.endswith('API key is missing')
             save_api_key('saved-one')
-            assert (await probe.run()).message == 'VirusTotal has no report for this URL'
+            assert (await probe.run()).status is Status.OK
             save_api_key('saved-two')
             await probe.run()
             monkeypatch.setenv('VIRUSTOTAL_API_KEY', 'environment-key')

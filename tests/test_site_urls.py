@@ -189,10 +189,17 @@ def test_rename_rolls_back_and_rejects_stale_settings(monkeypatch):
 
 def test_rename_preserves_workspace_selections_and_owner_boundary(web_database, client):
     from django.contrib.auth import get_user_model
-    from sitewatcher.webapp.models import Workspace
+    from sitewatcher.webapp.models import StatusPage, Workspace
     user = get_user_model().objects.create_user(username='rename-owner')
     workspace = Workspace.objects.create(user=user, owner_id=41,
         domain_order=['old.ru','other.ru'], public_domains=['old.ru'], public_enabled=True)
+    status_page = StatusPage.objects.create(workspace=workspace, public_slug='rename-test',
+        public_domains=['old.ru', 'other.ru'])
+    other_user = get_user_model().objects.create_user(username='rename-other')
+    other = Workspace.objects.create(user=other_user, owner_id=99)
+    foreign_page = StatusPage.objects.create(workspace=other, public_slug='foreign-rename-test',
+        public_domains=['old.ru'])
+    old_revision = status_page.updated_at
     web_actions.add_domains(AppConfig(), 41, {'domain':'http://old.ru/catalog/'})
     storage.add_domain(99, 'private.ru')
     client.force_login(user)
@@ -203,6 +210,11 @@ def test_rename_preserves_workspace_selections_and_owner_boundary(web_database, 
     workspace.refresh_from_db()
     assert workspace.domain_order == ['new.ru','other.ru']
     assert workspace.public_domains == ['new.ru'] and workspace.public_enabled
+    status_page.refresh_from_db()
+    foreign_page.refresh_from_db()
+    assert status_page.public_domains == ['new.ru', 'other.ru']
+    assert status_page.updated_at != old_revision
+    assert foreign_page.public_domains == ['old.ru']
     form = {**web_actions.settings_context(AppConfig(),41,'new.ru')['values'],
             'original_domain':'private.ru','domain':'stolen.ru'}
     assert client.post('/domains/save', form, HTTP_HOST='localhost').status_code == 404

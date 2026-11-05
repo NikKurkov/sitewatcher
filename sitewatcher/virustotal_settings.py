@@ -1,4 +1,4 @@
-"""Private installation-wide VirusTotal key, refreshed for each passive probe."""
+"""Private installation-wide VirusTotal credentials, refreshed for each probe."""
 from __future__ import annotations
 
 import os

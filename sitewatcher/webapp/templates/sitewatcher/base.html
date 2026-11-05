@@ -33,7 +33,7 @@
                 {% block header_actions %}{% if owner_toolbar and not public_view %}{% include 'sitewatcher/partials/overview_actions.html' %}{% endif %}{% endblock %}
                 {% if owner_toolbar and not public_view %}
                     <a class="button icon-button settings-button" href="/workspace" title="{% translate 'Settings' %}" aria-label="{% translate 'Settings' %}"
-                        {% if request.path == '/workspace' or request.path == '/settings' or request.path == '/settings/public' %}aria-current="page"{% endif %}
+                        {% if settings_active %}aria-current="page"{% endif %}
                     >
                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 3-1 3-3-1-2 4 2 2v2l-2 2 2 4 3-1 1 3h6l1-3 3 1 2-4-2-2v-2l2-2-2-4-3 1-1-3Z"/><circle cx="12" cy="12" r="3"/></svg>
                     </a>
@@ -50,6 +50,8 @@
                         name="mode" value="{% if theme == 'dark' %}light{% else %}dark{% endif %}"
                         role="switch"
                         aria-label="{% translate 'Dark theme' %}"
+                        title="{% if theme == 'dark' %}{% translate 'Switch to light theme' %}{% else %}{% translate 'Switch to dark theme' %}{% endif %}"
+                        data-light-title="{% translate 'Switch to light theme' %}" data-dark-title="{% translate 'Switch to dark theme' %}"
                         aria-checked="{% if theme == 'dark' %}true{% else %}false{% endif %}"
                     ><span></span></button>
                     <span aria-hidden="true">☾</span>
@@ -61,9 +63,9 @@
             {% endblock %}
         </main>
         <footer class="footer">
-            <a href="https://github.com/NikKurkov/sitewatcher">SiteWatcher</a>
+            <span>{% translate 'Powered by' %} <a href="https://github.com/NikKurkov/sitewatcher">SiteWatcher</a></span>
             {% if owner_toolbar and not public_view %}
-                <a href="{% if request.workspace.public_enabled %}{{ request.workspace.public_path }}{% else %}/settings#public-status{% endif %}">{% translate 'Public page' %}</a>
+                <a href="/settings/status-pages">Status pages</a>
             {% endif %}
         </footer>
     </body>

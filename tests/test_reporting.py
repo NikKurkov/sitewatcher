@@ -273,15 +273,30 @@ def test_snapshot_legacy_domains_without_favorites_stays_read_only(database):
 
 
 @pytest.mark.parametrize(('interval', 'age_seconds', 'expected'), [
-    (None, 300, False), (None, 599, False), (None, 600, True),
-    (7, 600, False), (7, 839, False), (7, 840, True), (0, 3600, False),
+    (None, 300, False), (None, 599, False), (None, 600, False),
+    (None, 899, False), (None, 900, True), (None, 901, True),
+    (7, 840, False), (7, 1259, False), (7, 1260, True), (0, 3600, False),
 ])
-def test_overdue_notice_waits_for_two_intervals(database, interval, age_seconds, expected):
+def test_freshness_and_overdue_notice_wait_for_three_intervals(
+        database, interval, age_seconds, expected):
     save(1, 'example.com', 'ping', timestamp=(NOW - timedelta(seconds=age_seconds)).isoformat())
     save(1, 'example.com', 'tls_cert')
     if interval is not None:
         storage.set_domain_override(1, 'example.com', {'interval_minutes': interval})
     row = build_snapshot(config(), 1, now=NOW)['domains'][0]
     assert row['overdue'] is expected
+    assert row['stale'] is expected
+    ping = next(check for check in row['checks'] if check['name'] == 'ping')
+    assert ping['stale'] is expected
     if interval != 0:
-        assert row['stale']  # Freshness remains conservative; only the notice has a grace period.
+        due = NOW - timedelta(seconds=age_seconds) + timedelta(minutes=interval or 5)
+        assert row['next_due_at'] == due.isoformat()
+
+
+def test_three_interval_grace_uses_each_check_schedule_and_does_not_hide_errors(database):
+    save(1, 'example.com', 'ping', 'CRIT', timestamp=(NOW - timedelta(minutes=6)).isoformat())
+    save(1, 'example.com', 'tls_cert', timestamp=(NOW - timedelta(days=2)).isoformat())
+    row = build_snapshot(config(), 1, now=NOW)['domains'][0]
+    assert row['overall'] == 'CRIT'
+    assert not row['stale'] and not row['overdue']
+    assert all(not check['stale'] for check in row['checks'])

@@ -2,7 +2,15 @@
 <figure class="response-chart">
     <figcaption>
         <span class="chart-caption-title">{% translate 'Website response time' %}</span>
-        <span class="chart-average">{% if report.totals.latency_ms != None %}{% blocktranslate with latency=report.totals.latency_ms|floatformat:0 %}Average — {{ latency }} ms{% endblocktranslate %}{% else %}{% translate 'No data' %}{% endif %}</span>
+        <span class="chart-metrics">
+            {% translate 'Average' %}:
+            {% for window in report.response_times %}
+            <span class="chart-window">
+                <button type="button" class="chart-window-value" popovertarget="response-window-{{ report.domain }}-{{ window.minutes }}" aria-describedby="response-window-{{ report.domain }}-{{ window.minutes }}"><strong>{% if window.latency_ms != None %}{% blocktranslate with latency=window.latency_ms|floatformat:0 %}{{ latency }} ms{% endblocktranslate %}{% else %}{% translate 'No data' %}{% endif %}</strong></button>
+                <span class="chart-window-tooltip" id="response-window-{{ report.domain }}-{{ window.minutes }}" popover="auto" role="tooltip">{% if window.minutes == 15 %}{% translate '15 minutes' %}{% elif window.minutes == 60 %}{% translate '1 hour' %}{% else %}{% translate '1 day' %}{% endif %}</span>
+            </span>
+            {% endfor %}
+        </span>
     </figcaption>
     {% if report.chart.dots %}
         <div class="chart-frame">
@@ -17,7 +25,10 @@
             aria-labelledby="latency-title-{{ report.domain }} latency-desc-{{ report.domain }}"
         >
             <title id="latency-title-{{ report.domain }}">{% translate 'HTTP response time in milliseconds' %}</title>
-            <desc id="latency-desc-{{ report.domain }}">{% translate 'Each point is an average of successful responses in a time bucket. Missing buckets break the line. The table below contains exact values.' %}</desc>
+            <desc id="latency-desc-{{ report.domain }}">{% translate 'Each point is an average of successful responses in a time bucket. Missing buckets break the line.' %}</desc>
+            {% for gap in report.chart.gaps %}
+                <rect class="chart-gap" x="{{ gap.x|unlocalize }}" y="18" width="{{ gap.width|unlocalize }}" height="132"><title>{% translate 'No measurements' %}</title></rect>
+            {% endfor %}
             {% for tick in report.chart.y_ticks %}
                 <path class="chart-grid" d="M0 {{ tick.y|unlocalize }}H1000"/>
             {% endfor %}
@@ -26,7 +37,7 @@
             {% endfor %}
             {% for point in report.chart.dots %}
                 <g class="chart-point"
-                    tabindex="0"
+                    tabindex="{% if forloop.first %}0{% else %}-1{% endif %}"
                     role="img"
                     aria-label="{{ point.label }} · {% blocktranslate with latency=point.value|floatformat:1 %}{{ latency }} ms{% endblocktranslate %}"
                 >
@@ -38,7 +49,7 @@
         </div>
         <div class="chart-axis">
             {% for tick in report.chart.x_ticks %}
-                <time  datetime="{{ tick.stamp.iso }}" title="{{ tick.stamp.label }}"><span class="chart-tick-wide">{{ tick.label }}</span><span class="chart-tick-compact">{{ tick.time_label }}</span></time>
+                <time datetime="{{ tick.stamp.iso }}" title="{% if public_view %}{{ tick.stamp.display_label }}{% else %}{{ tick.stamp.label }}{% endif %}"><span class="chart-tick-wide">{{ tick.label }}</span><span class="chart-tick-compact">{{ tick.time_label }}</span></time>
             {% endfor %}
         </div>
             </div>

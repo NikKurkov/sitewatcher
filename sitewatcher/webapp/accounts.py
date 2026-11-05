@@ -70,7 +70,7 @@ def _read_password(user):
         validate_password(password, user)
     except ValidationError:
         raise ValueError('The password does not meet the password requirements '
-                         '(at least 12 characters; avoid common, numeric or personal values)') from None
+                         '(avoid common, numeric or personal values)') from None
     return password
 
 

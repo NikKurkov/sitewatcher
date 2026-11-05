@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add multiple Status pages with independent titles, public/private access, editable
+  public addresses and compact domain selections. Preserve existing published links
+  during migration, isolate owners and protect against stale configuration changes.
+- Simplify public check details and response summaries; keep automatic refresh on,
+  show periods in accessible average tooltips and highlight failed history buckets red.
+- Submit missing VirusTotal URL reports for analysis, with persistent per-owner
+  submission cooldown and neutral pending results.
+- Honour the configured eight-character password minimum in owner setup guidance.
+
 - Use a plain globe with a coordinate grid for the Signal room toggle.
 
 - Compact signal-room events into single rows with full labels on hover and

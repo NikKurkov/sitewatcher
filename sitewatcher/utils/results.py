@@ -7,6 +7,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 
+VT_PENDING_MESSAGE = 'VirusTotal analysis is pending'
+
+
+def is_pending_malware_report(check: str, status: object, message: str) -> bool:
+    return (check == 'malware' and status_text(status) == 'UNKNOWN'
+            and strip_cached_suffix(message) == VT_PENDING_MESSAGE)
+
+
 def current_rkn_result(check_name: str, metrics, max_age_hours: int = 168, *, status=None) -> bool:
     """Frozen-source results remain history, never evidence for a current RKN result."""
     if check_name not in {'rkn_domain', 'rkn_ip'}:
@@ -57,10 +65,11 @@ def overall_from_results(results: Iterable) -> str:
 
 
 def is_missing_malware_report(check: str, status: object, message: str) -> bool:
-    """An absent passive report is informational, not evidence of a threat or provider failure."""
+    """An absent or pending report is informational, not evidence of a threat."""
     return (check == 'malware' and status_text(status) == 'UNKNOWN'
             and strip_cached_suffix(message) in {
                 'VirusTotal has no report for this URL', 'VT: not_found',
+                VT_PENDING_MESSAGE,
             })
 
 

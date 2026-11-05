@@ -1,0 +1,24 @@
+{% extends 'sitewatcher/base.html' %}
+{% load i18n %}
+{% block title %}Status pages · SiteWatcher{% endblock %}
+{% block content %}
+    <div class="page-heading">
+        <div><p class="eyebrow"><a href="/settings">{% translate 'Settings' %}</a></p><h1>Status pages</h1><p class="subtitle">{% translate 'Separate status pages for different sites and audiences.' %}</p></div>
+        {% if not read_only %}<a class="button primary" href="/settings/status-pages/new">{% translate 'Add status page' %}</a>{% endif %}
+    </div>
+    {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+    <div class="status-pages-list">
+    {% for page in pages %}
+        <section class="panel status-page-card">
+            <div>
+                <h2>{% if page.title %}{{ page.title }}{% else %}{% translate 'Service status' %}{% endif %}</h2>
+                <p class="muted">{% if page.access_mode == 'public' %}{% translate 'Public' %}{% else %}{% translate 'Private link' %}{% endif %} · {% if page.public_enabled %}{% translate 'Page enabled' %}{% else %}{% translate 'Page disabled' %}{% endif %} · {% blocktranslate count count=page.public_domains|length %}{{ count }} domain{% plural %}{{ count }} domains{% endblocktranslate %}</p>
+                {% if page.access_mode == 'public' and page.public_enabled %}<a href="{{ page.public_path }}">{{ request.scheme }}://{{ request.get_host }}{{ page.public_path }}</a>{% endif %}
+            </div>
+            <a class="button" href="/settings/status-pages/{{ page.pk }}">{% translate 'Edit' %}</a>
+        </section>
+    {% empty %}
+        <section class="panel empty-state"><h2>{% translate 'No status pages yet' %}</h2><p class="muted">{% translate 'Create a page and select the domains to show.' %}</p></section>
+    {% endfor %}
+    </div>
+{% endblock %}

@@ -3,6 +3,7 @@ import hashlib
 import logging
 import secrets
 import re
+from datetime import datetime, timezone
 
 from django.conf import settings
 from django.utils import translation
@@ -16,11 +17,11 @@ from django.views.decorators.http import require_POST
 
 from sitewatcher import check_activity, storage
 from sitewatcher.reporting import build_snapshot
-from sitewatcher.utils.results import is_missing_malware_report
+from sitewatcher.utils.results import is_missing_malware_report, is_pending_malware_report
 from . import analytics
 from .accounts import owner_required
 from .check_presentation import prepare_check_list
-from .models import Workspace
+from .models import StatusPage, Workspace
 from .presentation import check_label, local_time, report_context, status_label
 from .activity import present_events
 
@@ -57,6 +58,9 @@ def public_report(workspace, *, days):
         for private_check in row.get('checks', []):
             check = {key: private_check[key] for key in
                      ('name', 'status', 'checked_at', 'stale', 'missing')}
+            if is_pending_malware_report(
+                    private_check['name'], private_check['status'], private_check['message']):
+                check['pending'] = True
             check['attention'] = bool(
                 not is_missing_malware_report(
                     private_check['name'], private_check['status'], private_check['message'])
@@ -78,6 +82,7 @@ def public_report(workspace, *, days):
             if not http or http.get('stale') or http.get('missing') or row.get('error')
             or availability == 'unknown' else availability)
         report['totals'] = {**_totals(raw['totals']), 'latency_ms': raw['totals']['latency_ms']}
+        report['response_times'] = raw['response_times']
         report['buckets'] = [{**{key: point[key] for key in ('index', 'start_at', 'label',
                               'latency_ms')}, **_totals(point)} for point in raw['buckets']]
         reports.append(report)
@@ -97,7 +102,7 @@ def public_activity(workspace):
     for event in events:
         # Opaque per-link identifiers do not reveal the owner's global probe counter.
         event['id'] = salted_hmac(
-            'sitewatcher.public_activity', workspace.public_token_hash + ':' + str(event['id']),
+            'sitewatcher.public_activity', str(workspace.pk) + ':' + workspace.public_token_hash + ':' + str(event['id']),
             algorithm='sha256',
         ).hexdigest()[:24]
         event.pop('check_name')
@@ -115,8 +120,8 @@ def status(request, token=None, *, data=False, activity=False, public_slug=None)
         return HttpResponse(_('Method not allowed'), status=405, headers={'Allow': 'GET, HEAD'})
     lookup = ({'public_slug': public_slug} if public_slug is not None else
               {'public_token_hash': hashlib.sha256(token.encode()).hexdigest()})
-    workspace = Workspace.objects.filter(public_enabled=True, **lookup).first()
-    if workspace is None:
+    workspace = StatusPage.objects.select_related('workspace').filter(public_enabled=True, **lookup).first()
+    if workspace is None or public_slug is not None and workspace.access_mode != 'public':
         return HttpResponse(_('Not found'), status=404)
     request.LANGUAGE_CODE = workspace.language
     with translation.override(workspace.language):
@@ -150,11 +155,20 @@ def _status_page(request, workspace, *, data):
     if data:
         return JsonResponse(report)
     for item in report['domains']:
-        report_context(item)
+        report_context(item, public=True)
         for check in item['checks']:
             check['label'] = check_label(check['name'])
-            check['status_label'] = status_label(check['status'])
+            check['status_label'] = (_('Analysis pending') if check.get('pending')
+                                     else status_label(check['status']))
             check['observed'] = local_time(check['checked_at'], workspace.timezone)
+            if check.get('pending'):
+                check['public_note'] = _('VirusTotal is preparing a report')
+            elif check['missing']:
+                check['public_note'] = _('No saved result yet')
+            elif check['name'] == 'malware' and check['status'] == 'UNKNOWN' and not check['attention']:
+                check['public_note'] = _('No report in VirusTotal')
+            elif check['status'] == 'UNKNOWN':
+                check['public_note'] = _('Result unavailable')
         item['checks_common_observed'] = prepare_check_list(item['checks'])
         item['observed'] = local_time(item['last_checked_at'], workspace.timezone)
         item['state'], item['state_label'] = {
@@ -167,12 +181,14 @@ def _status_page(request, workspace, *, data):
                 if item['last_checked_at']), default=None)
     return render(request, 'sitewatcher/public.html', {
         'public_view': True, 'public_timezone': workspace.timezone, 'report': report,
+        'status_page_title': workspace.title,
         'public_activity_url': (workspace.public_path + '/activity'
                                 if getattr(request, 'public_alias', False) else 'activity'),
         'attention': sum(bool(item['attention_count']) for item in report['domains']),
         'paused': sum(item['current_state'] == 'paused' for item in report['domains']),
         'unknown': sum(item['current_state'] == 'no_recent_data' for item in report['domains']),
         'available': available, 'unavailable': unavailable, 'observed': local_time(last, workspace.timezone),
+        'page_updated': local_time(datetime.now(timezone.utc).isoformat(), workspace.timezone),
     })
 
 
@@ -192,12 +208,15 @@ def publication(request):
         if (request.GET or set(fields) != {'action', 'public_slug'}
                 or not re.fullmatch(r'[a-z][a-z0-9_-]{0,63}', slug)
                 or slug in RESERVED_PUBLIC_SLUGS
+                or StatusPage.objects.filter(public_slug=slug).exclude(
+                    workspace=request.workspace, legacy_primary=True).exists()
                 or Workspace.objects.filter(public_slug=slug).exclude(pk=request.workspace.pk).exists()):
             return _render(request, error=invalid_path, status=400)
         request.workspace.public_slug = slug
         try:
             with transaction.atomic():
                 request.workspace.save(update_fields=['public_slug'])
+                _sync_legacy_page(request.workspace)
         except IntegrityError:
             request.workspace.refresh_from_db()
             return _render(request, error=invalid_path, status=400)
@@ -228,6 +247,7 @@ def publication(request):
             workspace.public_enabled = False
             workspace.public_token_hash = ''
         workspace.save(update_fields=['public_enabled', 'public_token_hash', 'public_domains'])
+        _sync_legacy_page(workspace)
     request.workspace = workspace
     try:
         return _render(request, notice=_('Public status updated.'), public_link=link)
@@ -236,3 +256,11 @@ def publication(request):
         logging.getLogger(__name__).warning(
             'Public status settings unavailable (%s)', type(error).__name__)
         return HttpResponse(_('Public status settings temporarily unavailable; reload Settings.'), status=503)
+
+
+def _sync_legacy_page(workspace):
+    """Keep previously issued publication API links backed by the migrated page."""
+    StatusPage.objects.update_or_create(workspace=workspace, legacy_primary=True, defaults={
+        'public_enabled': workspace.public_enabled, 'public_slug': workspace.public_slug,
+        'public_token_hash': workspace.public_token_hash, 'public_domains': workspace.public_domains,
+    })

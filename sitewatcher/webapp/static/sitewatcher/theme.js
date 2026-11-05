@@ -8,6 +8,7 @@ document.addEventListener('submit', (event) => {
   document.cookie = `sitewatcher_theme=${mode}; Path=/; Max-Age=31536000; SameSite=Strict`;
   button.setAttribute('aria-checked', String(mode === 'dark'));
   button.value = mode === 'dark' ? 'light' : 'dark';
+  button.title = mode === 'dark' ? button.dataset.lightTitle : button.dataset.darkTitle;
 });
 
 // The full bearer link is available only in the immediate publication response.
@@ -206,24 +207,6 @@ document.querySelectorAll('[data-activity-navigation]').forEach((link) => {
 // Refresh read pages while readers keep disclosures open; defer active edits and dragging.
 const refresh = document.querySelector('[data-auto-refresh]');
 if (refresh) {
-  const enabled = refresh.querySelector('[data-refresh-enabled]');
-  refresh.querySelector('[data-refresh-option]').hidden = false;
-  const isToggle = enabled.tagName === 'BUTTON';
-  const isEnabled = () => isToggle ? enabled.getAttribute('aria-pressed') === 'true' : enabled.checked;
-  const setEnabled = (value) => {
-    if (isToggle) {
-      enabled.setAttribute('aria-pressed', String(value));
-      enabled.title = value ? enabled.dataset.enabledLabel : enabled.dataset.disabledLabel;
-    } else {
-      enabled.checked = value;
-    }
-  };
-  try { setEnabled(sessionStorage.getItem('refresh') !== 'off'); } catch {}
-  enabled.addEventListener(isToggle ? 'click' : 'change', () => {
-    const value = isToggle ? !isEnabled() : enabled.checked;
-    setEnabled(value);
-    try { sessionStorage.setItem('refresh', value ? 'on' : 'off'); } catch {}
-  });
   let draft = false;
   document.addEventListener('input', (event) => {
     const editable = 'input:not([type=hidden]):not([type=checkbox]):not([type=radio]),'
@@ -240,10 +223,10 @@ if (refresh) {
     });
   }
   setInterval(() => {
-    if (isEnabled() && !document.hidden && !draft
+    if (!document.hidden && !draft
         && !document.querySelector('[data-live-activity]:not([hidden])')
         && !document.querySelector('.domains-table[aria-busy=true], .domains-table[data-dragging=true]')
-        && !document.querySelector('.status-tooltip:not([hidden])')
+        && !document.querySelector('.status-tooltip:not([hidden]), .chart-tooltip:not([hidden]), .chart-window-tooltip:popover-open')
         && !document.activeElement.matches('input,select,textarea,[contenteditable]')) {
       saveDisclosureState();
       location.reload();
@@ -276,32 +259,47 @@ document.querySelectorAll('.response-chart').forEach((chart) => {
     const above = dot.top - bounds.top - tooltip.offsetHeight - 10;
     tooltip.style.top = `${above >= 0 ? above : dot.bottom - bounds.top + 10}px`;
   };
-  // Compare in screen pixels so dense or narrow charts still select the nearest dot.
-  svg.addEventListener('pointermove', (event) => {
+  // Follow the nearest time column, without bridging a long measurement gap.
+  const inspect = (event) => {
     const matrix = svg.getScreenCTM();
     if (!matrix) return;
     let nearest = null;
     let distance = 18;
     for (const {point, x, y} of points) {
       const dx = matrix.a * x + matrix.c * y + matrix.e - event.clientX;
-      const dy = matrix.b * x + matrix.d * y + matrix.f - event.clientY;
-      const candidate = Math.hypot(dx, dy);
+      const candidate = Math.abs(dx);
       if (candidate < distance) { nearest = point; distance = candidate; }
     }
     show(nearest);
-  });
-  svg.addEventListener('pointerleave', () => {
+  };
+  svg.addEventListener('pointermove', inspect);
+  svg.addEventListener('pointerdown', inspect);
+  svg.addEventListener('pointerleave', (event) => {
+    if (event.pointerType === 'touch') return;
     show(svg.contains(document.activeElement)
       ? document.activeElement.closest('.chart-point') : null);
   });
-  points.forEach(({point}) => {
-    point.addEventListener('focus', () => show(point));
+  points.forEach(({point}, index) => {
+    point.addEventListener('focus', () => {
+      points.forEach(({point: other}) => { other.tabIndex = other === point ? 0 : -1; });
+      show(point);
+    });
     point.addEventListener('blur', () => show(null));
+    point.addEventListener('keydown', (event) => {
+      const target = {ArrowLeft: index - 1, ArrowRight: index + 1,
+        Home: 0, End: points.length - 1}[event.key];
+      if (target === undefined) return;
+      event.preventDefault();
+      points[Math.max(0, Math.min(target, points.length - 1))].point.focus();
+    });
   });
   const restoredPoint = document.activeElement?.closest('.chart-point');
   if (restoredPoint && chart.contains(restoredPoint)) show(restoredPoint);
   document.addEventListener('keydown', (event) => {
     if (active && event.key === 'Escape') show(null);
+  });
+  document.addEventListener('pointerdown', (event) => {
+    if (!chart.contains(event.target)) show(null);
   });
   window.addEventListener('resize', () => { if (active) show(active, true); });
 });
@@ -344,3 +342,38 @@ document.querySelectorAll('[data-status-preview]').forEach((preview) => {
     if (!tooltip.contains(event.target)) hide();
   }, {capture: true, passive: true});
 });
+
+// Native popovers provide tap toggling, outside dismissal and Escape for averages.
+document.querySelectorAll('.chart-window-value').forEach((trigger) => {
+  const tooltip = document.getElementById(trigger.getAttribute('popovertarget'));
+  if (!tooltip?.showPopover) return;
+  const hide = () => { if (tooltip.matches(':popover-open')) tooltip.hidePopover(); };
+  const show = () => {
+    if (!tooltip.matches(':popover-open')) tooltip.showPopover();
+    const bounds = trigger.getBoundingClientRect();
+    tooltip.style.left = `${Math.max(8, Math.min(bounds.left, window.innerWidth - tooltip.offsetWidth - 8))}px`;
+    tooltip.style.top = `${Math.max(8, bounds.top - tooltip.offsetHeight - 6)}px`;
+  };
+  tooltip.addEventListener('toggle', (event) => { if (event.newState === 'open') show(); });
+  trigger.addEventListener('pointerenter', (event) => { if (event.pointerType === 'mouse') show(); });
+  trigger.addEventListener('pointerleave', (event) => {
+    if (event.pointerType === 'mouse' && !trigger.matches(':focus-visible')) hide();
+  });
+  trigger.addEventListener('focus', () => { if (trigger.matches(':focus-visible')) show(); });
+  trigger.addEventListener('blur', hide);
+  window.addEventListener('resize', hide);
+  window.addEventListener('scroll', hide, {capture: true, passive: true});
+});
+
+// Public page addresses are editable only in public mode.
+const statusPageForm = document.querySelector('.status-page-form');
+if (statusPageForm) {
+  const mode = statusPageForm.querySelector('[name="access_mode"]');
+  const address = statusPageForm.querySelector('.status-page-address');
+  const updateAddress = () => {
+    address.hidden = mode.value !== 'public';
+    address.querySelector('input').disabled = address.hidden || mode.disabled;
+  };
+  mode.addEventListener('change', updateAddress);
+  updateAddress();
+}

@@ -20,4 +20,5 @@ def owner_toolbar(request):
         'toolbar_read_only': settings.SITEWATCHER_READ_ONLY,
         'toolbar_has_domains': has_domains,
         'toolbar_overview': request.path == '/',
+        'settings_active': request.path.startswith(('/settings', '/workspace')),
     }

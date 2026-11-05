@@ -30,3 +30,41 @@ class Workspace(models.Model):
         constraints = [models.CheckConstraint(
             condition=models.Q(owner_id__gt=0), name='workspace_positive_owner',
         )]
+
+
+class StatusPage(models.Model):
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name='status_pages')
+    title = models.CharField(max_length=120, blank=True, default='')
+    access_mode = models.CharField(max_length=7, default='public',
+                                   choices=[('public', 'Public'), ('private', 'Private link')])
+    public_enabled = models.BooleanField(default=True)
+    public_domains = models.JSONField(default=list)
+    public_slug = models.CharField(max_length=64, unique=True)
+    public_token_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    legacy_primary = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def owner_id(self):
+        return self.workspace.owner_id
+
+    @property
+    def timezone(self):
+        return self.workspace.timezone
+
+    @property
+    def language(self):
+        return self.workspace.language
+
+    @property
+    def public_path(self):
+        return '/' + self.public_slug
+
+    class Meta:
+        ordering = ['pk']
+        constraints = [
+            models.UniqueConstraint(fields=['workspace'], condition=models.Q(legacy_primary=True),
+                                    name='status_page_legacy_primary'),
+            models.CheckConstraint(condition=models.Q(access_mode__in=['public', 'private']),
+                                   name='status_page_valid_access'),
+        ]

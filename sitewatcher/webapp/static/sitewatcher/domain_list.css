@@ -10,10 +10,11 @@
   border-top: 1px solid var(--line);
   background: var(--surface-soft);
   text-align: left;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 400;
 }
 .domain-detail-layout > section { min-width: 0; }
+.domain-detail-checks { border-top: 1px solid var(--line); padding-top: 16px; font-size: 13px; }
 .domain-detail-layout h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
 .domain-check-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; list-style: none; margin: 0; padding: 0; }
 .domain-check-list > li { padding: 10px 0; border-bottom: 1px solid var(--line); }
@@ -22,15 +23,11 @@
 .domain-check-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .domain-check-heading strong { font-weight: 500; overflow-wrap: anywhere; }
 .domain-check-heading .badge { flex-shrink: 0; }
-.domain-check-list p { margin: 4px 0; overflow-wrap: anywhere; }
-.domain-check-time { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 4px; color: var(--muted); font-size: 12px; }
+.domain-check-status { display: inline-flex; justify-content: flex-end; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; font-size: 12px; text-align: right; }
 .full-history-link { display: inline-flex; align-items: center; min-height: 44px; margin-top: 8px; }
 .domain-detail-chart .response-chart { margin: 0; }
 .domain-detail-chart .response-chart figcaption { margin-bottom: 16px; }
-.domain-detail-chart .response-chart figcaption strong { font-size: 28px; }
-.domain-detail-chart .chart-data { margin-top: 12px; }
 .domain-detail-chart .chart-empty { min-height: 100px; }
-.domain-detail-chart .table-scroll { max-width: 100%; overflow-x: auto; }
 .domain-expand { flex-shrink: 0; }
 .domain-expand[hidden], .domain-detail-row[hidden] { display: none !important; }
 .domain-expand[aria-expanded=true] svg { transform: rotate(180deg); }
@@ -45,22 +42,19 @@
 .header-periods .periods { width: max-content; margin-left: auto; }
 .domains-table > tbody.domain-drop-before > tr[data-domain-summary] { box-shadow: inset 0 3px var(--green); }
 .domains-table > tbody.domain-drop-after > tr[data-domain-summary] { box-shadow: inset 0 -3px var(--green); }
-/* Nested chart data keeps table semantics instead of inheriting owner card rules. */
-.domain-detail-layout .chart-data table { display: table; table-layout: auto; min-width: 600px; width: 100%; }
-.domain-detail-layout .chart-data thead { display: table-header-group; position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
-.domain-detail-layout .chart-data tbody { display: table-row-group; }
-.domain-detail-layout .chart-data tr { display: table-row; background: transparent; border: 0; box-shadow: none; margin: 0; padding: 0; }
-.domain-detail-layout .chart-data td,
-.domain-detail-layout .chart-data th { display: table-cell; border: 0; border-bottom: 1px solid var(--line); padding: 8px; font-size: 12px; }
-.domain-detail-layout .chart-data th:first-child { padding-left: 8px; }
 .public-services-header, .public-service-row {
-  grid-template-columns: minmax(150px, 1.4fr) minmax(140px, 1.2fr) minmax(90px, 1fr) 100px 140px 148px;
+  grid-template-columns: minmax(170px, 1.4fr) minmax(120px, 1fr) minmax(110px, 1fr) 120px 160px 148px;
   gap: 12px;
 }
 .public-services-header { padding-block: 8px; }
 .public-periods .periods { width: max-content; margin: 0 0 0 auto; }
 .public-periods .periods a { min-width: 44px; min-height: 44px; }
-.public-service-row { min-height: 68px; font-size: 13px; }
+.public-service-row { min-height: 72px; font-size: 14px; }
+.public-service-name { font-size: 15px; font-weight: 650; }
+.public-component-chart[open] > .public-service-row { background: color-mix(in srgb, var(--green) 4%, var(--surface)); }
+.public-service-time { display: grid; gap: 2px; font-size: 13px; }
+.checked-relative { color: var(--text); }
+.checked-absolute { color: var(--muted); font-size: 12px; }
 .public-service-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .domain-attention-count { color: var(--amber); font-size: 12px; }
 .public-service-row .public-service-expand { display: flex; align-items: center; justify-content: center; justify-self: end; width: 44px; height: 44px; }
@@ -74,7 +68,7 @@
   .public-service-status { grid-column: 1 / -1; grid-row: 2; }
   .public-service-history { grid-column: 1; grid-row: 3; }
   .public-service-success { grid-column: 2; grid-row: 3; text-align: right; }
-  .public-service-time { grid-column: 1; grid-row: 4; display: flex; gap: 4px 8px; flex-wrap: wrap; }
+  .public-service-time { grid-column: 1; grid-row: 4; }
   .public-service-row .public-service-expand { grid-column: 2; grid-row: 4; }
   .domain-list { border: 0; background: transparent; box-shadow: none; overflow: visible; }
   .domains-table { display: block; min-width: 0; }
@@ -120,10 +114,19 @@
 }
 
 .domain-checks-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; margin-bottom: 12px; }
-.domain-checks-heading h3 { margin: 0; }
+.domain-checks-heading h3 { margin: 0; font-size: 14px; font-weight: 700; }
 .domain-checks-heading > time, .domain-checks-heading > span { font-size: 12px; color: var(--muted); }
 .check-ok { display: inline-flex; align-items: center; gap: 6px; color: var(--green); font-size: 12px; white-space: nowrap; }
 .check-ok .status-dot { background: var(--green); }
 .domain-check-heading .badge.unknown { background: transparent; color: var(--muted); }
 .check-freshness { color: var(--muted); }
-.check-freshness::before { content: '· '; }
+
+.history-legend { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px 20px; padding: 12px 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.history-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.history-legend i { width: 12px; height: 8px; border-radius: 2px; }
+.legend-successful { background: var(--green); }
+.legend-failed { background: var(--history-failed); }
+.legend-unknown { background: var(--muted); }
+.history-legend .legend-no-data { background: color-mix(in srgb, var(--muted) 20%, transparent); border: 1px dashed var(--muted); }
+.public-status .chart-y-axis, .public-status .chart-frame .chart-axis { font-size: 12px; }
+.public-status-summary p { font-size: 13px; }

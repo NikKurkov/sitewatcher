@@ -280,7 +280,7 @@ def test_corrupt_settings_owner_recovery_is_explicit_scoped_and_preserves_histor
     assert saved_raw() == raw
     # The separate public serializer must never acquire owner diagnostics or raw settings.
     response = post(client, '/settings/public', {'action': 'enable', 'domain.one.example': 'on'})
-    link = re.search(rb'id="public-link"[^>]*value="([^"]+)"', response.content).group(1).decode()
+    link = re.search(rb'id="private-status-link"[^>]*value="([^"]+)"', response.content).group(1).decode()
     public = Client().get(link, HTTP_HOST='localhost')
     assert public.status_code == 200
     assert b'Invalid domain settings' not in public.content and raw.encode() not in public.content
@@ -317,7 +317,7 @@ def test_current_warning_explanation_survives_recent_history_limit(owner, client
     assert b'Certificate expires soon &lt;private-current-detail&gt;' in response.content
     assert b'<private-current-detail>' not in response.content
     response = post(client, '/settings/public', {'action': 'enable', 'domain.one.example': 'on'})
-    link = re.search(rb'id="public-link"[^>]*value="([^"]+)"', response.content).group(1).decode()
+    link = re.search(rb'id="private-status-link"[^>]*value="([^"]+)"', response.content).group(1).decode()
     assert b'private-current-detail' not in Client().get(link, HTTP_HOST='localhost').content
 
 
