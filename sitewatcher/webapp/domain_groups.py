@@ -4,6 +4,7 @@ import json
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
+from django.template.loader import render_to_string
 from django.utils.translation import gettext as _
 from django.views.decorators.http import require_http_methods
 
@@ -23,6 +24,7 @@ def management(request):
         fields = dict(request.management_form)
         fields.pop('csrfmiddlewaretoken', None)
         operation = fields.get('operation')
+        original = fields.pop('original_group_id', None) if operation == 'move' else None
         allowed = {'create': {'operation', 'name'},
                    'rename': {'operation', 'group_id', 'name'},
                    'delete': {'operation', 'group_id', 'confirm'},
@@ -49,13 +51,21 @@ def management(request):
                             or any(not isinstance(name, str) for name in names)
                             or len(set(names)) != len(names)):
                         raise ValueError('Select between 1 and 1000 sites')
-                    domain_groups.move_domains(owner_id, names, group_id)
+                    if original is not None and (
+                            not original.isascii() or not original.isdigit() or len(original) > 18):
+                        raise ValueError('Invalid group')
+                    domain_groups.move_domains(owner_id, names, group_id,
+                        expected_group_id=int(original) if original is not None else None)
             if operation == 'move' and request.headers.get('Accept') == 'application/json':
-                return JsonResponse({'saved': True})
+                return _move_snapshot(request)
             return HttpResponse(status=303, headers={'Location': (
                 '/' if operation == 'move' else '/settings/groups')})
+        except domain_groups.GroupChangedError:
+            return JsonResponse({'saved': False}, status=409)
         except (ValueError, TypeError, OverflowError, RecursionError) as exception:
             error, status = _(str(exception)), 400
+    if request.method in {'GET', 'HEAD'} and request.headers.get('Accept') == 'application/json':
+        return _move_snapshot(request)
     groups = domain_groups.list_groups(owner_id)
     # One membership read for the whole owner rather than one query per domain.
     from sitewatcher.reporting import SnapshotError, build_snapshot
@@ -72,3 +82,28 @@ def management(request):
     return render(request, 'sitewatcher/groups.html', {
         'groups': groups, 'error': error, 'read_only': settings.SITEWATCHER_READ_ONLY,
     }, status=status)
+
+
+def _move_snapshot(request):
+    """Owner-only, authoritative membership and localized headings, without check metrics."""
+    from sitewatcher.reporting import SnapshotError, build_snapshot
+    from .domains import _sort_domains
+    from .presentation import domain_state, group_presentation
+    try:
+        snapshot = build_snapshot(settings.SITEWATCHER_CONFIG, request.workspace.owner_id)
+    except SnapshotError:
+        return JsonResponse({'saved': False}, status=503)
+    rows = snapshot['domains']
+    for row in rows:
+        row['state'] = domain_state(row)
+    _sort_domains(rows, request.workspace.domain_order)
+    groups = []
+    for group in snapshot['groups']:
+        summary = group_presentation(group, [row for row in rows
+                                            if row.get('group_id', 0) == group['id']])
+        groups.append({'id': group['id'], 'total': summary['total'],
+            'heading': render_to_string('sitewatcher/partials/group_heading.html', {'group': summary}),
+            'empty': render_to_string('sitewatcher/partials/group_empty.html', {'group': summary})})
+    return JsonResponse({'saved': True, 'groups': groups,
+                         'order': [row['name'] for row in rows],
+                         'membership': {row['name']: row.get('group_id', 0) for row in rows}})

@@ -369,11 +369,15 @@ the domain or batch; validation failures and cancellation create no orphan group
 A stale edit cannot undo a newer group transfer. Reload after a conflict.
 
 Drag a domain by its handle onto another group's header or domain row, including
-empty/collapsed groups. Confirmation opens the destination group and refreshes
-counts. If confirmation fails, reload to check saved state. Favorites and manual
-ordering remain within groups. Editing a domain provides a keyboard-accessible
-transfer alternative. Deleting a group returns its sites to Main with history and
-monitoring settings retained.
+empty/collapsed groups. Briefly hovering opens a collapsed destination. After
+confirmation, the existing row moves smoothly without reloading the page; open
+checks/charts, favorites and canonical ordering are preserved. Group counts and
+critical badges update together. Click/tap the same handle (or press Enter) to
+choose a group with keyboard or touch. With only one group the handle only reorders.
+If the server response is lost, SiteWatcher reads the current group before reporting
+the outcome and never repeats the move automatically. If confirmation remains
+unavailable, the original row stays visible with a clear message. Group management
+is in Settings; deleting a group returns its sites to Main with history/settings retained.
 
 Status-page editors can select one or several groups. Current members and future
 additions are dynamically published, unioned with explicitly selected domains.

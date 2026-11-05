@@ -1,4 +1,4 @@
-// Persist group disclosure independently for each signed-in workspace.
+// Resolve membership at the time of each toggle: rows can move without navigation.
 (() => {
   const table = document.querySelector('[data-domain-groups]');
   if (!table) return;
@@ -8,26 +8,33 @@
   try {
     const value = JSON.parse(localStorage.getItem(key) || '{}');
     if (value && typeof value === 'object' && !Array.isArray(value)) saved = value;
-  } catch { /* Unavailable storage must never prevent access to domains. */ }
-  const allBodies = [...table.querySelectorAll('tbody[data-group-id]')];
-  const groups = [...table.querySelectorAll('[data-domain-group]')].map(header => ({
-    header,
-    id: header.dataset.domainGroup,
-    button: header.querySelector('[data-group-toggle]'),
-    rows: allBodies.filter(row => row.dataset.groupId === header.dataset.domainGroup),
-  }));
-  const setOpen = (group, open, persist = false) => {
-    group.button.setAttribute('aria-expanded', String(open));
-    group.rows.forEach(row => { row.hidden = !open; });
+  } catch { /* Optional preference. */ }
+  const headers = () => [...table.querySelectorAll('[data-domain-group]')];
+  const setOpen = (header, open, persist = false) => {
+    const id = header.dataset.domainGroup;
+    header.querySelector('[data-group-toggle]').setAttribute('aria-expanded', String(open));
+    table.querySelectorAll('tbody[data-group-id]').forEach(row => {
+      if (row.dataset.groupId === id) row.hidden = !open;
+    });
     if (persist && !filtered) {
-      saved[group.id] = open;
+      saved[id] = open;
       try { localStorage.setItem(key, JSON.stringify(saved)); } catch { /* Optional preference. */ }
     }
   };
-  groups.forEach(group => {
-    setOpen(group, filtered || saved[group.id] !== false);
-    group.button.addEventListener('click', () => {
-      setOpen(group, group.button.getAttribute('aria-expanded') !== 'true', true);
-    });
+  headers().forEach(header => setOpen(header, filtered || saved[header.dataset.domainGroup] !== false));
+  table.addEventListener('click', event => {
+    const button = event.target.closest('[data-group-toggle]');
+    if (button) setOpen(button.closest('[data-domain-group]'),
+      button.getAttribute('aria-expanded') !== 'true', true);
+  });
+  table.addEventListener('sitewatcher:group-open', event => {
+    const header = headers().find(item => item.dataset.domainGroup === String(event.detail.id));
+    if (header) setOpen(header, event.detail.open, event.detail.persist);
+  });
+  table.addEventListener('sitewatcher:groups-updated', event => {
+    headers().forEach(header => setOpen(header,
+      header.querySelector('[data-group-toggle]').getAttribute('aria-expanded') === 'true'));
+    const header = headers().find(item => item.dataset.domainGroup === String(event.detail.open));
+    if (header) setOpen(header, true, true);
   });
 })();

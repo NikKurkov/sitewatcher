@@ -4,9 +4,9 @@
         <span class="badge {{ row.state }}"
             tabindex="0"
             data-status-trigger
-            aria-describedby="status-tooltip-{{ forloop.counter }}"
+            aria-describedby="status-tooltip-{{ row.name }}"
         ><span aria-hidden="true">⚠</span>{{ row.label }}</span>
-        <div class="status-tooltip" id="status-tooltip-{{ forloop.counter }}" role="tooltip" tabindex="0" hidden>
+        <div class="status-tooltip" id="status-tooltip-{{ row.name }}" role="tooltip" tabindex="0" hidden>
             <strong class="status-tooltip-heading">{{ row.label }}</strong>
             {% if row.error %}
                 <p>{% translate row.error %}</p>

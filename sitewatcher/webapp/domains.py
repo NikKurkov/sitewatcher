@@ -29,7 +29,7 @@ from .check_presentation import prepare_check_list
 from .models import Workspace
 from .forms import HistoryFiltersForm
 from .analytics import domain_report, overview_report
-from .presentation import check_label, diagnostic_message, domain_form_context, local_time, report_context, status_label
+from .presentation import domain_state, group_presentation, check_label, diagnostic_message, domain_form_context, local_time, report_context, status_label
 
 # ponytail: one process-local manual run; run a single web process, use a job queue to scale.
 _check_lock = Lock()
@@ -156,7 +156,7 @@ def _page(request, view, domain='', *, error='', values=None, status=200):
 
 def _row_context(row, zone):
     row['http_enabled'] = any(check['name'] == 'http_basic' for check in row['checks'])
-    row['state'] = ('paused' if row['paused'] else row['overall'].lower())
+    row['state'] = domain_state(row)
     row['label'] = {'paused': _('Paused'), 'crit': _('Critical'), 'warn': _('Warning'),
                     'ok': _('Healthy'), 'unknown': _('No data')}[row['state']]
     if row['error']:
@@ -265,12 +265,7 @@ def dashboard(request):
             visible = [row for row in filtered if row.get('group_id', 0) == group['id']]
             if (search or status != 'all') and not visible:
                 continue
-            groups.append({**group, 'label': _('Main') if group['is_default'] else group['name'],
-                           'rows': visible, 'total': len(members),
-                           'critical': any(row['state'] == 'crit' for row in members),
-                           'attention': sum(bool(row['error']) or (
-                               row['overall'] in {'CRIT', 'WARN'} and not row['paused'])
-                               for row in members)})
+            groups.append({**group_presentation(group, members), 'rows': visible})
         return _render(request, 'overview', {'rows': filtered, 'total': len(rows),
             'groups': groups, 'group_choices': snapshot['groups'],
             'show_groups': len(snapshot['groups']) > 1,

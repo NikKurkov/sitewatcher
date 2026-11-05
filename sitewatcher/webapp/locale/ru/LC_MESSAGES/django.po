@@ -2333,3 +2333,27 @@ msgstr "Другие сайты"
 
 msgid "VirusTotal result is not available yet. Requests are limited to once per day."
 msgstr "Результат VirusTotal пока недоступен. Запросы выполняются не чаще раза в сутки."
+
+msgid "Saving move…"
+msgstr "Сохраняем перенос…"
+
+msgid "Domain moved"
+msgstr "Домен перемещён"
+
+msgid "The group changed in another session. The list is up to date."
+msgstr "Группа изменена в другой вкладке. Список обновлён."
+
+msgid "Move to {group}"
+msgstr "Переместить в «{group}»"
+
+msgid "Drag to move, or click to choose a group. Keyboard: Alt + Up or Down to reorder."
+msgstr "Перетащите или нажмите, чтобы выбрать группу. Alt + ↑ или ↓ — изменить порядок."
+
+msgid "Move domain"
+msgstr "Переместить домен"
+
+msgid "Drop here"
+msgstr "Отпустите здесь"
+
+msgid "Move"
+msgstr "Переместить"

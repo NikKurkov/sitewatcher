@@ -208,3 +208,16 @@ def domain_form_context(context, error):
     context['numeric_fields'] = numeric[1:]
     context['advanced_error'] = bool(error)
     return context
+
+
+def domain_state(row):
+    return 'warn' if row['error'] else 'paused' if row['paused'] else row['overall'].lower()
+
+
+def group_presentation(group, members):
+    """One severity/count policy for page headings and confirmed drag responses."""
+    return {**group, 'label': _('Main') if group['is_default'] else group['name'],
+            'total': len(members),
+            'critical': any(domain_state(row) == 'crit' for row in members),
+            'attention': sum(bool(row['error']) or (
+                row['overall'] in {'CRIT', 'WARN'} and not row['paused']) for row in members)}

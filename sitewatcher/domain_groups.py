@@ -124,7 +124,15 @@ def delete_group(owner_id: int, group_id: int) -> None:
         conn.execute('DELETE FROM domain_groups WHERE owner_id=? AND id=?', (owner_id, group_id))
 
 
-def move_domains(owner_id: int, names: list[str], group_id: int) -> None:
+class GroupChangedError(ValueError):
+    pass
+
+
+def move_domains(owner_id: int, names: list[str], group_id: int, *,
+                 expected_group_id: int | None = None) -> None:
     storage._ensure_initialized()
     with storage._write_connection() as conn:
+        if expected_group_id is not None and any(
+                _group_for_domain(conn, owner_id, name) != expected_group_id for name in names):
+            raise GroupChangedError('Domain group changed. Check the current group and try again.')
         _assign(conn, owner_id, names, group_id)

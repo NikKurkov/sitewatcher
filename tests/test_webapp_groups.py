@@ -30,6 +30,7 @@ def test_default_group_and_group_controls(owner, client):
     body = get(client, '/').content.decode()
     assert 'data-domain-group="0"' not in body
     assert 'data-group-toggle' not in body
+    assert 'data-domain-move-dialog' not in body
     assert '/settings/groups' not in body
     assert '/settings/groups' in get(client, '/settings').content.decode()
     assert 'domain_groups.js' in body
@@ -181,7 +182,7 @@ def test_drag_move_returns_confirmation_without_redirect(owner, client):
                           'domains': json.dumps(['move.example'])}, HTTP_HOST='localhost',
                           HTTP_ACCEPT='application/json')
     assert response.status_code == 200
-    assert response.json() == {'saved': True}
+    assert response.json()['saved'] is True
     assert domain_groups.group_for_domain(41, 'move.example') == group
 
 
@@ -217,3 +218,50 @@ def test_group_uses_domain_critical_badge_and_clears_after_recovery(
         assert 'class="badge crit"' in filtered
         storage.save_history(41, 'critical.example', 'http_basic', 'OK', 'recovered', {})
         assert 'class="badge crit"' not in header()
+
+
+def test_move_response_contains_authoritative_group_headings_and_rejects_stale_source(owner, client):
+    from sitewatcher import domain_groups
+    from sitewatcher.config import ChecksModel
+    source = domain_groups.create_group(41, 'Source')
+    target = domain_groups.create_group(41, 'Target <safe>')
+    storage.add_domain(41, 'instant.example')
+    domain_groups.move_domains(41, ['instant.example'], source)
+    storage.set_domain_override(41, 'instant.example', {'checks': {
+        name: name == 'http_basic' for name in ChecksModel.model_fields}})
+    storage.save_history(41, 'instant.example', 'http_basic', 'CRIT', 'saved', {})
+    data = {'operation': 'move', 'group_id': str(target), 'original_group_id': str(source),
+            'domains': '["instant.example"]'}
+    response = client.post('/settings/groups', data, HTTP_HOST='localhost',
+                           HTTP_ACCEPT='application/json')
+    assert response.status_code == 200
+    payload = response.json()
+    groups = {group['id']: group for group in payload['groups']}
+    assert payload['saved'] and payload['order'] == ['instant.example']
+    assert groups[source]['total'] == 0 and groups[target]['total'] == 1
+    assert 'class="badge crit"' in groups[target]['heading']
+    assert 'Target &lt;safe&gt;' in groups[target]['heading']
+    assert 'data-group-id' in groups[source]['empty']
+    data['group_id'] = '0'
+    response = client.post('/settings/groups', data, HTTP_HOST='localhost',
+                           HTTP_ACCEPT='application/json')
+    assert response.status_code == 409
+    assert domain_groups.group_for_domain(41, 'instant.example') == target
+
+
+def test_group_move_snapshot_is_owner_scoped_without_raw_check_data(owner, client):
+    from sitewatcher import domain_groups
+    storage.add_domain(41, 'mine.example')
+    storage.save_history(41, 'mine.example', 'http_basic', 'CRIT',
+                         'private-provider-sentinel', {'secret': 'private-metric-sentinel'})
+    storage.ensure_user(42)
+    storage.add_domain(42, 'foreign.example')
+    domain_groups.create_group(42, 'Foreign private group')
+    response = client.get('/settings/groups', HTTP_HOST='localhost', HTTP_ACCEPT='application/json')
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['membership'] == {'mine.example': 0}
+    body = response.content.decode()
+    for private in ('foreign.example', 'Foreign private group', 'private-provider-sentinel',
+                    'private-metric-sentinel'):
+        assert private not in body

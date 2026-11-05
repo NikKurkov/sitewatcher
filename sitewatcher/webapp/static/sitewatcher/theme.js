@@ -226,6 +226,7 @@ if (refresh) {
     if (!document.hidden && !draft
         && !document.querySelector('[data-live-activity]:not([hidden])')
         && !document.querySelector('.domains-table[aria-busy=true], .domains-table[data-dragging=true]')
+        && !document.querySelector('[data-domain-move-dialog][open], .domains-table[data-move-cooldown]')
         && !document.querySelector('.status-tooltip:not([hidden]), .chart-tooltip:not([hidden]), .chart-window-tooltip:popover-open')
         && !document.activeElement.matches('input,select,textarea,[contenteditable]')) {
       saveDisclosureState();

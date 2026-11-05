@@ -28,6 +28,10 @@ function page({filtered = false, stored = '{"0":false,"1":false}', readOnly = fa
   table.querySelectorAll = selector => ({'tbody[data-domain-name]': rows,
     'tbody[data-group-id]': [...rows, empty], '[data-domain-group]': single ? [] : headers,
     '[data-domain-selection], [data-group-selection]': []}[selector] || []);
+  buttons.forEach((button, index) => {
+    button.closest = selector => selector === '[data-group-toggle]' ? button : headers[index];
+    button.fire = () => table.events.click({target: button});
+  });
   const fields = {'[data-selected-domains]': element(), '[data-selected-count]': element({template:'Selected: {count}'}),
     '[data-move-submit]': element(), '[data-selection-clear]': element()};
   const form = Object.assign(element(), {querySelector: selector => fields[selector]});
@@ -40,7 +44,7 @@ function page({filtered = false, stored = '{"0":false,"1":false}', readOnly = fa
     getItem(key) { if (storageFailure) throw new Error('Disabled'); return data.get(key); },
     setItem(key, value) { if (storageFailure) throw new Error('Disabled'); data.set(key, value); },
   }});
-  return {data, rows, empty, buttons, groupSelect, selections, fields, form, expand, collapse, selectVisible};
+  return {data, table, rows, empty, buttons, groupSelect, selections, fields, form, expand, collapse, selectVisible};
 }
 let p = page();
 assert.equal(p.rows[0].hidden, true);
@@ -84,3 +88,11 @@ select.value = 'new';
 select.fire('change');
 assert.equal(input.value, 'Draft group');
 console.log('Single-group display and inline new-group field focus/validation/draft retention passed.');
+
+p = page({stored: '{"0":true,"1":true}'});
+p.rows[0].dataset.groupId = '1';
+p.buttons[0].fire('click');
+assert.equal(p.rows[0].hidden, false, 'source collapse does not hide a transferred row');
+p.buttons[1].fire('click');
+assert.equal(p.rows[0].hidden, true, 'target collapse includes transferred rows');
+console.log('Dynamic membership: source/target disclosure follows moved rows.');
