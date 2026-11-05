@@ -42,3 +42,29 @@ Screenshots use only synthetic domains: `docs/screenshots/domain-move-native-des
 `domain-move-target-desktop.png`, `domain-move-complete-desktop.png`, and
 `domain-move-dialog-mobile.png`, and `domain-move-dialog-dark-mobile.png`. Production verification is runtime/data/HTTP,
 not an assertion that private production UI was browser-inspected.
+
+## Release read-back
+
+Runtime source commit `3891728`; all 1132 tests passed in GitHub CI on Python
+3.12/3.13/3.14, together with container and security checks. Source archive SHA256:
+`8c7244788ed59b9c7af9905761456be08525bb19636c62d9a36546534b9c19c5`.
+
+Verified backups:
+
+- Local: `/data/backups/before-groups-20261105T202011640113Z`.
+- VPS: `/data/backups/before-groups-20261105T202203203745Z`.
+
+Private database clone rehearsal passed before switching the VPS. All 145 runtime
+files match the source in local and VPS web/worker. Immediate post-switch comparison
+preserved domains, overrides, publications and prior history; integrity/FKs and the
+single scheduler lock passed. All four persistent VT report timestamps/outcomes
+were retained. Both VPS containers run `sitewatcher:3891728`, with no restarts or
+OOM. Binding remains 127.0.0.1:8080. Public HTTPS health/login/demo return 200;
+unauthenticated JSON group access correctly redirects to login. Served JS/CSS
+bytes match the release, and all four changed assets use `Cache-Control: no-store`.
+
+Rollback requires the previous retained `sitewatcher:b7e8951` image and private
+compose/release snapshot in `/opt/sitewatcher/backups/groups-3891728`. No schema
+changes or database rollback are needed for this iteration. Archives, patch and
+revision are retained in `/opt/sitewatcher/upgrades`; database backups remain
+private. No real domain memberships were changed by the deployment verification.

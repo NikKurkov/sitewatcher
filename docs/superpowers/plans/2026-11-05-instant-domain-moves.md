@@ -17,5 +17,5 @@ stale-tab moves. Read back membership after an ambiguous network response.
   competing moves during save; keep original DOM on failure, reconcile uncertainty.
 - [x] Unit/browser regressions for repeated moves, source/target toggling, empty/
   filtered/collapsed groups, failures, favorites, reduced motion and mobile dialog.
-- [ ] Independent review, CI, verified backup, immutable deployment and read-back;
+- [x] Independent review, CI, verified backup, immutable deployment and read-back;
   update PR21 with screenshots and validation evidence. No new dependencies.
