@@ -103,6 +103,11 @@ protected root and 200 for login. The backup timer remained active. The first
 live-worker DNSBL probe after switching returned UNKNOWN with two checked sources:
 DroneBL's control query timed out. This is the intended incomplete-coverage result,
 and is a real availability limitation despite successful pre-switch qualification.
+Two subsequent probes from the same live worker both returned OK, three checked
+sources, no hits and no source/query errors. No DNSBL monitoring switches were
+enabled by this deployment; there were no saved version-2 DNSBL observations in
+the VPS database at the final read-back. Functional acceptance uses explicit
+read-only probes rather than claiming that a scheduled owner observation ran.
 
 Rollback requires restoring `compose.yaml` and `release.txt` from the private host
 snapshot and running `docker compose up -d --no-build --wait web worker` in
