@@ -21,3 +21,15 @@ passed. Full Python 3.12/3.13/3.14 suites passed: 1038 tests each. Ruff, transla
 and git diff checks passed.
 
 Runtime and rollback evidence follows after deployment verification.
+
+Runtime verification completed after the interrupted deployment turn: local image
+308540aaaf23 and VPS image sitewatcher:28b30a4 are running. VPS web and worker have
+zero restarts/OOM; public HTTPS health returned 200. All 137 runtime source hashes
+match in each VPS container. Database integrity, domain/settings preservation and
+single-worker scheduler lock passed. Backups: local
+/data/backups/before-dnsbl-partial-20261105T152026390453Z/sitewatcher.sqlite3 and VPS
+/data/backups/before-dnsbl-partial-20261105T152325941898Z/sitewatcher.sqlite3 (18 domains
+each). Host rollback snapshot: /opt/sitewatcher/backups/dnsbl-28b30a4; previous VPS
+image sitewatcher:2a6e247 retained. Built-image fault simulation verified one-source
+failure => OK, all-source failure => UNKNOWN and hit+failure => CRIT. No browser
+visual acceptance is claimed for the DNSBL text-only change.
