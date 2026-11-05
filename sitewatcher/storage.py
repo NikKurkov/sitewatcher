@@ -518,26 +518,31 @@ def claim_virustotal_report(owner_id: int, url: str, *, now=None) -> tuple[float
     _ensure_initialized()
     stamp = (now or datetime.now(timezone.utc)).timestamp()
     with _write_connection() as conn:
-        # Adopt a recent pre-upgrade provider response without spending another request.
-        domain = url.removeprefix('https://').rstrip('/')
-        row = conn.execute(
-            "SELECT * FROM history WHERE owner_id=? AND domain=? AND check_name='malware' "
-            "ORDER BY id DESC LIMIT 1", (owner_id, domain)).fetchone()
-        if row:
-            try:
-                fetched = datetime.fromisoformat(row['created_at'])
-                fetched = fetched.replace(tzinfo=timezone.utc) if fetched.tzinfo is None else fetched
-                metrics = json.loads(row['metrics_json'])
-                if (stamp - 86400 < fetched.timestamp() <= stamp
-                        and metrics.get('url') == url
-                        and (metrics.get('vt_error')
-                             or metrics.get('providers', {}).get('virustotal'))):
-                    outcome = {'status': row['status'], 'message': row['message'], 'metrics': metrics}
-                    conn.execute('INSERT OR IGNORE INTO virustotal_reports '
-                                 '(owner_id,url,requested_at,outcome_json) VALUES(?,?,?,?)',
-                                 (owner_id, url, fetched.timestamp(), json.dumps(outcome)))
-            except (ValueError, TypeError, AttributeError):
-                pass
+        # Adopt the latest actual provider observation, skipping later local quota refusals.
+        exists = conn.execute('SELECT 1 FROM virustotal_reports WHERE owner_id=? AND url=?',
+                              (owner_id, url)).fetchone()
+        if not exists:
+            domain = url.removeprefix('https://').rstrip('/')
+            rows = conn.execute(
+                "SELECT * FROM history WHERE owner_id=? AND domain=? AND check_name='malware' "
+                "AND created_at>=datetime(?,'unixepoch') ORDER BY id DESC",
+                (owner_id, domain, stamp - 86400))
+            for row in rows:
+                try:
+                    fetched = datetime.fromisoformat(row['created_at'])
+                    fetched = fetched.replace(tzinfo=timezone.utc) if fetched.tzinfo is None else fetched
+                    metrics = json.loads(row['metrics_json'])
+                    if (stamp - 86400 < fetched.timestamp() <= stamp
+                            and metrics.get('url') == url
+                            and (metrics.get('vt_error') or metrics.get('vt_analysis_id')
+                                 or metrics.get('providers', {}).get('virustotal'))):
+                        outcome = {'status': row['status'], 'message': row['message'], 'metrics': metrics}
+                        conn.execute('INSERT INTO virustotal_reports '
+                                     '(owner_id,url,requested_at,outcome_json) VALUES(?,?,?,?)',
+                                     (owner_id, url, fetched.timestamp(), json.dumps(outcome)))
+                        break
+                except (ValueError, TypeError, AttributeError):
+                    continue
         cursor = conn.execute(
             'INSERT INTO virustotal_reports(owner_id,url,requested_at) VALUES(?,?,?) '
             'ON CONFLICT(owner_id,url) DO UPDATE SET requested_at=excluded.requested_at, '

@@ -123,3 +123,18 @@ def test_manual_dispatch_bypassing_general_cache_still_uses_daily_provider_cache
             assert result[0].cached
     asyncio.run(run())
     assert len(requests) == 1
+
+
+@pytest.mark.parametrize('later_local_refusal', [False, True])
+def test_legacy_pending_reports_and_provider_results_hidden_by_local_limits_are_reused(
+        later_local_refusal):
+    metrics = {'url': 'https://example.test/', 'providers': {}, 'vt_analysis_id': 'queued'}
+    storage.save_history(7, 'example.test', 'malware', Status.UNKNOWN,
+                         'VirusTotal analysis is pending', metrics)
+    if later_local_refusal:
+        storage.save_history(7, 'example.test', 'malware', Status.UNKNOWN, 'VT rate limited',
+                             {'url': 'https://example.test/', 'providers': {},
+                              'vt_rate_limit': {'acquired': False}})
+    claim, result = storage.claim_virustotal_report(7, 'https://example.test/')
+    assert claim is None
+    assert result['metrics'] == metrics
