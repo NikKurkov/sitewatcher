@@ -320,10 +320,12 @@ class DomainConfig(DomainOverride):
 
 class IpBlConfig(ConfigModel):
     """DNSBL/RBL config."""
-    zones: List[str] = Field(default_factory=list)
+    zones: List[str] = Field(default_factory=lambda: [
+        'dnsbl.dronebl.org', 'bl.blocklist.de', 'psbl.surriel.com',
+    ])
     dns_servers: Optional[List[str]] = None
-    timeout_s: float = 2.0
-    concurrency: int = 50
+    timeout_s: float = 4.0
+    concurrency: int = 8
     check_ipv6: bool = False
 
 

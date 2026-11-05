@@ -15,7 +15,7 @@ from .utils.results import overall_from_results, status_text, strip_cached_suffi
 from .checks.base import CheckOutcome, Status
 from .checks.deface import DefaceCheck
 from .checks.http_basic import HttpBasicCheck
-from .checks.ip_blacklist import IpBlacklistCheck
+from .checks.ip_blacklist import IpBlacklistCheck, current_ipbl_result
 from .checks.ip_change import IpChangeCheck
 from .checks.keywords import KeywordsCheck
 from .checks.ping import PingCheck
@@ -536,7 +536,7 @@ class Dispatcher:
         """
         Return cached CheckOutcome if fresh enough, otherwise None. (owner-aware)
 
-        For WHOIS, RKN and malware we do not serve cached UNKNOWN by default,
+        For WHOIS, RKN, IP blocklists and malware we do not serve cached UNKNOWN by default,
         to allow recovery from missing evidence. Override per check with cache_unknown: true.
         """
         ttl = ttl_fn(check_name)
@@ -548,7 +548,7 @@ class Dispatcher:
             return None
 
         # Missing evidence must be retried unless unknown-result caching was explicitly enabled.
-        if check_name in {'whois', 'rkn_domain', 'rkn_ip', 'malware'}:
+        if check_name in {'whois', 'rkn_domain', 'rkn_ip', 'ip_blacklist', 'malware'}:
             try:
                 status_str = str(row["status"]).upper()
             except Exception:
@@ -578,6 +578,9 @@ class Dispatcher:
             metrics = {}
 
         if isinstance(metrics, dict) and metrics.get('original_domain', domain) != domain:
+            return None
+
+        if check_name == 'ip_blacklist' and not current_ipbl_result(metrics, self.cfg.ipbl):
             return None
 
         from .utils.results import current_rkn_result

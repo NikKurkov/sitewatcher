@@ -2186,3 +2186,12 @@ msgstr "Приватные ссылки доступны в Status pages. Пер
 
 msgid "This private link is also available in Status pages."
 msgstr "Эта приватная ссылка также доступна в Status pages."
+
+msgid "IP blocklists are not configured"
+msgstr "Не настроено: источники чёрных списков IP-адресов не указаны"
+
+msgid "IP blocklists require an IPv4 address"
+msgstr "Для проверки чёрных списков нужен IPv4-адрес"
+
+msgid "Not found in the configured IP blocklists"
+msgstr "IP-адреса не найдены в настроенных чёрных списках"

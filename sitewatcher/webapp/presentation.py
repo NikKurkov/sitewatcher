@@ -27,6 +27,10 @@ _STATUS_LABELS = {'OK': _('OK'), 'WARN': _('WARN'), 'CRIT': _('CRIT'),
 
 
 _DIAGNOSTIC_MESSAGES = {
+    'no zones configured': _('IP blocklists are not configured'),
+    'IP blocklists are not configured': _('IP blocklists are not configured'),
+    'IP blocklists require an IPv4 address': _('IP blocklists require an IPv4 address'),
+    'not listed': _('Not found in the configured IP blocklists'),
     'VirusTotal analysis is pending': _('VirusTotal analysis is pending'),
     'VirusTotal submission could not be confirmed. Try again later.':
         _('VirusTotal submission could not be confirmed. Try again later.'),

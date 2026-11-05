@@ -39,6 +39,16 @@ alerts:
   policy: overall_change           # overall_change | worsen_only | all
   cooldown_sec: 300
 
+# Checked IP DNSBL sources. Omit ipbl to use these built-in defaults.
+# Explicit zones: [] disables the sources, not the per-domain check switch.
+ipbl:
+  zones: [dnsbl.dronebl.org, bl.blocklist.de, psbl.surriel.com]
+  timeout_s: 4
+  concurrency: 8
+  # dns_servers: [1.1.1.1]        # optional; use resolvers allowed by each provider
+# SpamCop (bl.spamcop.net) is optional: test from your runtime before adding.
+# Spamhaus public ZEN rejects public resolvers; configure eligible access first.
+
 # Other settings retain their defaults. Set one only when needed.
 # http:
 #   proxy: http://proxy.example:3128

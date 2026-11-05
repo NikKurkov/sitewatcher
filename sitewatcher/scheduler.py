@@ -7,6 +7,7 @@ import logging
 from . import storage
 from .config import AppConfig, resolve_settings
 from .dispatcher import Dispatcher
+from .checks.ip_blacklist import current_ipbl_result
 from .utils.results import current_rkn_result
 
 log = logging.getLogger(__name__)
@@ -30,6 +31,10 @@ def due_checks(cfg: AppConfig, owner_id: int, domain: str, *, warmup: bool = Fal
                     and not current_rkn_result(name, latest[name]['metrics_json'],
                                                cfg.rkn.max_source_age_hours,
                                                status=latest[name]['status'])}
+    if checks.get('ip_blacklist'):
+        row = storage.last_history_for_check(owner_id, domain, 'ip_blacklist')
+        if row and not current_ipbl_result(row['metrics_json'], cfg.ipbl):
+            outdated.add('ip_blacklist')
     return [
         name for name, enabled in checks.items()
         if enabled and (name in outdated or name not in ages or ages[name] >= (

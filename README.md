@@ -41,7 +41,10 @@ Available checks:
 - **HTTPS certificate and domain registration** — when they expire.
 - **Page content** — required words and signs of website defacement.
 - **Website reputation** — threat reports from VirusTotal; an API key is required.
-- **IP addresses** — address changes and entries in configured IP blacklists.
+- **IP addresses** — address changes and IP blocklist checks through DroneBL,
+  Blocklist.de and PSBL by default. Each source must pass positive and negative
+  control queries; unavailable sources and access errors never produce a clean result
+  or a false listing. Override sources with `ipbl.zones` in YAML.
 - **Network** — connection latency, TCP port availability and the route to the server.
 
 Choose which checks to run for each website. See the [user guide](docs/usage.en.md) for details.

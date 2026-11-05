@@ -67,7 +67,14 @@ def test_deface_requires_successful_page_for_clean_result(code, body, status):
 def dnsbl(monkeypatch, *, zones=None, query_effect=None):
     check = IpBlacklistCheck('example.test', zones=zones or ['bl.example'])
     monkeypatch.setattr(check, '_resolve_ips', AsyncMock(return_value=(['192.0.2.1'], [])))
-    monkeypatch.setattr(check.resolver, 'resolve', AsyncMock(side_effect=query_effect))
+    async def resolve(name, record, **kwargs):
+        if name.startswith('2.0.0.127.'):
+            return [SimpleNamespace(address='127.0.0.2')]
+        if name.startswith('1.0.0.127.'):
+            raise dns.resolver.NXDOMAIN
+        return await target_resolve(name, record, **kwargs)
+    target_resolve = AsyncMock(side_effect=query_effect)
+    monkeypatch.setattr(check.resolver, 'resolve', resolve)
     return check
 
 
@@ -93,6 +100,10 @@ def test_dnsbl_failed_queries_are_unknown(monkeypatch, errors):
 def test_dnsbl_hit_remains_critical_when_another_zone_fails(monkeypatch):
     check = dnsbl(monkeypatch, zones=['good.example', 'bad.example'])
     async def resolve(name, record, **kwargs):
+        if name.startswith('2.0.0.127.'):
+            return [SimpleNamespace(address='127.0.0.2')]
+        if name.startswith('1.0.0.127.'):
+            raise dns.resolver.NXDOMAIN
         if name.endswith('.bad.example.'):
             raise dns.exception.Timeout
         if record == 'A':
