@@ -66,7 +66,7 @@
                                 <span class="public-service-expand" aria-hidden="true">⌄</span>
                                 <span class="sr-only">{% translate 'Response time and chart data' %}</span>
                             </summary>
-                            {% include 'sitewatcher/partials/domain_details.html' with report=item checks=item.checks common_observed=item.checks_common_observed owner_detail=False %}
+                            {% include 'sitewatcher/partials/domain_details.html' with report=item http_enabled=item.http_enabled checks=item.checks common_observed=item.checks_common_observed owner_detail=False %}
                         </details>
                     </li>
                 {% endfor %}

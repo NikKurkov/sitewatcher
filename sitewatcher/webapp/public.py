@@ -156,6 +156,7 @@ def _status_page(request, workspace, *, data):
         return JsonResponse(report)
     for item in report['domains']:
         report_context(item, public=True)
+        item['http_enabled'] = any(check['name'] == 'http_basic' for check in item['checks'])
         for check in item['checks']:
             check['label'] = check_label(check['name'])
             check['status_label'] = (_('Analysis pending') if check.get('pending')

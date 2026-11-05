@@ -7,7 +7,7 @@ import json
 from urllib.parse import urlsplit
 from datetime import datetime
 
-from . import storage
+from . import domain_groups, storage
 from .config import (
     AppConfig, ChecksModel, ConfigurationError, DomainOverride, resolve_settings,
     validate_domain_override,
@@ -76,7 +76,7 @@ def _parse_list(key: str, value: str, current: dict) -> list:
 def _message(error: Exception) -> str:
     for message in (
         'Domain already exists', 'Domain not found', 'Invalid domain',
-        'Settings changed; reload this page before saving',
+        'Settings changed; reload this page before saving', 'Group not found',
     ):
         if type(error) is ValueError and str(error) == message:
             return message
@@ -101,7 +101,10 @@ def settings_context(cfg: AppConfig, owner_id: int, domain: str | None = None) -
         effective = resolve_settings(preview_cfg, name or 'example.com', override)
         defaults = resolve_settings(preview_cfg, name or 'example.com', {})
         values = {'domain': name, 'http_url': effective.http_url if name else '',
-                  'proxy_mode': 'keep', 'proxy': ''}
+                  'proxy_mode': 'keep', 'proxy': '',
+                  'group_id': str(domain_groups.group_for_domain(owner_id, name)) if name else '0'}
+        if name:
+            values['original_group_id'] = values['group_id']
         for key in NUMERIC_FIELDS:
             values[key] = str(override[key]) if override.get(key) is not None else ''
         for key in LIST_FIELDS:
@@ -221,17 +224,36 @@ def _domain_settings(cfg: AppConfig, owner_id: int, form: dict[str, str], *, cre
     return domain, validated, revision
 
 
+def _form_group_id(form: dict[str, str]) -> int | None:
+    if 'group_id' not in form:
+        return None
+    value = form['group_id'].strip()
+    if not value.isascii() or not value.isdecimal():
+        raise ValueError('Group not found')
+    return int(value)
+
+
 def save_domain(cfg: AppConfig, owner_id: int, form: dict[str, str], *, create: bool = False) -> str:
     """Validate a complete form before atomically replacing its owner's overrides."""
+    group_id = _form_group_id(form)
+    expected_group_id = None
+    if not create and group_id is not None:
+        value = form.get('original_group_id', '').strip()
+        if not value.isascii() or not value.isdecimal():
+            raise ValueError('Settings changed; reload this page before saving')
+        expected_group_id = int(value)
     domain, validated, revision = _domain_settings(cfg, owner_id, form, create=create)
     try:
         original = _domain(owner_id, form.get('original_domain', domain), existing=not create)
         if not create and original != domain:
-            storage.rename_domain(owner_id, original, domain, validated, expected_revision=revision)
+            storage.rename_domain(owner_id, original, domain, validated,
+                                  expected_revision=revision, group_id=group_id,
+                                  expected_group_id=expected_group_id)
         else:
             storage.set_domain_override(
                 owner_id, domain, validated, replace=True, create_missing=create,
-                create_only=create, expected_revision=None if create else revision,
+                create_only=create, expected_revision=None if create else revision, group_id=group_id,
+                expected_group_id=expected_group_id,
             )
     except (ValueError, TypeError, RecursionError) as error:
         raise ValueError(_message(error)) from None
@@ -242,6 +264,7 @@ def save_domain(cfg: AppConfig, owner_id: int, form: dict[str, str], *, create: 
 
 def add_domains(cfg: AppConfig, owner_id: int, form: dict[str, str]) -> int:
     """Validate comma-separated hostnames before atomically creating their shared settings."""
+    group_id = _form_group_id(form)
     names = [name.strip() for name in form.get('domain', '').split(',') if name.strip()]
     if not names:
         raise ValueError('Invalid domain')
@@ -254,7 +277,7 @@ def add_domains(cfg: AppConfig, owner_id: int, form: dict[str, str]) -> int:
         if domain in overrides:
             raise ValueError('Domain already exists')
         overrides[domain] = validated
-    storage.create_domains_with_overrides(owner_id, overrides)
+    storage.create_domains_with_overrides(owner_id, overrides, group_id=group_id)
     return len(overrides)
 
 

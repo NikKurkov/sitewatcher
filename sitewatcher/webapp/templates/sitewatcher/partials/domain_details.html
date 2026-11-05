@@ -1,13 +1,10 @@
 {% load i18n %}
 <div class="domain-detail-layout">
+    {% if http_enabled and report.totals.sample_count %}
     <section class="domain-detail-chart" aria-label="{% translate 'Website response time' %}">
-        {% if report %}
-            {% if not report.totals.sample_count %}<p class="no-data">{% translate 'No HTTP observations in this period.' %}</p>{% endif %}
-            {% include 'sitewatcher/partials/chart.html' with report=report %}
-        {% else %}
-            <p class="no-data">{% translate 'No HTTP observations in this period.' %}</p>
-        {% endif %}
+        {% include 'sitewatcher/partials/chart.html' with report=report %}
     </section>
+    {% endif %}
     <section class="domain-detail-checks" aria-label="{% translate 'Latest monitoring checks' %}">
         <div class="domain-checks-heading">
             <h3>{% translate 'Checks' %}</h3>

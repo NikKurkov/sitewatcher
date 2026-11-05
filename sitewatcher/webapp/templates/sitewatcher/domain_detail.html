@@ -86,10 +86,12 @@
         {% endif %}
         <p class="source-note">{% blocktranslate with scheduled=report.totals.sources.scheduled manual=report.totals.sources.manual legacy=report.totals.sources.legacy %}{{ scheduled }} scheduled · {{ manual }} manual · {{ legacy }} legacy observations{% endblocktranslate %}</p>
     </section>
+    {% if row.http_enabled and report.totals.sample_count %}
     <section class="panel chart-panel">
         {% include 'sitewatcher/partials/chart.html' %}
         {% include 'sitewatcher/partials/chart_data.html' %}
     </section>
+    {% endif %}
     <details class="panel latest-checks" {% if row.overall != 'OK' %}open{% endif %}>
         <summary>{% translate 'Latest monitoring checks' %}</summary>
         <ul class="check-list">

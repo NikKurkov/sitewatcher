@@ -186,7 +186,8 @@ def test_snapshot_uses_bounded_queries_and_does_not_initialize_or_write(database
     monkeypatch.setattr(sqlite3, 'connect', connect)
     monkeypatch.setattr(storage, '_ensure_initialized', forbidden_initialization)
     assert build_snapshot(config(), 1, now=NOW)['summary']['total'] == 25
-    assert len([sql for sql in statements if sql.startswith(('SELECT', 'WITH', 'PRAGMA'))]) == 4
+    # Three bounded reads add group schema, owner groups and owner memberships.
+    assert len([sql for sql in statements if sql.startswith(('SELECT', 'WITH', 'PRAGMA'))]) == 7
     assert all(sql.startswith(('SELECT', 'WITH', 'PRAGMA', 'BEGIN', 'ROLLBACK')) for sql in statements)
 
 

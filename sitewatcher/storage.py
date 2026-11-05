@@ -36,6 +36,25 @@ CREATE TABLE IF NOT EXISTS domains (
   FOREIGN KEY(owner_id) REFERENCES users(telegram_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS domain_groups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  name_key TEXT NOT NULL,
+  UNIQUE(owner_id, id),
+  UNIQUE(owner_id, name_key),
+  FOREIGN KEY(owner_id) REFERENCES users(telegram_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS domain_group_members (
+  owner_id INTEGER NOT NULL,
+  domain TEXT NOT NULL,
+  group_id INTEGER NOT NULL,
+  PRIMARY KEY(owner_id, domain),
+  FOREIGN KEY(owner_id, domain) REFERENCES domains(owner_id, name) ON DELETE CASCADE,
+  FOREIGN KEY(owner_id, group_id) REFERENCES domain_groups(owner_id, id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS domain_overrides (
   owner_id INTEGER NOT NULL,
   domain TEXT NOT NULL,
@@ -628,7 +647,8 @@ def domain_override_revision(data: dict | None) -> str:
 def set_domain_override(
     owner_id: int, domain: str, patch: dict, *, replace: bool = False,
     create_missing: bool = False, create_only: bool = False,
-    expected_revision: str | None = None,
+    expected_revision: str | None = None, group_id: int | None = None,
+    expected_group_id: int | None = None,
 ) -> dict:
     """Atomically merge settings; explicit creation includes the domain in the same transaction."""
     _ensure_initialized()
@@ -654,6 +674,10 @@ def set_domain_override(
                 _read_domain_override(conn, owner_id, domain)
             ) != expected_revision:
                 raise ValueError("Settings changed; reload this page before saving")
+        if expected_group_id is not None:
+            from .domain_groups import _group_for_domain
+            if not exists or _group_for_domain(conn, owner_id, domain) != expected_group_id:
+                raise ValueError("Settings changed; reload this page before saving")
         if create_missing:
             conn.execute("INSERT OR IGNORE INTO users(telegram_id) VALUES(?)", (int(owner_id),))
             conn.execute("INSERT OR IGNORE INTO domains(owner_id,name) VALUES(?,?)",
@@ -665,12 +689,16 @@ def set_domain_override(
         current = {} if replace else (_read_domain_override(conn, owner_id, domain) or {})
         _merge(current, patch)
         _store_domain_override(conn, owner_id, domain, current)
+        if group_id is not None:
+            from .domain_groups import _assign
+            _assign(conn, owner_id, [domain], group_id)
     return current
 
 
 
 def rename_domain(owner_id: int, old: str, new: str, override: dict, *,
-                  expected_revision: str) -> None:
+                  expected_revision: str, group_id: int | None = None,
+                  expected_group_id: int | None = None) -> None:
     """Move one owned monitor atomically, retaining history/order and resetting host state."""
     _ensure_initialized()
     with _write_connection() as conn:
@@ -680,6 +708,10 @@ def rename_domain(owner_id: int, old: str, new: str, override: dict, *,
             raise ValueError('Domain not found')
         if domain_override_revision(_read_domain_override(conn, owner_id, old)) != expected_revision:
             raise ValueError('Settings changed; reload this page before saving')
+        if expected_group_id is not None:
+            from .domain_groups import _group_for_domain
+            if _group_for_domain(conn, owner_id, old) != expected_group_id:
+                raise ValueError('Settings changed; reload this page before saving')
         if conn.execute('SELECT 1 FROM domains WHERE owner_id=? AND name=?',
                         (owner_id, new)).fetchone():
             raise ValueError('Domain already exists')
@@ -725,10 +757,15 @@ def rename_domain(owner_id: int, old: str, new: str, override: dict, *,
                                  (json.dumps(names), stamp, page['id']))
         conn.execute('DELETE FROM owner_dns_state WHERE owner_id=? AND domain IN (?,?)',
                      (owner_id, old, new))
+        from .domain_groups import _assign, _group_for_domain
+        target_group = group_id if group_id is not None else _group_for_domain(conn, owner_id, old)
+        _assign(conn, owner_id, [new], target_group)
         # Cascades discard old route/activity/alert state rather than attaching it to another host.
         conn.execute('DELETE FROM domains WHERE owner_id=? AND name=?', (owner_id, old))
 
-def create_domains_with_overrides(owner_id: int, overrides: dict[str, dict]) -> None:
+def create_domains_with_overrides(
+    owner_id: int, overrides: dict[str, dict], *, group_id: int | None = None,
+) -> None:
     """Create a validated batch for one owner, rolling back on conflicts or write errors."""
     _ensure_initialized()
     with _write_connection() as conn:
@@ -739,6 +776,9 @@ def create_domains_with_overrides(owner_id: int, overrides: dict[str, dict]) -> 
                 raise ValueError("Domain already exists")
             conn.execute("INSERT INTO domains(owner_id,name) VALUES(?,?)", (int(owner_id), domain))
             _store_domain_override(conn, owner_id, domain, data)
+        if group_id is not None:
+            from .domain_groups import _assign
+            _assign(conn, owner_id, list(overrides), group_id)
 
 
 def _domain_reset_revision(conn: sqlite3.Connection, owner_id: int, domain: str) -> str:

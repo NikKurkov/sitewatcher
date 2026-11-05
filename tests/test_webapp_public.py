@@ -282,7 +282,7 @@ def test_public_no_data_unknowns_and_gap_axes_are_honest(owner, client):
     path, _, _ = publish(client, domains=('empty.example',))
     response = get(Client(), path)
     assert b'No data' in response.content and b'100.0%' not in response.content
-    assert b'No HTTP observations in this period' in response.content
+    assert b'class="domain-detail-chart"' not in response.content
     storage.save_history(731, 'empty.example', 'http_basic', 'WARN', 'private unknown',
                          {'final_code': True, 'secret': 'unknown-private-sentinel'})
     data = get(Client(), path + 'data').json()

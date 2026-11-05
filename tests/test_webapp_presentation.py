@@ -82,7 +82,7 @@ def test_empty_and_no_observation_states(owner, client):
     body = get(client, '/domains/history?domain=new.example').content.decode()
     assert 'No HTTP observations in this period' in body
     assert '24h' in body and '7d' in body and '30d' in body
-    assert 'Successful checks' in body and 'Response time' in body
+    assert 'Successful checks' in body and 'Response time' not in body
     assert 'No data' in body and '100%' not in body
 
 

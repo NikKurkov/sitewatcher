@@ -355,3 +355,21 @@ until Follow latest is selected.
 The public status page distinguishes page refresh time from saved site checks. Site check ages come first, with exact local dates underneath and no timezone label. Successful checks describe the selected period, not continuous uptime. The history legend separates unavailable sites, unknown results and intervals without measurements. Expanded checks use a compact two-column checklist (one column on phones), with names and statuses; diagnostic notes and individual times are available on hover. Graphs show a compact average label and three mean successful response times for the last 15 minutes, hour and day (hover, focus or tap a number to see its period), independently of the selected chart period; touch and arrow keys inspect individual bucket averages. If VirusTotal has no stored URL report, the public page says so; An enabled malware check automatically submits the canonical home URL for analysis when its report is missing.
 
 VirusTotal submission uses the same private proxy and counts as a separate API request. A persistent owner/URL claim prevents repeat submissions for 24 hours, including after restarts. Subsequent configured checks retrieve the report; UNKNOWN malware results bypass the cache by default. Pending analysis remains UNKNOWN and neutral, never a clean verdict. Definite request rejections release the claim; an ambiguous timeout keeps it because the submission may have been accepted. Submitted URLs can enter the shared VirusTotal dataset. Public-page reads never submit URLs or reveal analysis IDs.
+
+## Site groups
+
+The owner list uses collapsible groups. Main is permanent; existing and unassigned
+sites belong to it. Select a group when adding or editing a site. Batch-add applies
+one group to all addresses. Manage groups creates/renames/deletes custom groups;
+deleting a group moves its sites to Main without changing settings or history.
+
+Select rows or the displayed sites of a group, then Move selected. Search and
+status filters span all groups and open matching groups. Disclosure preferences
+are saved per owner/browser. Problem counts remain visible when collapsed.
+Favorites and manual ordering stay within each group. Group names are private and
+are not published on status pages. An outdated edit form cannot revert a later
+bulk move: reload the form after a settings/group conflict.
+
+Response charts require enabled HTTP checks and observations in the selected
+period. Missing observations hide the chart section while preserving other checks.
+Failed/unknown HTTP observations still count as observations.

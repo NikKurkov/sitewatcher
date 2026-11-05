@@ -2198,3 +2198,111 @@ msgstr "IP-адреса не найдены в настроенных чёрны
 
 msgid "Not listed; incomplete DNSBL coverage"
 msgstr "Попаданий не найдено. Неполное покрытие источников DNSBL."
+
+msgid "Main"
+msgstr "Основная"
+
+msgid "Groups"
+msgstr "Группы"
+
+msgid "Group"
+msgstr "Группа"
+
+msgid "Manage groups"
+msgstr "Управление группами"
+
+msgid "Expand all"
+msgstr "Развернуть все"
+
+msgid "Collapse all"
+msgstr "Свернуть все"
+
+msgid "Select group"
+msgstr "Выбрать группу"
+
+msgid "Selected: {count}"
+msgstr "Выбрано: {count}"
+
+msgid "Move selected sites to group"
+msgstr "Перенести выбранные сайты в группу"
+
+msgid "Move selected"
+msgstr "Перенести выбранные"
+
+msgid "Clear selection"
+msgstr "Снять выделение"
+
+msgid "Organize sites without changing their monitoring settings."
+msgstr "Группы помогают организовать сайты и не меняют настройки проверок."
+
+msgid "New group"
+msgstr "Новая группа"
+
+msgid "For example, Shops"
+msgstr "Например, Магазины"
+
+msgid "Create group"
+msgstr "Создать группу"
+
+msgid "Existing sites and sites without a custom group appear here."
+msgstr "Здесь находятся существующие сайты и сайты без выбранной группы."
+
+msgid "Group name"
+msgstr "Название группы"
+
+msgid "Save name"
+msgstr "Сохранить название"
+
+msgid "Delete group"
+msgstr "Удалить группу"
+
+msgid "Move sites to Main and delete this group. Sites and history are retained."
+msgstr "Перенести сайты в «Основную» и удалить группу. Сайты и история сохранятся."
+
+msgid "This group is empty. Choose it when adding a site or move existing sites here."
+msgstr "В группе пока нет сайтов. Выберите её при добавлении сайта или перенесите сюда существующие."
+
+msgid "Select sites in %(group)s"
+msgstr "Выбрать сайты группы «%(group)s»"
+
+msgid "Select %(domain)s"
+msgstr "Выбрать %(domain)s"
+
+msgid "Invalid group name"
+msgstr "Введите название группы до 80 символов. Название «Основная» зарезервировано."
+
+msgid "Group not found"
+msgstr "Группа не найдена. Обновите страницу."
+
+msgid "Group already exists"
+msgstr "Группа с таким названием уже существует."
+
+msgid "Default group cannot be changed"
+msgstr "Группу «Основная» нельзя переименовать или удалить."
+
+msgid "Invalid group"
+msgstr "Выберите существующую группу."
+
+msgid "Confirm moving sites to Main before deleting this group"
+msgstr "Подтвердите перенос сайтов в «Основную» перед удалением группы."
+
+msgid "Select between 1 and 1000 sites"
+msgstr "Выберите от 1 до 1000 сайтов."
+
+msgid "%(count)s site"
+msgid_plural "%(count)s sites"
+msgstr[0] "%(count)s сайт"
+msgstr[1] "%(count)s сайта"
+msgstr[2] "%(count)s сайтов"
+
+msgid "%(count)s needs attention"
+msgid_plural "%(count)s need attention"
+msgstr[0] "Требует внимания: %(count)s"
+msgstr[1] "Требует внимания: %(count)s"
+msgstr[2] "Требует внимания: %(count)s"
+
+msgid "Select displayed sites in %(group)s"
+msgstr "Выбрать показанные сайты группы «%(group)s»"
+
+msgid "Select displayed sites"
+msgstr "Выбрать показанные"

@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import sqlite3
 
-from . import storage
+from . import domain_groups, storage
 from .config import AppConfig, ChecksModel, resolve_settings
 from .utils.results import (
     current_rkn_result, is_missing_malware_report, overall_from_statuses, status_text,
@@ -141,6 +141,20 @@ def build_snapshot(cfg: AppConfig, owner_id: int, *, now: datetime | None = None
                     'GROUP BY domain, check_name'
                     ') latest ON h.id=latest.latest_id WHERE h.owner_id=?', (owner_id, owner_id),
                 ).fetchall()
+            group_tables = {row['name'] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name IN ('domain_groups','domain_group_members')",
+            )}
+            groups = [domain_groups._default_group()]
+            memberships = {}
+            if 'domain_groups' in group_tables:
+                groups += [dict(row, is_default=False) for row in conn.execute(
+                    'SELECT id,name FROM domain_groups WHERE owner_id=? ORDER BY id', (owner_id,),
+                )]
+            if 'domain_group_members' in group_tables:
+                memberships = {row['domain']: row['group_id'] for row in conn.execute(
+                    'SELECT domain,group_id FROM domain_group_members WHERE owner_id=?', (owner_id,),
+                )}
             conn.rollback()
     except (sqlite3.Error, OSError, ValueError):
         raise SnapshotError('Monitoring database is unavailable') from None
@@ -148,11 +162,11 @@ def build_snapshot(cfg: AppConfig, owner_id: int, *, now: datetime | None = None
     histories = {(row['domain'], row['check_name']): row for row in history
                  if storage.is_current_observation(row['domain'], row['metrics_json'])}
     rows = [{**_domain_snapshot(cfg, row['name'], row['data_json'], histories, now),
-             'favorite': bool(row['favorite'])} for row in domains]
+             'favorite': bool(row['favorite']), 'group_id': memberships.get(row['name'], 0)} for row in domains]
     summary = dict.fromkeys(('total', 'ok', 'warn', 'crit', 'unknown', 'paused', 'stale'), 0)
     summary['total'] = len(rows)
     for row in rows:
         summary[row['overall'].lower()] += 1
         summary['paused'] += int(row['paused'])
         summary['stale'] += int(row['stale'])
-    return {'generated_at': now.isoformat(), 'summary': summary, 'domains': rows}
+    return {'generated_at': now.isoformat(), 'summary': summary, 'domains': rows, 'groups': groups}

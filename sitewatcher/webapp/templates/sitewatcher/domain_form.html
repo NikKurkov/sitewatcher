@@ -26,7 +26,7 @@
     >
         {% csrf_token %}
         <input type="hidden" name="revision" value="{{ revision }}">
-        {% if view == 'edit' %}<input type="hidden" name="original_domain" value="{{ values.original_domain }}">{% endif %}
+        {% if view == 'edit' %}<input type="hidden" name="original_domain" value="{{ values.original_domain }}"><input type="hidden" name="original_group_id" value="{{ values.original_group_id }}">{% endif %}
         <div class="form-section">
             <h2>{% translate 'The basics' %}</h2>
             <div class="field">
@@ -47,6 +47,13 @@
                 <p class="field-help" id="domain-help">{% if view == 'add' %}{% translate 'Enter up to 50 website addresses separated by commas. Examples: site.ru, http://site.ru, site.ru/catalog/. HTTPS is used when no protocol is specified. Settings apply to every address.' %}{% else %}{% translate 'Enter a hostname and optional path, such as site.ru or site.ru/catalog/. Choose HTTP or HTTPS on the left. You can change the domain; settings and history are retained.' %}{% endif %}</p>
             </div>
             {% include 'sitewatcher/partials/number_field.html' with field=interval %}
+            <div class="field">
+                <label for="group_id">{% translate 'Group' %}</label>
+                <select id="group_id" name="group_id">
+                    {% for group in groups %}<option value="{{ group.id }}"{% if values.group_id == group.id|stringformat:'s' %} selected{% endif %}>{% if group.is_default %}{% translate 'Main' %}{% else %}{{ group.name }}{% endif %}</option>{% endfor %}
+                </select>
+                <p class="field-help">{% translate 'Organize sites without changing their monitoring settings.' %} <a href="{% url 'domain_groups' %}">{% translate 'Manage groups' %}</a></p>
+            </div>
             <p class="field-help">{% translate 'Leave blank to use the default schedule. Use 0 to pause monitoring.' %}</p>
             <div class="form-grid">
                 {% for field in basic_checks %}

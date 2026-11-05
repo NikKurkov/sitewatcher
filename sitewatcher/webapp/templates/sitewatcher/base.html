@@ -66,6 +66,7 @@
             <span>{% translate 'Powered by' %} <a href="https://github.com/NikKurkov/sitewatcher">SiteWatcher</a></span>
             {% if owner_toolbar and not public_view %}
                 <a href="/settings/status-pages">Status pages</a>
+                <a href="{% url 'domain_groups' %}">{% translate 'Groups' %}</a>
             {% endif %}
         </footer>
     </body>

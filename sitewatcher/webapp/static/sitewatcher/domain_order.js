@@ -9,6 +9,7 @@
   if (!token || !handles.length) return;
   const rows = () => [...body.children].filter(node => node.matches('tbody[data-domain-name]'));
   const rowOf = target => target.closest('tbody[data-domain-name]');
+  const sameGroup = (a, b) => a.dataset.favorite === b.dataset.favorite && a.dataset.groupId === b.dataset.groupId;
   let source = null;
   let marked = null;
   let pending = false;
@@ -29,7 +30,8 @@
   };
   const save = async before => {
     const current = rows();
-    if (current.every((row, index) => row === before[index])) return;
+    const previousRows = before.filter(node => node.matches('tbody[data-domain-name]'));
+    if (current.every((row, index) => row === previousRows[index])) return;
     pending = true;
     table.setAttribute('aria-busy', 'true');
     handles.forEach(handle => { handle.draggable = false; handle.setAttribute('aria-disabled', 'true'); });
@@ -43,7 +45,7 @@
       if (!response.ok || response.redirected || !(await response.json()).saved) throw new Error('Order not confirmed');
       announce(table.dataset.saved);
     } catch {
-      body.append(...before);
+      body.replaceChildren(...before);
       announce(table.dataset.failed, true);
     } finally {
       pending = false;
@@ -57,12 +59,13 @@
       if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
       event.preventDefault();
       if (pending || source) return;
-      const before = rows();
+      const before = [...body.children];
       const row = rowOf(handle);
-      const index = before.indexOf(row);
-      const neighbor = before[index + (event.key === 'ArrowUp' ? -1 : 1)];
+      const domainRows = rows();
+      const index = domainRows.indexOf(row);
+      const neighbor = domainRows[index + (event.key === 'ArrowUp' ? -1 : 1)];
       if (!neighbor) return;
-      if (neighbor.dataset.favorite !== row.dataset.favorite) { announce(table.dataset.group); return; }
+      if (!sameGroup(neighbor, row)) { announce(table.dataset.group); return; }
       body.insertBefore(row, event.key === 'ArrowUp' ? neighbor : neighbor.nextElementSibling);
       handle.focus({preventScroll: true});
       handle.scrollIntoView({block: 'nearest'});
@@ -83,7 +86,7 @@
     if (!source) return;
     const target = rowOf(event.target);
     clearMarker();
-    if (!target || target === source || target.dataset.favorite !== source.dataset.favorite) {
+    if (!target || target === source || !sameGroup(target, source)) {
       event.dataTransfer.dropEffect = 'none';
       return;
     }
@@ -97,14 +100,14 @@
     if (!source) return;
     event.preventDefault();
     const target = rowOf(event.target);
-    if (target && target !== source && target.dataset.favorite === source.dataset.favorite) {
-      const before = rows();
+    if (target && target !== source && sameGroup(target, source)) {
+      const before = [...body.children];
       const bounds = target.getBoundingClientRect();
       body.insertBefore(source, event.clientY < bounds.top + bounds.height / 2 ? target : target.nextElementSibling);
       endDrag();
       save(before);
     } else {
-      if (target && target.dataset.favorite !== source.dataset.favorite) announce(table.dataset.group);
+      if (target && !sameGroup(target, source)) announce(table.dataset.group);
       endDrag();
     }
   });

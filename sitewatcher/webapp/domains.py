@@ -13,7 +13,7 @@ from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_http_methods, require_POST, require_safe
 
-from sitewatcher import storage
+from sitewatcher import storage, domain_groups
 from sitewatcher.config import AppConfig, ChecksModel
 from sitewatcher.dispatcher import Dispatcher
 from sitewatcher.reporting import SnapshotError, build_snapshot
@@ -148,12 +148,14 @@ def _page(request, view, domain='', *, error='', values=None, status=200):
             context['mode'] = values.get('mode', 'merge')
     context.update(view=view, error=error)
     if view in {'add', 'edit'}:
+        context['groups'] = domain_groups.list_groups(owner_id)
         domain_form_context(context, error)
     return _render(request, 'domain_form' if view in {'add', 'edit'} else 'management',
                    context, status=status)
 
 
 def _row_context(row, zone):
+    row['http_enabled'] = any(check['name'] == 'http_basic' for check in row['checks'])
     row['state'] = ('paused' if row['paused'] else row['overall'].lower())
     row['label'] = {'paused': _('Paused'), 'crit': _('Critical'), 'warn': _('Warning'),
                     'ok': _('Healthy'), 'unknown': _('No data')}[row['state']]
@@ -185,7 +187,7 @@ FILTERS = {
 
 def _sort_domains(rows, saved_order):
     ranks = {name: rank for rank, name in enumerate(saved_order)}
-    rows.sort(key=lambda row: (not row['favorite'], row['name'] not in ranks,
+    rows.sort(key=lambda row: (row.get('group_id', 0), not row['favorite'], row['name'] not in ranks,
         ranks.get(row['name'], 0),
         {'crit': 0, 'warn': 1, 'unknown': 2, 'ok': 3, 'paused': 4}[row['state']], row['name']))
 
@@ -210,11 +212,12 @@ def reorder(request):
             _row_context(row, request.workspace.timezone)
         _sort_domains(rows, request.workspace.domain_order)
         favorites = {row['name']: row['favorite'] for row in rows}
+        groups = {row['name']: row.get('group_id', 0) for row in rows}
         if any(name not in favorites for name in order):
             return JsonResponse({'error': 'Domain not found'}, status=404)
-        if [favorites[name] for name in order] != sorted(
-                (favorites[name] for name in order), reverse=True):
-            raise ValueError('Favorites stay first')
+        positions = [(groups[name], not favorites[name]) for name in order]
+        if positions != sorted(positions):
+            raise ValueError('Move domains within their group; favorites stay first')
         # Replace only visible slots: filtered-out domains retain their relative positions.
         selected = set(order)
         replacement = iter(order)
@@ -256,7 +259,20 @@ def dashboard(request):
             status == 'all' or status == 'problems' and (row['error'] or row['overall'] in {'CRIT', 'WARN'})
             or status in {'paused', 'stale'} and row[status]
             or row['overall'].lower() == status)]
+        groups = []
+        for group in snapshot['groups']:
+            members = [row for row in rows if row.get('group_id', 0) == group['id']]
+            visible = [row for row in filtered if row.get('group_id', 0) == group['id']]
+            if (search or status != 'all') and not visible:
+                continue
+            groups.append({**group, 'label': _('Main') if group['is_default'] else group['name'],
+                           'rows': visible, 'total': len(members),
+                           'attention': sum(bool(row['error']) or (
+                               row['overall'] in {'CRIT', 'WARN'} and not row['paused'])
+                               for row in members)})
         return _render(request, 'overview', {'rows': filtered, 'total': len(rows),
+            'groups': groups, 'group_choices': snapshot['groups'],
+            'group_filtered': bool(search or status != 'all'),
             'attention': attention, 'summary': snapshot['summary'], 'report': report,
             'healthy': sum(row['state'] == 'ok' for row in rows),
             'observed': local_time(last, zone), 'query': search, 'status': status,
@@ -361,7 +377,7 @@ def _mutate(request, action):
     form.pop('csrfmiddlewaretoken', None)
     allowed = {'domain'}
     if action in {'add', 'save'}:
-        allowed.update((*NUMERIC_FIELDS, *LIST_FIELDS, 'http_url', 'http_scheme', 'original_domain', 'revision', 'proxy_mode', 'proxy'))
+        allowed.update((*NUMERIC_FIELDS, *LIST_FIELDS, 'http_url', 'http_scheme', 'original_domain', 'revision', 'proxy_mode', 'proxy', 'group_id', 'original_group_id'))
         allowed.update(f'check.{name}' for name in ChecksModel.model_fields)
     elif action == 'favorite':
         allowed.update({'favorite', 'q', 'status', 'days'})
