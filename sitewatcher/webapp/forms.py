@@ -15,6 +15,8 @@ from .models import Workspace
 
 
 class OwnerAuthenticationForm(AuthenticationForm):
+    remember_me = forms.BooleanField(label=_('Remember me for 30 days'), required=False)
+
     error_messages = {'invalid_login': AUTH_ERROR, 'inactive': AUTH_ERROR}
 
     def confirm_login_allowed(self, user):

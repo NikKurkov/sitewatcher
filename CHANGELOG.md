@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add an optional 30-day remembered sign-in; ordinary sessions remain 12 hours.
+
 - Add multiple Status pages with independent titles, public/private access, editable
   public addresses and compact domain selections. Preserve existing published links
   during migration, isolate owners and protect against stale configuration changes.

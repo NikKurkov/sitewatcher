@@ -2256,3 +2256,6 @@ html { scrollbar-gutter: stable; }
 @media (pointer: coarse) {
   .status-page-domain-picker .publication-domains label { min-height: 36px; }
 }
+
+.auth-panel .remember-me { display: flex; align-items: center; gap: 10px; min-height: 36px; margin: 0; font-weight: 400; cursor: pointer; }
+.auth-panel .remember-me input { flex: 0 0 18px; width: 18px; height: 18px; min-height: 18px; margin: 0; padding: 0; accent-color: var(--green); }

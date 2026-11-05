@@ -23,7 +23,7 @@ docker compose run --rm --build setup
 docker compose up -d
 ```
 
-Choose a username and password when `setup` asks. Open **http://127.0.0.1:8080** and sign in. A password must be at least 8 characters long and pass the on-screen checks.
+Choose a username and password when `setup` asks. Open **http://127.0.0.1:8080** and sign in. A password must be at least 8 characters long and pass the on-screen checks. Normal sign-in lasts 12 hours. Select **Remember me for 30 days** to keep this browser signed in for 30 days; it is off by default. Signing out revokes that session; changing or resetting the password revokes other browser sessions.
 
 No `.env` file, Telegram account or external service key is required to start. Containers run as a regular user. By default, only the local computer can reach the dashboard.
 

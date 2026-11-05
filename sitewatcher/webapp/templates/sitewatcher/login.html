@@ -10,7 +10,14 @@
         <p class="subtitle">{% translate 'Sign in to SiteWatcher.' %}</p>
         <form method="post">
             {% csrf_token %}
-            {{ form.as_p }}
+            {{ form.non_field_errors }}
+            {% for field in form %}
+                {% if field.name == 'remember_me' %}
+                    <label class="remember-me">{{ field }} <span>{{ field.label }}</span></label>
+                {% else %}
+                    <p>{{ field.as_field_group }}</p>
+                {% endif %}
+            {% endfor %}
             <input type="hidden" name="next" value="{{ next }}">
             <button class="primary" type="submit">{% translate 'Sign in' %}</button>
         </form>
