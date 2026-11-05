@@ -1,0 +1,35 @@
+{% extends 'sitewatcher/base.html' %}
+{% load i18n %}
+{% block title %}{% if page %}{% translate 'Edit status page' %}{% else %}{% translate 'Add status page' %}{% endif %} · SiteWatcher{% endblock %}
+{% block content %}
+    <div class="page-heading"><div><p class="eyebrow"><a href="/settings/status-pages">Status pages</a></p><h1>{% if page %}{% translate 'Edit status page' %}{% else %}{% translate 'Add status page' %}{% endif %}</h1></div></div>
+    {% if error %}<p class="notice error-notice" role="alert">{{ error }}</p>{% endif %}
+    {% if private_link %}
+        <section class="panel form-section">
+            <h2>{% translate 'Private link' %}</h2>
+            {% include 'sitewatcher/partials/private_status_link.html' with public_link=private_link %}
+        </section>
+    {% endif %}
+    <form class="panel form-section status-page-form" method="post" action="{% if page %}/settings/status-pages/{{ page.pk }}{% else %}/settings/status-pages/new{% endif %}">
+        {% csrf_token %}{{ form.revision }}
+        <fieldset {% if read_only %}disabled{% endif %}>
+            {% for field in form.visible_fields %}
+                {% if field.name == 'enabled' %}<label class="checkbox-row">{{ field }} <span>{{ field.label }}</span></label>{% else %}<div class="field{% if field.name == 'public_slug' %} status-page-address{% endif %}"{% if field.name == 'public_slug' and form.access_mode.value == 'private' %} hidden{% endif %}><label for="{{ field.id_for_label }}">{{ field.label }}</label>{% if field.name == 'public_slug' %}<span class="field-help status-page-address-prefix">{{ request.scheme }}://{{ request.get_host }}/</span>{% endif %}{{ field }}{% if field.help_text %}<p class="field-help" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}{% if field.errors %}<div class="field-error" id="{{ field.auto_id }}_error" role="alert">{{ field.errors }}</div>{% endif %}</div>{% endif %}
+            {% endfor %}
+            <p class="field-help">{% translate 'Public pages are open to everyone. Private pages are accessible to anyone with the link; copy it after saving, because it is shown only once.' %}</p>
+            <fieldset class="status-page-domain-picker">
+                <legend>{% translate 'Domains' %}</legend>
+                <div class="publication-domains">
+                    {% for item in domains %}<label><input type="checkbox" name="domain.{{ item.name }}" {% if item.selected %}checked{% endif %}> <span>{{ item.name }}</span></label>{% empty %}<p class="muted">{% translate 'Add a domain to your workspace to publish it here.' %}</p>{% endfor %}
+                </div>
+                <p class="field-help">{% translate 'Only selected domains appear on this page. Monitoring settings stay in your workspace.' %}</p>
+            </fieldset>
+            <div class="detail-actions"><button class="primary" type="submit" name="action" value="save">{% if page %}{% translate 'Save' %}{% else %}{% translate 'Create page' %}{% endif %}</button><a class="button" href="/settings/status-pages">{% translate 'Cancel' %}</a></div>
+            {% if page %}
+                {% if page.access_mode == 'public' and page.public_enabled %}<p><a href="{{ page.public_path }}">{% translate 'Open page' %}</a></p>{% endif %}
+                {% if page.access_mode == 'private' %}<div class="status-page-link-actions"><p class="field-help">{% translate 'The private link is shown only after creation or reissue. Reissuing it revokes the previous link.' %}</p><button name="action" value="rotate" type="submit" {% if not page.public_enabled %}disabled{% endif %}>{% translate 'Reissue private link' %}</button></div>{% endif %}
+                <details class="status-page-delete"><summary>{% translate 'Delete status page' %}</summary><p class="field-help">{% translate 'Only this page and its links will be deleted. Domains and monitoring history are retained.' %}</p><button type="submit" name="action" value="delete">{% translate 'Confirm deletion' %}</button></details>
+            {% endif %}
+        </fieldset>
+    </form>
+{% endblock %}

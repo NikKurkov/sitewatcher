@@ -78,7 +78,7 @@ jobs:
           configure_web(AppConfig()); migrate_web_database();
           from django.test import Client;
           from django.template.loader import render_to_string;
-          assert 'No data' in render_to_string('sitewatcher/partials/chart.html');
+          assert 'No successful response times recorded in this period.' in render_to_string('sitewatcher/partials/chart.html');
           c=Client(); assert c.get('/', HTTP_HOST='localhost').status_code == 302;
           assert c.get('/assets/workspace.css', HTTP_HOST='localhost').status_code == 200;
           assert c.get('/assets/logo-dark.svg', HTTP_HOST='localhost')['Content-Type'] == 'image/svg+xml';

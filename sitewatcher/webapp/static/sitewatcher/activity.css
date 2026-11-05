@@ -26,6 +26,7 @@
 .activity-mode { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #39515e; border-radius: 4px; padding: 3px 7px; color: #b8cdd8; font-size: 11px; font-weight: 550; line-height: 1.5; }
 .activity-mode::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--signal-cyan); }
 .activity-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.activity-controls .activity-speed { display: flex; align-items: center; margin: 0; }
 .activity-panel .activity-control, .activity-panel .activity-speed select { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; margin: 0; padding: 7px 10px; border: 1px solid #364b5a; border-radius: 5px; background: #1b2b38; color: #cedde5; font: inherit; font-size: 12px; line-height: 1.4; box-shadow: none; cursor: pointer; }
 .activity-panel .activity-control:hover, .activity-panel .activity-speed select:hover { border-color: #64818e; background: #213643; color: #f1fafb; }
 .activity-panel .activity-control[aria-pressed=true] { border-color: #00cfb0; color: var(--signal-cyan); background: #143b3c; }
@@ -321,3 +322,95 @@
 
 .scene-route-hit { fill: transparent; pointer-events: all; }
 [data-scene-pulses], [data-scene-links] { pointer-events: none; }
+
+/* A shared stage keeps the event stream beside the probe map, including fullscreen. */
+.activity-stage > .activity-console {
+  position: absolute; z-index: 2; inset: 55px auto 48px 0;
+  width: 34%; display: flex; flex-direction: column; min-height: 0;
+  border: 0; background: linear-gradient(90deg, #0b151ef5 82%, #0b151e00);
+  padding: 0 24px;
+}
+.activity-stage > .activity-console .activity-console-heading {
+  flex-wrap: wrap; gap: 6px 12px; padding: 0 0 14px; border: 0;
+}
+.activity-stage > .activity-console .activity-console-heading h3 {
+  color: #c7dce5; font: 600 14px/1.5 system-ui, sans-serif;
+}
+.activity-stage > .activity-console .activity-console-follow { padding: 0; }
+.activity-stage > .activity-console .activity-console-scroll {
+  flex: 1; height: auto; min-height: 0; padding: 0 8px 0 0;
+  background: transparent; mask-image: linear-gradient(transparent, #000 18px);
+}
+.activity-console li {
+  display: grid; grid-template-columns: 55px minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, .8fr) 54px;
+  align-items: baseline; gap: 8px; min-height: 34px; padding: 7px 0;
+  border-bottom: 1px solid #29445180; white-space: normal;
+  font: 11px/1.6 system-ui, sans-serif;
+}
+.activity-console .console-check { color: #a5bfcc; }
+.activity-console .console-domain { font-weight: 550; color: #d3e4ec; }
+.activity-console .console-status { display: none; }
+.activity-console .console-result { font-size: 11px; }
+.activity-console .console-duration { color: #8da8b7; white-space: nowrap; text-align: right; }
+.activity-console time, .console-duration { font: 11px/1.6 ui-monospace, monospace; }
+.activity-console li:nth-last-child(n+7) { opacity: .65; }
+.activity-console li:hover, .activity-console li:focus-within { opacity: 1; }
+.activity-stage .activity-field { margin-left: 34%; min-height: 510px; }
+.activity-stage .activity-map { flex-basis: 126px; padding-left: 12px; }
+.activity-stage .activity-scene { min-height: 460px; height: 510px; }
+.activity-stage-topline > span:first-child { margin-left: 34%; }
+.activity-stage .activity-scene-empty { left: 40%; }
+.activity-panel.is-expanded .activity-stage { min-height: 0; }
+.activity-panel.is-expanded .activity-field { flex: 1; min-height: 0; width: 66%; }
+.activity-panel.is-expanded .activity-canvas { align-self: stretch; display: flex; align-items: center; }
+.activity-panel.is-expanded .activity-scene { height: 100%; min-height: 350px; }
+.activity-panel.is-expanded .activity-stage > .activity-console .activity-console-scroll { height: auto; }
+.activity-panel.is-expanded .activity-playback-note { padding-bottom: 8px; }
+@media (min-width: 1400px) {
+  .activity-stage .activity-map { flex-basis: 150px; }
+  .activity-stage > .activity-console { padding-left: 30px; padding-right: 30px; }
+}
+@media (max-width: 900px) {
+  .activity-stage > .activity-console { position: relative; inset: auto; width: 100%; height: 310px; padding: 20px 24px 0; }
+  .activity-stage .activity-field { margin-left: 0; }
+  .activity-stage-topline { display: none; }
+  .activity-stage .activity-scene-empty { top: 360px; left: 24px; }
+  .activity-panel.is-expanded .activity-stage { flex: none; min-height: 760px; }
+  .activity-panel.is-expanded .activity-field { flex: none; width: 100%; }
+}
+@media (max-width: 600px) {
+  .activity-stage > .activity-console { padding-inline: 16px; }
+  .activity-console ol { min-width: 620px; }
+  .activity-stage .activity-map { flex-basis: auto; }
+  .activity-stage .activity-field { min-height: 0; }
+}
+
+.activity-panel[data-scene-layout=wide]:not([data-route-active=true]) .scene-node-name { font-size: 18px; }
+.activity-panel[data-scene-layout=wide]:not([data-route-active=true]) .scene-node-meta { font-size: 14px; }
+.activity-panel[data-scene-layout=wide]:not([data-route-active=true]) .scene-node-status { font-size: 13px; }
+.activity-panel[data-scene-layout=wide]:not([data-route-active=true]) .scene-hub-caption { font-size: 15px; }
+
+/* Critical outcomes stand out without making old successful events blink. */
+.activity-console li[data-level=crit] {
+  background: #601e2c80; border-left: 3px solid #ff7287;
+  border-bottom-color: #a94b5e80; padding-inline: 10px; opacity: 1;
+}
+.activity-console li[data-level=crit] .console-check,
+.activity-console li[data-level=crit] .console-domain { color: #ffe2e7; }
+.activity-console li[data-level=crit] .console-result { color: #ff9bad; font-weight: 650; }
+.scene-node[data-level=crit] .scene-node-body { fill: #421f2c; stroke: #ff7287; }
+.scene-node[data-level=crit].is-active .scene-node-body {
+  animation: activity-critical 1.6s ease-in-out infinite;
+}
+@keyframes activity-critical {
+  50% { fill: #743044; stroke: #ffb3c1; }
+}
+.activity-panel[data-paused=true] .scene-node[data-level=crit] .scene-node-body { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .scene-node[data-level=crit].is-active .scene-node-body { animation: none; }
+}
+
+
+.activity-console li > :is(.console-check, .console-domain, .console-result, .console-duration) {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}

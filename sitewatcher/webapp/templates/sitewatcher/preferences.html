@@ -208,67 +208,10 @@
         {% endif %}
     </section>
     <section class="panel form-section publication-settings" id="public-status">
-        <h2>{% translate 'Public status page' %}</h2>
-        <form method="post" action="/settings/public">
-            {% csrf_token %}
-            <input type="hidden" name="action" value="path">
-            <div class="field">
-                <label for="public-page-path">{% translate 'Public page address' %}</label>
-                <input id="public-page-path" name="public_slug" value="{{ request.workspace.public_path }}" maxlength="65" required {% if read_only %}disabled{% endif %}>
-                <p class="field-help">{% translate 'This address is public. Changing it makes the previous address unavailable.' %}</p>
-            </div>
-            <button type="submit" {% if read_only %}disabled{% endif %}>{% translate 'Save address' %}</button>
-        </form>
-        {% if request.workspace.public_enabled %}
-            <p><a href="{{ public_page_url }}">{{ public_page_url }}</a></p>
-        {% endif %}
-        <p class="field-help">{% if request.workspace.public_enabled %}{% translate 'Public status is enabled. Anyone with the link can read aggregate HTTP observations for your selected domains.' %}{% else %}{% translate 'Public status is disabled. Publish only the domains you choose.' %}{% endif %} {% translate 'Diagnostic messages, Telegram settings, and private domains stay private.' %}</p>
-        {% if public_link %}
-            <div class="notice">
-                <label for="public-link">{% translate 'Additional private link — save it now' %}</label>
-                <input id="public-link" type="text" readonly value="{{ public_link }}">
-                <button type="button"
-                    class="copy-public-link"
-                    data-copy-target="public-link"
-                    data-copy-success="{% translate 'Public link copied.' %}"
-                    data-copy-failure="{% translate 'Link selected. Press Ctrl+C or use your device’s Copy action.' %}"
-                >{% translate 'Copy public link' %}</button>
-                <span class="field-help" role="status" data-copy-status>{% translate 'Copy this link now. It is shown only once.' %}</span>
-            </div>
-        {% endif %}
-        <form method="post" action="/settings/public">
-            {% csrf_token %}
-            <fieldset {% if read_only %}disabled{% endif %}>
-                <legend>{% translate 'Published domains' %}</legend>
-                <p class="field-help">{% translate 'Only checked domains are public. Leave all unchecked to publish an empty page.' %}</p>
-                <div class="publication-domains">
-                    {% for item in publication_domains %}
-                        <label><input type="checkbox" name="domain.{{ item.name }}" {% if item.selected %}checked{% endif %}> <span>{{ item.name }}</span></label>
-                    {% empty %}
-                        <p class="muted">{% translate 'Add a domain to your workspace to publish it here.' %}</p>
-                    {% endfor %}
-                </div>
-                <div class="detail-actions">
-                    <button type="submit"
-                        class="primary"
-                        name="action" value="{% if request.workspace.public_enabled %}selection{% else %}enable{% endif %}"
-                    >{% if request.workspace.public_enabled %}{% translate 'Save published domains' %}{% else %}{% translate 'Enable public status' %}{% endif %}</button>
-                </div>
-            </fieldset>
-        </form>
-        {% if request.workspace.public_enabled %}
-            <p class="field-help">{% translate 'The additional private link is shown only once. Rotating it revokes that link; the public page address above stays unchanged. Disabling publication closes both addresses.' %}</p>
-            <div class="detail-actions">
-                <form method="post" action="/settings/public">
-                    {% csrf_token %}
-                    <button name="action" value="rotate" {% if read_only %}disabled{% endif %}>{% translate 'Rotate link' %}</button>
-                </form>
-                <form method="post" action="/settings/public">
-                    {% csrf_token %}
-                    <button name="action" value="disable" {% if read_only %}disabled{% endif %}>{% translate 'Disable public status' %}</button>
-                </form>
-            </div>
-        {% endif %}
+        <h2>Status pages</h2>
+        <p class="field-help">{% translate 'Create separate pages with their own title, access and selected domains.' %}</p>
+        <a class="button" href="/settings/status-pages">{% translate 'Manage status pages' %}</a>
+        {% if public_link %}{% include 'sitewatcher/partials/private_status_link.html' %}{% endif %}
     </section>
     <section class="panel form-section">
         <h2>{% translate 'Account' %}</h2>

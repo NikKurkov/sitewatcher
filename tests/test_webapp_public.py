@@ -56,7 +56,7 @@ def test_public_disabled_by_default_and_hash_only_one_time_link(owner, client):
     assert owner.public_domains == ['shared.example']
     assert b'Copy public link' in response.content
     assert token.encode() not in get(client, '/settings').content
-    assert b'Rotate link' in get(client, '/settings').content
+    assert b'Manage status pages' in get(client, '/settings').content
 
 
 def test_public_headline_uses_plain_language_for_single_multiple_and_failed_sites(owner, client):
@@ -71,10 +71,10 @@ def test_public_headline_uses_plain_language_for_single_multiple_and_failed_site
             key: key == 'http_basic' for key in ChecksModel.model_fields}})
         storage.save_history(731, name, 'http_basic', 'OK', 'up', {'final_code': 200})
     path, _, _ = publish(client, domains=names[:1])
-    assert 'Все сайты работают' in get(Client(), path).content.decode()
+    assert 'Все сайты доступны' in get(Client(), path).content.decode()
     assert client.post('/settings/public', {'action': 'selection', 'domains': '\n'.join(names)},
                        HTTP_HOST='localhost').status_code == 200
-    assert 'Все 5 сайтов работают' in get(Client(), path).content.decode()
+    assert 'Все сайты доступны' in get(Client(), path).content.decode()
     storage.save_history(731, names[0], 'http_basic', 'CRIT', 'down', {'final_code': 503})
     assert '1 из 5 сайтов недоступен' in get(Client(), path).content.decode()
     for name in names:
@@ -90,7 +90,9 @@ def test_selected_only_aggregate_dto_guest_and_authenticated_owner(owner, client
         body = response.content.decode()
         assert 'shared.example' in body and '100.0%' in body and '0.0%' in body
         assert 'Europe/Moscow' in body and 'Last checked' in body
-        assert 'View chart data' in body and '24h' in body and '30d' in body
+        assert 'View chart data' not in body and '24h' in body and '30d' in body
+        assert '<h3>Checks</h3>' in body
+        assert 'Powered by <a href="https://github.com/NikKurkov/sitewatcher">SiteWatcher</a>' in body
         for forbidden in ('hidden-sentinel', 'foreign.example', 'private-message', 'private-metrics',
                           'password', '-100888', 'owner_id', 'href="/settings', 'href="/workspace', '/domains/',
                           'Check now', 'Main navigation', token):
@@ -221,10 +223,10 @@ def test_public_native_theme_preserves_period_without_echoing_bearer(owner, clie
 def test_named_public_page_is_persistent_editable_and_read_only(owner, client):
     owner.refresh_from_db()
     assert owner.public_slug == 'status'
-    assert b'href="/settings#public-status"' in get(client, '/').content
+    assert b'href="/settings/status-pages"' in get(client, '/').content
     path, _, _ = publish(client)
     footer = get(client, '/').content.decode().split('<footer', 1)[1]
-    assert 'href="/status"' in footer
+    assert 'href="/settings/status-pages"' in footer
     assert get(Client(), '/status').status_code == 200
     assert get(Client(), '/status/data').json() == get(Client(), path + 'data').json()
     assert get(Client(), '/status/activity').status_code == 200
@@ -238,7 +240,7 @@ def test_named_public_page_is_persistent_editable_and_read_only(owner, client):
     assert get(Client(), '/status').status_code == 404
     assert get(Client(), '/service-health').status_code == 200
     assert b'/service-health/activity' in get(Client(), '/service-health').content
-    assert b'http://localhost/service-health' in get(client, '/settings').content
+    assert b'http://localhost/service-health' in get(client, '/settings/status-pages').content
     assert get(Client(), path).status_code == 200  # Existing private links stay valid.
     for slug in ('login', 'domains', '../private', 'status/nested', 'assets', 'healthz', 'alerts'):
         assert client.post('/settings/public', {'action': 'path', 'public_slug': slug},
@@ -326,7 +328,7 @@ def test_revoked_and_malformed_public_logs_and_mutation_body_do_not_leak(owner, 
 
 
 def test_native_publication_checkboxes_select_owned_domains(owner, client):
-    body = get(client, '/settings').content.decode()
+    body = get(client, '/settings/status-pages/new').content.decode()
     assert 'name="domain.shared.example"' in body and 'name="domain.hidden-sentinel.example"' in body
     response = client.post('/settings/public', {'action': 'enable', 'domain.shared.example': 'on'},
                            HTTP_HOST='localhost')
@@ -382,6 +384,28 @@ def test_stale_and_paused_current_state_do_not_misrepresent_historical_success(o
     body = get(Client(), path + '?days=7').content.decode()
     assert 'Paused' in body and 'Published site is working' not in body
     assert '100.0%' in body
+
+
+@pytest.mark.parametrize('minutes,stale', [(10, False), (29, False), (31, True)])
+def test_public_freshness_allows_three_polling_intervals(owner, client, minutes, stale):
+    from datetime import datetime, timedelta, timezone
+    from sitewatcher.config import ChecksModel
+
+    storage.set_domain_override(731, 'shared.example', {
+        'interval_minutes': 10,
+        'checks': {name: name == 'http_basic' for name in ChecksModel.model_fields},
+    })
+    stamp = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    with storage._write_connection() as conn:
+        conn.execute('UPDATE history SET created_at=? WHERE owner_id=? AND domain=?',
+                     (stamp, 731, 'shared.example'))
+    path, _, _ = publish(client)
+    row = get(Client(), path + 'data').json()['domains'][0]
+    assert (row['current_state'] == 'no_recent_data') is stale
+    assert bool(row['attention_count']) is stale
+    assert row['checks'][0]['stale'] is stale
+    body = get(Client(), path).content.decode()
+    assert ('Awaiting update' in body) is stale
 
 
 def test_one_time_link_render_failure_never_logs_issued_bearer(owner, client, monkeypatch, caplog):
@@ -530,6 +554,11 @@ def test_public_attention_is_safe_and_absent_passive_report_is_neutral(owner, cl
     assert row['attention_count'] == sum(check['attention'] for check in row['checks'])
     assert 'private-warning-sentinel' not in json.dumps(row)
     body = get(Client(), path).content.decode()
+    assert 'No report in VirusTotal' in body
+    assert 'Page data updated at' in body
+    assert 'Site checked' in body and 'class="checked-relative"' in body
+    assert 'class="domain-check-list"' in body and 'class="check-group"' not in body
+    assert 'refresh-option' not in body and 'auto-refresh-toggle' not in body
     assert 'data-disclosure-scope="public"' in body
     assert 'data-domain-key="shared.example"' in body
     assert 'data-domain-disclosure' in body
@@ -538,6 +567,44 @@ def test_public_attention_is_safe_and_absent_passive_report_is_neutral(owner, cl
     assert 'Latest monitoring checks' in disclosure
     assert 'chart' in disclosure
     assert '<details class="public-component-chart" open' not in body
+
+
+def test_pending_virustotal_analysis_is_neutral_and_exposes_no_job_metadata(owner, client):
+    storage.set_domain_override(731, 'shared.example', {'checks': {
+        'http_basic': True, 'malware': True}})
+    storage.save_history(731, 'shared.example', 'malware', 'UNKNOWN',
+        'VirusTotal analysis is pending', {'vt_analysis_id': 'private-analysis-sentinel'})
+    path, _, _ = publish(client)
+    data = get(Client(), path + 'data').json()
+    check = next(check for check in data['domains'][0]['checks'] if check['name'] == 'malware')
+    assert check['pending'] is True and check['status'] == 'UNKNOWN'
+    assert check['attention'] is False
+    assert 'private-analysis-sentinel' not in json.dumps(data)
+    body = get(Client(), path).content.decode()
+    assert 'Analysis pending' in body and 'VirusTotal is preparing a report' in body
+    assert 'private-analysis-sentinel' not in body
+    assert 'Analysis pending' in get(client, '/').content.decode()
+
+
+def test_public_chart_distinguishes_missing_failed_and_unknown_measurements(owner, client):
+    from sitewatcher.webapp.presentation import report_context
+
+    path, _, _ = publish(client)
+    report = get(Client(), path + 'data').json()['domains'][0]
+    report['buckets'] = [
+        {**report['buckets'][0], 'index': 1, 'latency_ms': 100,
+         'successful': 1, 'failed': 0, 'unknown': 0},
+        {**report['buckets'][0], 'index': 3, 'latency_ms': None,
+         'successful': 0, 'failed': 1, 'unknown': 0},
+        {**report['buckets'][0], 'index': 4, 'latency_ms': None,
+         'successful': 0, 'failed': 0, 'unknown': 1},
+    ]
+    report_context(report)
+    assert len(report['history_buckets']) == 120
+    assert [b['state'] for b in report['history_buckets'][:5]] == [
+        'no-data', 'successful', 'no-data', 'failed', 'unknown']
+    assert all(gap['width'] > 0 for gap in report['chart']['gaps'])
+    assert report['chart']['gaps'][0]['x'] == 0
 
 
 def test_public_unknown_failures_and_stale_success_still_need_attention(owner, client):

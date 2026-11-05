@@ -1,4 +1,4 @@
-"""VirusTotal routing stays private, isolated and passive; failures remain actionable."""
+"""VirusTotal routing stays private and isolated; failures remain actionable."""
 
 import asyncio
 import stat
@@ -94,13 +94,17 @@ def test_proxy_reload_is_isolated_from_shared_http_client(monkeypatch):
     original_client = httpx.AsyncClient
     created = []
     shared_calls = []
+    proxied_calls = []
 
     def shared(request):
         shared_calls.append(str(request.url))
         return httpx.Response(404)
 
     def proxied(request):
-        assert request.method == "GET" and request.headers["x-apikey"] == "synthetic-key"
+        assert request.headers["x-apikey"] == "synthetic-key"
+        proxied_calls.append(request.method)
+        if request.method == 'POST':
+            return httpx.Response(200, json={'data': {'id': 'queued'}})
         return httpx.Response(404)
 
     def client_factory(**kwargs):
@@ -115,7 +119,7 @@ def test_proxy_reload_is_isolated_from_shared_http_client(monkeypatch):
                 "example.test", client=client, vt_cfg=_VTConfig(api_key="synthetic-key")
             )
             save_vt_proxy("http://first.example:3128")
-            assert (await probe.run()).message == "VirusTotal has no report for this URL"
+            assert (await probe.run()).message == 'VirusTotal analysis is pending'
             save_vt_proxy_enabled(False)
             await probe.run()
             assert load_vt_proxy() == "http://first.example:3128"
@@ -128,6 +132,7 @@ def test_proxy_reload_is_isolated_from_shared_http_client(monkeypatch):
     asyncio.run(scenario())
     assert created == ["http://first.example:3128", "socks5://second.example:1080"]
     assert len(shared_calls) == 2
+    assert proxied_calls == ['GET', 'POST', 'GET']
 
 
 @pytest.mark.parametrize(

@@ -46,7 +46,8 @@ def test_language_save_translates_panel_and_preserves_other_settings(owner, clie
     body = get(client, '/settings?saved=1').content.decode()
     assert '<html lang="ru"' in body and 'Настройки' in body and 'Язык' in body
     overview = get(client, '/').content.decode()
-    assert 'Добавить в избранное' in overview and 'Выключить автообновление' in overview
+    assert 'Добавить в избранное' in overview and 'Обновить сейчас' in overview
+    assert 'auto-refresh-toggle' not in overview
     assert 'Настройки сохранены.' in body
     assert 'Включены' in body and 'Выключены' in body
     body = get(client, '/domains/new').content.decode()
@@ -120,6 +121,9 @@ def test_public_status_uses_publishers_language_without_sessions(owner, client):
     owner.public_domains = ['example.com']
     owner.public_token_hash = hashlib.sha256(token.encode()).hexdigest()
     owner.save()
+    from sitewatcher.webapp.models import StatusPage
+    StatusPage.objects.create(workspace=owner, public_enabled=True, public_domains=['example.com'],
+        public_slug=owner.public_slug, public_token_hash=owner.public_token_hash)
     guest = Client()
     response = get(guest, '/status/' + token + '/')
     assert response.status_code == 200

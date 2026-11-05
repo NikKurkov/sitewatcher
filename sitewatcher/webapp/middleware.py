@@ -26,11 +26,12 @@ class ManagementBodyMiddleware:
         from django.http import HttpResponse
         from .forms import parse_management_form
 
-        if request.method == 'POST' and request.path in {
+        status_page_form = request.path.startswith('/settings/status-pages')
+        if request.method == 'POST' and (status_page_form or request.path in {
             '/domains/new', '/domains/edit', '/domains/add', '/domains/save',
             '/domains/delete', '/domains/pause', '/domains/resume', '/domains/reset',
             '/domains/check', '/domains/favorite', '/domains/reorder', '/domains/route', '/workspace', '/settings', '/settings/public', '/alerts', '/import',
-        }:
+        }):
             try:
                 length = request.META.get('CONTENT_LENGTH', '')
                 if not length.isascii() or not length.isdigit():
@@ -42,6 +43,7 @@ class ManagementBodyMiddleware:
                     return HttpResponse('Form too large', status=413)
                 request.management_form = parse_management_form(
                     request.META.get('CONTENT_TYPE', ''), body,
+                    max_fields=1000 if status_page_form else 40,
                 )
             except RequestDataTooBig:
                 return HttpResponse('Form too large', status=413)

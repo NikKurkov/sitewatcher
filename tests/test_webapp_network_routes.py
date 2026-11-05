@@ -58,9 +58,10 @@ def test_route_mutations_require_owner_csrf_and_writable_mode(owner, client, set
 
 
 def test_public_capability_never_contains_private_route_data(owner, client):
-    from sitewatcher.webapp.models import Workspace
+    from sitewatcher.webapp.models import StatusPage
     secret = 'route-private-sentinel'
-    Workspace.objects.filter(pk=owner.pk).update(public_enabled=True, public_domains=['route.example'],
+    page = StatusPage.objects.create(workspace=owner, public_enabled=True,
+        public_domains=['route.example'], public_slug=owner.public_slug,
         public_token_hash=hashlib.sha256(secret.encode()).hexdigest())
     from sitewatcher import network_routes
     network_routes.request_trace(41, 'route.example')
@@ -71,7 +72,7 @@ def test_public_capability_never_contains_private_route_data(owner, client):
     response = guest.get('/status/' + secret.ljust(43, 'x') + '/activity', HTTP_HOST='localhost')
     assert response.status_code == 404
     token = 'r' * 43
-    Workspace.objects.filter(pk=owner.pk).update(public_token_hash=hashlib.sha256(token.encode()).hexdigest())
+    StatusPage.objects.filter(pk=page.pk).update(public_token_hash=hashlib.sha256(token.encode()).hexdigest())
     payload = guest.get('/status/' + token + '/activity', HTTP_HOST='localhost').json()
     serialized = json.dumps(payload)
     assert 'route' not in payload['domains'][0] and 'hops' not in serialized

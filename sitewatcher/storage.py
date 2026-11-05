@@ -94,6 +94,14 @@ CREATE TABLE IF NOT EXISTS whois_state (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS virustotal_submissions (
+  owner_id INTEGER NOT NULL,
+  url TEXT NOT NULL,
+  requested_at REAL NOT NULL,
+  analysis_id TEXT,
+  PRIMARY KEY(owner_id, url)
+);
+
 CREATE TABLE IF NOT EXISTS dns_state (
   domain TEXT PRIMARY KEY,
   snapshot_json TEXT NOT NULL,
@@ -476,6 +484,48 @@ def latest_check_results(owner_id: int, domain: str) -> dict[str, sqlite3.Row]:
             if is_current_observation(domain, row["metrics_json"])}
 
 
+# ---------- VirusTotal submission cooldowns ----------
+
+def claim_virustotal_submission(owner_id: int, url: str, *, now=None) -> tuple[float | None, str | None]:
+    """Reserve a URL submission for 24 hours, including across concurrent processes."""
+    _ensure_initialized()
+    stamp = (now or datetime.now(timezone.utc)).timestamp()
+    with _write_connection() as conn:
+        cursor = conn.execute(
+            'INSERT INTO virustotal_submissions(owner_id,url,requested_at) VALUES(?,?,?) '
+            'ON CONFLICT(owner_id,url) DO UPDATE SET requested_at=excluded.requested_at, '
+            'analysis_id=NULL WHERE virustotal_submissions.requested_at<=?',
+            (owner_id, url, stamp, stamp - 86400),
+        )
+        if cursor.rowcount:
+            return stamp, None
+        row = conn.execute('SELECT analysis_id FROM virustotal_submissions WHERE owner_id=? '
+                           'AND url=?', (owner_id, url)).fetchone()
+        return None, row['analysis_id']
+
+
+def save_virustotal_submission(owner_id: int, url: str, claim: float, analysis_id: str) -> None:
+    with _write_connection() as conn:
+        conn.execute('UPDATE virustotal_submissions SET analysis_id=? WHERE owner_id=? '
+                     'AND url=? AND requested_at=?', (analysis_id, owner_id, url, claim))
+
+
+def pending_virustotal_analysis(owner_id: int, url: str) -> str | None:
+    _ensure_initialized()
+    cutoff = datetime.now(timezone.utc).timestamp() - 86400
+    with closing(_connect()) as conn:
+        row = conn.execute('SELECT analysis_id FROM virustotal_submissions WHERE owner_id=? '
+                           'AND url=? AND requested_at>?', (owner_id, url, cutoff)).fetchone()
+        return row['analysis_id'] if row else None
+
+
+def release_virustotal_submission(owner_id: int, url: str, claim: float) -> None:
+    """Release only this attempt when no submission could have been accepted."""
+    with _write_connection() as conn:
+        conn.execute('DELETE FROM virustotal_submissions WHERE owner_id=? AND url=? '
+                     'AND requested_at=?', (owner_id, url, claim))
+
+
 # ---------- WHOIS cache (shared) ----------
 
 def clear_whois_cache(db_path: Path = DEFAULT_DB) -> int:
@@ -662,6 +712,17 @@ def rename_domain(owner_id: int, old: str, new: str, override: dict, *,
                         names = list(dict.fromkeys(new if name == old else name for name in names))
                         conn.execute(f'UPDATE webapp_workspace SET {field}=? WHERE owner_id=?',
                                      (json.dumps(names), owner_id))
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='webapp_statuspage'").fetchone():
+            pages = conn.execute('SELECT id,public_domains FROM webapp_statuspage WHERE workspace_id '
+                                 'IN (SELECT id FROM webapp_workspace WHERE owner_id=?)',
+                                 (owner_id,)).fetchall()
+            for page in pages:
+                names = json.loads(page['public_domains'])
+                if isinstance(names, list) and old in names:
+                    names = list(dict.fromkeys(new if name == old else name for name in names))
+                    stamp = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=' ')
+                    conn.execute('UPDATE webapp_statuspage SET public_domains=?,updated_at=? WHERE id=?',
+                                 (json.dumps(names), stamp, page['id']))
         conn.execute('DELETE FROM owner_dns_state WHERE owner_id=? AND domain IN (?,?)',
                      (owner_id, old, new))
         # Cascades discard old route/activity/alert state rather than attaching it to another host.

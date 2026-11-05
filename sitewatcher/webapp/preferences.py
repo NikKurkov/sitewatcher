@@ -98,9 +98,6 @@ def _render(request, form=None, *, error='', notice='', chats=None, status=200, 
         'alerts_enabled': storage.is_user_alerts_enabled(owner_id),
         'error': error, 'notice': notice, 'chats': chats or [],
         'public_link': public_link,
-        'public_page_url': request.build_absolute_uri(request.workspace.public_path),
-        'publication_domains': [{'name': name, 'selected': name in request.workspace.public_domains}
-                                for name in storage.list_domains(owner_id)],
     }, status=status)
     response['Cache-Control'] = 'no-store'
     return response

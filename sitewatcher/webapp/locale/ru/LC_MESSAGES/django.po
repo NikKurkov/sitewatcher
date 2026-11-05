@@ -843,10 +843,10 @@ msgstr "Время HTTP-ответа в миллисекундах"
 
 msgid ""
 "Each point is an average of successful responses in a time bucket. Missing "
-"buckets break the line. The table below contains exact values."
+"buckets break the line."
 msgstr ""
 "Каждая точка — среднее время успешных ответов за интервал. Пропущенные "
-"интервалы разрывают линию. Точные значения приведены в таблице ниже."
+"интервалы разрывают линию."
 
 msgid "No successful response times recorded in this period."
 msgstr "За этот период нет данных о времени успешных ответов."
@@ -1853,7 +1853,7 @@ msgid "HTTP availability"
 msgstr "Доступность по HTTP"
 
 msgid "Successful HTTP checks"
-msgstr "Аптайм"
+msgstr "Успешные проверки"
 
 msgid "Full history"
 msgstr "Полная история"
@@ -1908,6 +1908,9 @@ msgstr "Среднее — %(latency)s мс"
 msgid "Checks"
 msgstr "Проверки"
 
+msgid "Powered by"
+msgstr "Работает на"
+
 msgid "Awaiting update"
 msgstr "Ожидает обновления"
 
@@ -1938,3 +1941,224 @@ msgid_plural "Updated %(count)s days ago"
 msgstr[0] "обновлены %(count)s день назад"
 msgstr[1] "обновлены %(count)s дня назад"
 msgstr[2] "обновлены %(count)s дней назад"
+
+msgid "Availability and network"
+msgstr "Доступность и сеть"
+
+msgid "Domain and certificate"
+msgstr "Домен и сертификат"
+
+msgid "Security and blocking"
+msgstr "Безопасность и блокировки"
+
+msgid "Other checks"
+msgstr "Другие проверки"
+
+msgid "No saved result yet"
+msgstr "Проверка ещё не выполнена"
+
+msgid "No report in VirusTotal"
+msgstr "В VirusTotal пока нет отчёта"
+
+msgid "Result unavailable"
+msgstr "Результат недоступен"
+
+msgid "All sites are available"
+msgstr "Все сайты доступны"
+
+#, python-format
+msgid "Page data updated at %(time)s"
+msgstr "Данные страницы обновлены в %(time)s"
+
+msgid "Successful HTTP observations as a percentage of known results in the selected period."
+msgstr "Доля успешных HTTP-проверок среди результатов с определённым статусом за выбранный период."
+
+msgid "Site checked"
+msgstr "Сайт проверен"
+
+msgid "HTTP history legend"
+msgstr "Обозначения истории HTTP"
+
+msgid "Unknown result"
+msgstr "Неизвестный результат"
+
+msgid "No measurements"
+msgstr "Нет измерений"
+
+#, python-format
+msgid "HTTP observations: %(successful)s successful, %(failed)s failed, %(unknown)s unknown. Muted marks mean no measurements."
+msgstr "HTTP-проверки: %(successful)s успешных, %(failed)s неудачных, %(unknown)s с неизвестным результатом. Приглушённые отметки означают отсутствие измерений."
+
+msgid "Average successful HTTP response time over this recent time window."
+msgstr "Среднее время успешных HTTP-ответов за указанный период до текущего момента."
+
+msgid "Last 15 minutes"
+msgstr "За 15 мин"
+
+msgid "Last hour"
+msgstr "За 1 час"
+
+msgid "Last day"
+msgstr "За 1 день"
+
+msgid "Hover or tap to inspect. Use arrow keys to move between points."
+msgstr "Наведите курсор или коснитесь графика. Клавиши со стрелками переключают точки."
+
+msgid "Shaded intervals have no measurements."
+msgstr "В выделенных интервалах нет измерений."
+
+msgid "Switch to light theme"
+msgstr "Включить светлую тему"
+
+msgid "Switch to dark theme"
+msgstr "Включить тёмную тему"
+
+msgid "VirusTotal analysis is pending"
+msgstr "URL отправлен в VirusTotal. Ожидается отчёт."
+
+msgid "VirusTotal submission could not be confirmed. Try again later."
+msgstr "VirusTotal не подтвердил приём запроса. Повторите позже."
+
+msgid "Analysis pending"
+msgstr "Проверяется"
+
+msgid "VirusTotal is preparing a report"
+msgstr "VirusTotal готовит отчёт"
+
+msgid "Average"
+msgstr "среднее"
+
+msgid "15 min"
+msgstr "15 мин"
+
+msgid "1 hour"
+msgstr "1 час"
+
+msgid "1 day"
+msgstr "1 день"
+
+msgid "15 minutes"
+msgstr "15 минут"
+
+
+msgid "Title"
+msgstr "Заголовок"
+
+
+msgid "Access"
+msgstr "Доступ"
+
+
+msgid "Public"
+msgstr "Публичная"
+
+
+msgid "Private link"
+msgstr "Приватная ссылка"
+
+
+msgid "Page enabled"
+msgstr "Страница включена"
+
+
+msgid "Status page saved."
+msgstr "Страница состояния сохранена."
+
+
+msgid "Status page settings temporarily unavailable."
+msgstr "Настройки страницы состояния временно недоступны."
+
+
+msgid "This page changed. Reload before saving."
+msgstr "Страница изменилась. Обновите её перед сохранением."
+
+
+msgid "Enable a private page before reissuing its link."
+msgstr "Включите приватную страницу перед перевыпуском ссылки."
+
+
+msgid "The page could not be saved. Reload and try again."
+msgstr "Не удалось сохранить страницу. Обновите её и попробуйте снова."
+
+
+msgid "Edit status page"
+msgstr "Редактирование страницы состояния"
+
+
+msgid "Add status page"
+msgstr "Добавить страницу состояния"
+
+
+msgid "Public pages are open to everyone. Private pages are accessible to anyone with the link; copy it after saving, because it is shown only once."
+msgstr "Публичная страница доступна всем. Приватная — любому, у кого есть ссылка. Скопируйте её после сохранения: она показывается только один раз."
+
+
+msgid "Only selected domains appear on this page. Monitoring settings stay in your workspace."
+msgstr "На странице будут только выбранные домены. Настройки мониторинга остаются в кабинете."
+
+
+msgid "Save"
+msgstr "Сохранить"
+
+
+msgid "Create page"
+msgstr "Создать страницу"
+
+
+msgid "Open page"
+msgstr "Открыть страницу"
+
+
+msgid "The private link is shown only after creation or reissue. Reissuing it revokes the previous link."
+msgstr "Приватная ссылка показывается только при создании или перевыпуске. Перевыпуск отключает прежнюю ссылку."
+
+
+msgid "Reissue private link"
+msgstr "Перевыпустить приватную ссылку"
+
+
+msgid "Delete status page"
+msgstr "Удалить страницу состояния"
+
+
+msgid "Only this page and its links will be deleted. Domains and monitoring history are retained."
+msgstr "Будут удалены только эта страница и её ссылки. Домены и история мониторинга сохранятся."
+
+
+msgid "Confirm deletion"
+msgstr "Подтвердить удаление"
+
+
+msgid "Separate status pages for different sites and audiences."
+msgstr "Отдельные страницы состояния для разных сайтов и аудиторий."
+
+
+msgid "No status pages yet"
+msgstr "Страниц состояния пока нет"
+
+
+msgid "Create a page and select the domains to show."
+msgstr "Создайте страницу и выберите домены для показа."
+
+
+msgid "Save this link now. It is only shown once."
+msgstr "Сохраните ссылку сейчас. Она показывается только один раз."
+
+
+msgid "Manage status pages"
+msgstr "Настроить страницы состояния"
+
+
+msgid "Create separate pages with their own title, access and selected domains."
+msgstr "Создавайте отдельные страницы со своим заголовком, доступом и выбранными доменами."
+
+
+msgid "Page disabled"
+msgstr "Страница выключена"
+
+
+msgid "Page address"
+msgstr "Адрес страницы"
+
+msgid "Lowercase Latin letters, numbers, hyphens and underscores. Changing the address disables the old link."
+msgstr "Строчные латинские буквы, цифры, дефисы и подчёркивания. При смене адреса прежняя ссылка перестанет работать."

@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- Add multiple Status pages with independent titles, public/private access, editable
+  public addresses and compact domain selections. Preserve existing published links
+  during migration, isolate owners and protect against stale configuration changes.
+- Simplify public check details and response summaries; keep automatic refresh on,
+  show periods in accessible average tooltips and highlight failed history buckets red.
+- Submit missing VirusTotal URL reports for analysis, with persistent per-owner
+  submission cooldown and neutral pending results.
+- Honour the configured eight-character password minimum in owner setup guidance.
+
+- Use a plain globe with a coordinate grid for the Signal room toggle.
+
+- Compact signal-room events into single rows with full labels on hover and
+  internal horizontal scrolling on phones.
+
+- Highlight critical signal-room events with a red background and pulse active
+  critical domain cards; respect pause and reduced-motion preferences.
+
+- Place the signal-room event console on the map beside the monitoring hub and
+  domain cards. Show time, check, domain, result and duration as readable fields;
+  preserve follow/pause/replay and use a stacked layout on narrow screens.
+
+- Align signal-room speed selection with adjacent controls on desktop and mobile.
+
 - Include all check types for selected domains in the public signal room, while
   keeping diagnostic messages, metrics and private domains out of the public feed.
 

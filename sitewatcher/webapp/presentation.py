@@ -27,6 +27,9 @@ _STATUS_LABELS = {'OK': _('OK'), 'WARN': _('WARN'), 'CRIT': _('CRIT'),
 
 
 _DIAGNOSTIC_MESSAGES = {
+    'VirusTotal analysis is pending': _('VirusTotal analysis is pending'),
+    'VirusTotal submission could not be confirmed. Try again later.':
+        _('VirusTotal submission could not be confirmed. Try again later.'),
     'VirusTotal is not configured: API key is missing':
         _('VirusTotal is not configured: API key is missing'),
     'VirusTotal has no report for this URL': _('VirusTotal has no report for this URL'),
@@ -72,11 +75,13 @@ def local_time(value, zone):
         if stamp.tzinfo is None:
             stamp = stamp.replace(tzinfo=timezone.utc)
         local = stamp.astimezone(ZoneInfo(zone))
-        label = date_format(local, 'd M Y, H:i') + ' ' + local.tzname()
+        display_label = date_format(local, 'd M Y, H:i')
+        label = display_label + ' ' + local.tzname()
     except (ValueError, TypeError, AttributeError, OverflowError):
         return None
     age = (datetime.now(timezone.utc) - stamp).total_seconds()
-    return {'iso': stamp.isoformat(), 'label': label,
+    return {'iso': stamp.isoformat(), 'label': label, 'display_label': display_label,
+            'clock_label': local.strftime('%H:%M'),
             'compact_label': local.strftime('%Y-%m-%d %H:%M'), 'value': stamp,
             'updated_label': _updated_label(age),
             'future': age < 0, 'just_now': 0 <= age < 60}
@@ -110,12 +115,17 @@ def chart_context(points, metric):
     return {'segments': segments, 'dots': dots, 'maximum': maximum, 'y_ticks': y_ticks}
 
 
-def report_context(report):
+def report_context(report, *, public=False):
     known = report['totals']['successful'] + report['totals']['failed']
     report['totals']['failure_percent'] = report['totals']['failed'] / known * 100 if known else None
     report['observed'] = local_time(report.get('latest_observed_at'), report['timezone'])
     report['start'] = local_time(report['window_start'], report['timezone'])
     report['end'] = local_time(report['window_end'], report['timezone'])
+    if public:
+        for bucket in report['buckets']:
+            stamp = local_time(bucket.get('start_at'), report['timezone'])
+            if stamp:
+                bucket['label'] = stamp['display_label']
     report['chart'] = chart_context(report['buckets'], 'latency_ms')
     if report['start'] and report['end']:
         start, end = report['start']['value'], report['end']['value']
@@ -131,6 +141,25 @@ def report_context(report):
         bucket['x'] = bucket['index'] * 10
         bucket['state'] = ('failed' if bucket['failed'] else 'successful'
                            if bucket['successful'] else 'unknown')
+    occupied = {bucket['index']: bucket for bucket in report['buckets']}
+    report['history_buckets'] = []
+    gaps, gap_start = [], None
+    for index in range(120):
+        bucket = occupied.get(index)
+        if bucket is None:
+            value = start + (end - start) * index / 120
+            stamp = local_time(value.isoformat(), report['timezone'])
+            bucket = {'index': index, 'x': index * 10, 'state': 'no-data',
+                      'label': stamp['display_label'] if public else stamp['label']}
+            if gap_start is None:
+                gap_start = index
+        elif gap_start is not None:
+            gaps.append({'x': gap_start * 1000 / 120, 'width': (index - gap_start) * 1000 / 120})
+            gap_start = None
+        report['history_buckets'].append(bucket)
+    if gap_start is not None:
+        gaps.append({'x': gap_start * 1000 / 120, 'width': (120 - gap_start) * 1000 / 120})
+    report['chart']['gaps'] = gaps
     return report
 
 

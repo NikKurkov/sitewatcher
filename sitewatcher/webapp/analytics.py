@@ -133,6 +133,8 @@ def _aggregate(owner_id: int, domain: str | None, window: dict) -> dict:
                 raise ValueError('Domain not found')
             names = [domain]
         reports = {name: {'domain': name, 'totals': _counts(), '_buckets': {},
+                          'response_times': [{'minutes': minutes, 'sample_count': 0,
+                                              'latency_ms': 0.0} for minutes in (15, 60, 1440)],
                           'latest_observed_at': None, 'latest_availability': 'unknown'}
                    for name in names}
         totals, buckets = _counts(), {}
@@ -157,6 +159,13 @@ def _aggregate(owner_id: int, domain: str | None, window: dict) -> dict:
                 item['_buckets'][index] = _counts()
             for count in (totals, item['totals'], buckets[index], item['_buckets'][index]):
                 _merge(count, row)
+            for response in item['response_times']:
+                count = row[f'latency_{response["minutes"]}_count']
+                if count:
+                    response['sample_count'] += count
+                    weight = count / response['sample_count']
+                    response['latency_ms'] += (
+                        row[f'latency_{response["minutes"]}_mean'] - response['latency_ms']) * weight
         for name, item in reports.items():
             latest = conn.execute(
                 "SELECT metrics_json,created_at FROM history WHERE owner_id=? AND domain=? "
@@ -184,6 +193,9 @@ def _aggregate(owner_id: int, domain: str | None, window: dict) -> dict:
     for item in reports.values():
         item.update(window)
         item['totals'] = _finish(item['totals'])
+        for response in item['response_times']:
+            if not response['sample_count']:
+                response['latency_ms'] = None
         item['buckets'] = finish_buckets(item.pop('_buckets'))
     return {**window, 'totals': _finish(totals), 'buckets': finish_buckets(buckets),
             'domains': list(reports.values())}
@@ -268,7 +280,7 @@ WITH raw AS (
         ELSE json_type(payload,'$.latency_ms_total') END AS latency_type
     FROM raw
 ), classified AS MATERIALIZED (
-    SELECT domain,
+    SELECT domain,created_at,
       MAX(0,MIN(119,CAST((julianday(created_at)-julianday(?1))*86400/?2 AS INTEGER)))
         AS bucket_index,
       CASE WHEN source IN ('legacy','scheduled','manual') THEN source ELSE 'legacy' END AS source,
@@ -290,7 +302,19 @@ WITH raw AS (
 )
 SELECT domain,bucket_index,source,classification,COUNT(*) AS sample_count,
   COUNT(CASE WHEN classification='successful' THEN latency END) AS latency_sample_count,
-  AVG(CASE WHEN classification='successful' THEN latency/1e100 END)*1e100 AS latency_ms
+  AVG(CASE WHEN classification='successful' THEN latency/1e100 END)*1e100 AS latency_ms,
+  COUNT(CASE WHEN classification='successful' AND julianday(created_at)>=julianday(?5)-15.0/1440
+    THEN latency END) AS latency_15_count,
+  AVG(CASE WHEN classification='successful' AND julianday(created_at)>=julianday(?5)-15.0/1440
+    THEN latency/1e100 END)*1e100 AS latency_15_mean,
+  COUNT(CASE WHEN classification='successful' AND julianday(created_at)>=julianday(?5)-1.0/24
+    THEN latency END) AS latency_60_count,
+  AVG(CASE WHEN classification='successful' AND julianday(created_at)>=julianday(?5)-1.0/24
+    THEN latency/1e100 END)*1e100 AS latency_60_mean,
+  COUNT(CASE WHEN classification='successful' AND julianday(created_at)>=julianday(?5)-1
+    THEN latency END) AS latency_1440_count,
+  AVG(CASE WHEN classification='successful' AND julianday(created_at)>=julianday(?5)-1
+    THEN latency/1e100 END)*1e100 AS latency_1440_mean
 FROM classified
 GROUP BY domain,bucket_index,source,classification
 """

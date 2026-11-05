@@ -84,12 +84,13 @@ plus ten seconds is shown as interrupted, not as a successful response. Without 
 execution deadline the panel waits for a completion without inferring interruption.
 Stopping/restarting a worker can leave unfinished rows.
 
-The domain-row overdue notice waits for two configured check intervals. Saved-result
-freshness and scheduling still use the original interval.
+Saved results and domain-row overdue notices use a grace period of three configured
+check intervals. Scheduling still uses the original single interval. Missing results
+and explicit failure statuses are not hidden during this grace period.
 
 VirusTotal keys and its dedicated proxy can be stored in Settings → VirusTotal. `VIRUSTOTAL_API_KEY` overrides
 YAML `malware.vt_api_key`, which overrides the private saved file. Every probe reloads
-the effective key. Missing configuration and missing passive reports remain UNKNOWN.
+the effective key. Missing configuration and pending reports remain UNKNOWN. A missing URL report triggers submission of the canonical home URL; each lookup and submission consumes a quota slot. The owner-scoped `virustotal_submissions` table retains the submission claim and private analysis ID for deduplication across processes/restarts. A claim expires after 24 hours; definitive HTTP rejections release it, while ambiguous failures retain it. The worker or a manual check retrieves the report at the configured interval; public-page GET/HEAD never submits a URL.
 
 ## Configuration and maintenance
 

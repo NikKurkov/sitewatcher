@@ -23,7 +23,7 @@ docker compose run --rm --build setup
 docker compose up -d
 ```
 
-Choose a username and password when `setup` asks. Open **http://127.0.0.1:8080** and sign in. A password must be at least 12 characters long and pass the on-screen checks.
+Choose a username and password when `setup` asks. Open **http://127.0.0.1:8080** and sign in. A password must be at least 8 characters long and pass the on-screen checks.
 
 No `.env` file, Telegram account or external service key is required to start. Containers run as a regular user. By default, only the local computer can reach the dashboard.
 
@@ -105,7 +105,7 @@ Search is beside the **Domain** heading. The **Status** heading opens a filter; 
 
 Click a star to keep a website in favorites. Drag its handle to move it within the favorites or regular group. Keyboard users can focus the handle and press **Alt + ↑ / ↓**. Order survives page reloads. When a filter is active, hidden rows retain their positions. A failed save restores the previous order.
 
-The top icons add a domain, check all domains, open the signal map, refresh and control automatic refresh. Row icons edit, check and pause/resume a single site. Hover over an icon to read its name.
+The top icons add a domain, check all domains, open the signal map and refresh. The overview and public page refresh automatically every minute; there is no off switch. Row icons edit, check and pause/resume a single site. Hover over an icon to read its name.
 
 ### Adjust checks
 
@@ -117,7 +117,7 @@ Inherited options show **Default** and their current value. Blank fields inherit
 - **TCP ports:** numbers or ranges, for example `1-1024, 2205`. Valid ports are 1–65535. Use `-` to clear the list.
 - **Latency thresholds:** choose when a response becomes slow or critically slow. The critical threshold cannot be lower than the warning threshold.
 
-A domain interval overrides the schedule for all its checks. Without one, individual `schedules.<check>.interval_minutes` values apply. The scheduler normally wakes once per minute. The overdue notice appears after two check intervals without a new result; this does not extend result freshness.
+A domain interval overrides the schedule for all its checks. Without one, individual `schedules.<check>.interval_minutes` values apply. The scheduler normally wakes once per minute. Results become stale after three check intervals without a new observation. The overdue notice uses the same threshold; scheduling still uses one interval. Failures and missing results remain visible immediately.
 
 Manual checks save results but do not send Telegram messages directly. The worker evaluates saved state on its next cycle. One manual batch runs at a time in the web process.
 
@@ -226,13 +226,13 @@ WHOIS/RDAP availability depends on the zone; supported Russian zones can fall ba
 
 ## Public status page
 
-Enable publication in **Settings** and select domains. The persistent public address defaults to `/status`; change it in the public-page settings. The footer opens that address. Changing the address removes the old path, and disabling publication closes it. This is a publicly accessible page, not a secret URL. An additional private link can still be issued and rotated; that token is shown once and only its hash is stored. The page shares the selected sites' HTTP history, response times and scoped events for all check types, plus the latest status and observation time of every enabled check. Missing results are UNKNOWN and overdue observations are marked. The default theme is dark; a visitor's saved choice takes priority. It has no monitoring controls and does not expose private domains, raw diagnostics, internal routes or the owner ID.
+In **Settings → Status pages**, create pages with their own title, selected domains and access mode. Public pages are open to everyone at a stable address. Public page addresses can be edited (for example, `/shop-health`); changing the address disables the old path. Private pages require a bearer link, shown only after creation or reissue; save it immediately. Reissuing revokes the previous link. Disabling a page closes all its addresses; deleting it retains monitoring domains and history. Existing pages and issued links survive the update. Pages expose selected sites and safe check results, without private domains, diagnostic messages or internal routes.
 
 The public page uses the same compact header and domain-list layout as the owner workspace. Rows start closed and disclose check statuses plus the HTTP chart. A green HTTP badge means HTTP availability only; other check notices are shown separately. Previews: [desktop](screenshots/public-unified-desktop.png), [mobile](screenshots/public-unified-mobile.png), [expanded](screenshots/public-inline-details.png).
 
-Automatic refresh retains open domains, nested chart data, scroll and keyboard focus, including across period and filter navigation. Reading an open domain does not stop refresh; focused input, unsaved input and dragging defer it. State is scoped to the account/page or public address. Without JavaScript, owner history links and public native disclosures remain usable.
+Automatic refresh retains open domains, scroll and keyboard focus, including across period and filter navigation. An open chart tooltip defers refresh. Reading an open domain does not stop refresh; focused input, unsaved input and dragging defer it. State is scoped to the account/page or public address. Without JavaScript, owner history links and public native disclosures remain usable.
 
-The public map has its own saved on/off setting. Changing the selected domains is reflected on its next poll. Disable publication to close both addresses, or rotate the additional private link to revoke only that token. Treat that private link as a bearer credential; configure reverse-proxy logs to omit or mask `/status/` paths.
+The public map has its own saved on/off setting. Changing the selected domains is reflected on its next poll. Disable a page to close its addresses, or reissue a private link to revoke the previous one. Treat that private link as a bearer credential; configure reverse-proxy logs to omit or mask `/status/` paths.
 
 ## Remote access and accounts
 
@@ -345,3 +345,13 @@ CI covers Python 3.12, 3.13 and 3.14, JavaScript, installed-package smoke checks
 Russian translations are in `sitewatcher/webapp/locale/ru/LC_MESSAGES/django.po`. After edits, run `python -m django compilemessages -l ru`. GNU gettext is needed to regenerate catalogs; compiled translations are shipped.
 
 The existing [brand kit](../assets/brand/README.txt) contains light/dark logos and icons. Development and historical verification notes remain in [operations](operations.md) and the dated reports beside it.
+
+The signal-room console blends into the left of the map on wide screens, with the
+monitoring hub in the center and domain cards on the right. Each entry shows time,
+check, domain, result and duration. Fullscreen uses the available viewport height;
+narrow screens stack the log above the map. Manual scrolling suspends following
+until Follow latest is selected.
+
+The public status page distinguishes page refresh time from saved site checks. Site check ages come first, with exact local dates underneath and no timezone label. Successful checks describe the selected period, not continuous uptime. The history legend separates unavailable sites, unknown results and intervals without measurements. Expanded checks use a compact two-column checklist (one column on phones), with names and statuses; diagnostic notes and individual times are available on hover. Graphs show a compact average label and three mean successful response times for the last 15 minutes, hour and day (hover, focus or tap a number to see its period), independently of the selected chart period; touch and arrow keys inspect individual bucket averages. If VirusTotal has no stored URL report, the public page says so; An enabled malware check automatically submits the canonical home URL for analysis when its report is missing.
+
+VirusTotal submission uses the same private proxy and counts as a separate API request. A persistent owner/URL claim prevents repeat submissions for 24 hours, including after restarts. Subsequent configured checks retrieve the report; UNKNOWN malware results bypass the cache by default. Pending analysis remains UNKNOWN and neutral, never a clean verdict. Definite request rejections release the claim; an ambiguous timeout keeps it because the submission may have been accepted. Submitted URLs can enter the shared VirusTotal dataset. Public-page reads never submit URLs or reveal analysis IDs.

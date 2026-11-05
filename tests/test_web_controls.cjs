@@ -109,55 +109,34 @@ assert.equal(p.timers.size, 0);
 assert.equal(JSON.parse(p.storage.get(focusKey)).id, 'q', 'native Enter also remembers focus');
 console.log('Automatic filters: debounce, external form controls, Enter, IME, focus and disclosure restoration passed.');
 
-function refreshPage(tagName, stored, sceneOpen = false) {
+function refreshPage(stored, {sceneOpen = false, tooltipOpen = false, hidden = false} = {}) {
   const values = new Map([['refresh', stored]]);
-  const attributes = {'aria-pressed': 'true'};
-  const handlers = {};
-  const option = {hidden: true};
-  const control = {tagName, checked: true, dataset: {enabledLabel: 'Disable', disabledLabel: 'Enable'},
-    getAttribute: name => attributes[name], setAttribute: (name, value) => { attributes[name] = value; },
-    addEventListener: (name, fn) => { handlers[name] = fn; }};
-  const refresh = {querySelector: selector => selector === '[data-refresh-enabled]' ? control : option};
   let interval;
   let reloads = 0;
   vm.runInNewContext(script, {
-    document: {hidden: false, activeElement: {matches: () => false}, addEventListener() {},
-      querySelector: selector => selector === '[data-auto-refresh]' ? refresh
-        : selector === '[data-live-activity]:not([hidden])' && sceneOpen ? {} : null,
+    document: {hidden, activeElement: {matches: () => false}, addEventListener() {},
+      querySelector: selector => selector === '[data-auto-refresh]' ? {}
+        : selector === '[data-live-activity]:not([hidden])' && sceneOpen ? {}
+        : selector.includes('.chart-tooltip') && tooltipOpen ? {} : null,
       querySelectorAll: () => []},
-    sessionStorage: {getItem: key => values.get(key) ?? null,
-      setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key)},
+    sessionStorage: {getItem: key => values.get(key) ?? null},
     location: {pathname: '/', reload: () => { reloads++; }},
-    setInterval: fn => { interval = fn; },
+    setInterval: (fn, delay) => { assert.equal(delay, 60000); interval = fn; },
   });
-  return {control, option, handlers, attributes, values, tick: () => interval(), reloads: () => reloads};
+  return {tick: () => interval(), reloads: () => reloads};
 }
 
-let refresh = refreshPage('BUTTON', 'off');
-assert.equal(refresh.option.hidden, false);
-assert.equal(refresh.attributes['aria-pressed'], 'false');
-assert.equal(refresh.control.title, 'Enable');
-refresh.tick();
-assert.equal(refresh.reloads(), 0);
-refresh.handlers.click();
-assert.equal(refresh.attributes['aria-pressed'], 'true');
-assert.equal(refresh.control.title, 'Disable');
-assert.equal(refresh.values.get('refresh'), 'on');
-refresh.tick();
-assert.equal(refresh.reloads(), 1);
-refresh = refreshPage('INPUT', 'on');
-assert.equal(refresh.control.checked, true);
-refresh.tick();
-assert.equal(refresh.reloads(), 1);
-refresh.control.checked = false;
-refresh.handlers.change();
-refresh.tick();
-assert.equal(refresh.values.get('refresh'), 'off');
-assert.equal(refresh.reloads(), 1);
-refresh = refreshPage('BUTTON', 'on', true);
-refresh.tick();
-assert.equal(refresh.reloads(), 0, 'The open signal room must survive automatic refresh');
-console.log('Header refresh toggle and public-page checkbox preserve saved state and refresh behavior.');
+for (const stored of ['off', 'on', null]) {
+  const refresh = refreshPage(stored);
+  refresh.tick();
+  assert.equal(refresh.reloads(), 1, 'Refresh stays on even with an old disabled preference');
+}
+for (const options of [{sceneOpen: true}, {tooltipOpen: true}, {hidden: true}]) {
+  const refresh = refreshPage('on', options);
+  refresh.tick();
+  assert.equal(refresh.reloads(), 0, 'Active reading and hidden pages defer refresh');
+}
+console.log('Always-on refresh ignores old toggles and protects active reading.');
 
 // Settings and edit pages reveal navigation only: no live fetch or refresh timer.
 for (const storageFails of [false, true]) {
@@ -276,3 +255,137 @@ disclosure.handlers.input({target: {matches: () => true}});
 disclosure.tick();
 assert.equal(disclosure.reloads(), 0, 'Unsaved input blocks refresh after leaving the field');
 console.log('Domain disclosures: native refresh, navigation, nested state, scroll, focus, scope and interaction guards passed.');
+
+// A chart can be inspected by time column, touch, and a single keyboard tab stop.
+{
+  const svgEvents = {}, documentEvents = {};
+  const tooltip = {hidden: true, style: {}, offsetWidth: 120, offsetHeight: 25};
+  let document;
+  const points = [0, 20, 100].map((x) => {
+    const events = {}, classes = new Set();
+    const dot = {getAttribute: key => key === 'cx' ? x : 10,
+      getBoundingClientRect: () => ({left: x, top: 40, bottom: 44, width: 4})};
+    const point = {events, tabIndex: x === 0 ? 0 : -1,
+      querySelector: () => dot,
+      getAttribute: () => `Time ${x}: 100 ms`,
+      classList: {add: name => classes.add(name), remove: name => classes.delete(name)},
+      addEventListener: (name, fn) => { events[name] = fn; },
+      closest: () => point,
+      focus: () => {
+        document.activeElement?.events?.blur();
+        document.activeElement = point;
+        events.focus();
+      }};
+    return point;
+  });
+  const svg = {addEventListener: (name, fn) => { svgEvents[name] = fn; },
+    getScreenCTM: () => ({a: 1, b: 0, c: 0, d: 1, e: 0, f: 0}),
+    contains: target => points.includes(target)};
+  const chart = {querySelector: selector => selector === 'svg' ? svg : tooltip,
+    querySelectorAll: () => points,
+    getBoundingClientRect: () => ({left: 0, top: 0, width: 300}),
+    contains: target => points.includes(target) || target === svg};
+  document = {activeElement: null, addEventListener: (name, fn) => { documentEvents[name] = fn; },
+    querySelector: () => null,
+    querySelectorAll: selector => selector === '.response-chart' ? [chart] : []};
+  vm.runInNewContext(script, {document, window: {addEventListener() {}}});
+  svgEvents.pointermove({clientX: 20, clientY: 400});
+  assert.equal(tooltip.textContent, 'Time 20: 100 ms');
+  svgEvents.pointermove({clientX: 60, clientY: 10});
+  assert.equal(tooltip.hidden, true, 'A long gap must not select a remote measurement');
+  svgEvents.pointerdown({clientX: 100, pointerType: 'touch'});
+  svgEvents.pointerleave({pointerType: 'touch'});
+  assert.equal(tooltip.hidden, false, 'A touch tooltip survives lifting the finger');
+  points[0].focus();
+  points[0].events.keydown({key: 'ArrowRight', preventDefault() {}});
+  assert.equal(document.activeElement, points[1]);
+  assert.equal(points.filter(point => point.tabIndex === 0).length, 1);
+  points[1].events.keydown({key: 'End', preventDefault() {}});
+  assert.equal(document.activeElement, points[2]);
+  points[2].events.keydown({key: 'Home', preventDefault() {}});
+  assert.equal(document.activeElement, points[0]);
+  documentEvents.keydown({key: 'Escape'});
+  assert.equal(tooltip.hidden, true);
+  svgEvents.pointerdown({clientX: 20, pointerType: 'touch'});
+  documentEvents.pointerdown({target: {}});
+  assert.equal(tooltip.hidden, true, 'Tapping outside dismisses the chart tooltip');
+}
+console.log('Chart inspection: time columns, missing intervals, touch, arrows, Home/End and dismissal passed.');
+
+// The browser owns click/tap toggling and Escape/outside dismissal of native popovers.
+// Our enhancement only opens them for mouse hover and visible keyboard focus.
+{
+  let open = false;
+  let keyboardFocus = false;
+  const triggerEvents = {};
+  const tooltipEvents = {};
+  const windowEvents = {};
+  const tooltip = {
+    style: {}, offsetWidth: 80, offsetHeight: 28,
+    matches: () => open,
+    showPopover() { open = true; },
+    hidePopover() { open = false; },
+    addEventListener(name, handler) { tooltipEvents[name] = handler; },
+  };
+  const trigger = {
+    getAttribute: () => 'response-window-one.example-15',
+    getBoundingClientRect: () => ({left: 290, top: 80}),
+    matches: () => keyboardFocus,
+    addEventListener(name, handler) { triggerEvents[name] = handler; },
+  };
+  const document = {
+    addEventListener() {}, querySelector: () => null,
+    querySelectorAll: selector => selector === '.chart-window-value' ? [trigger] : [],
+    getElementById: () => tooltip,
+  };
+  vm.runInNewContext(script, {document, location: {pathname: '/'},
+    window: {innerWidth: 320, addEventListener(name, handler) { windowEvents[name] = handler; }},
+    sessionStorage: {getItem: () => null}, setTimeout, clearTimeout,
+  });
+  triggerEvents.pointerenter({pointerType: 'touch'});
+  triggerEvents.focus();
+  assert.equal(open, false, 'Touch relies on native click instead of opening twice');
+  triggerEvents.pointerenter({pointerType: 'mouse'});
+  assert.equal(open, true);
+  assert.equal(tooltip.style.left, '232px', 'Keep the tooltip within the viewport');
+  assert.equal(tooltip.style.top, '46px');
+  triggerEvents.pointerleave({pointerType: 'mouse'});
+  assert.equal(open, false);
+  keyboardFocus = true;
+  triggerEvents.focus();
+  assert.equal(open, true);
+  triggerEvents.pointerleave({pointerType: 'mouse'});
+  assert.equal(open, true, 'Keyboard focus keeps the period visible');
+  triggerEvents.blur();
+  assert.equal(open, false);
+  // Native tap opens the popover, then the toggle event positions it.
+  open = true;
+  triggerEvents.pointerleave({pointerType: 'touch'});
+  assert.equal(open, true, 'Touch pointerleave must not dismiss a newly tapped value');
+  tooltipEvents.toggle({newState: 'open'});
+  assert.equal(tooltip.style.left, '232px');
+  windowEvents.scroll();
+  assert.equal(open, false);
+}
+console.log('Response averages: native touch popovers, mouse hover, keyboard focus and viewport positioning passed.');
+
+// Switching to private access omits the public address without losing its draft.
+{
+  let change;
+  const input = {value: 'shop-health', disabled: false};
+  const mode = {value: 'public', disabled: false, addEventListener: (_, handler) => {change = handler;}};
+  const address = {hidden: false, querySelector: () => input};
+  const form = {querySelector: selector => selector === '[name="access_mode"]' ? mode : address};
+  const document = {addEventListener() {}, querySelectorAll: () => [],
+    querySelector: selector => selector === '.status-page-form' ? form : null};
+  vm.runInNewContext(script, {document, window: {addEventListener() {}}});
+  assert.equal(address.hidden, false);
+  mode.value = 'private'; change();
+  assert.equal(address.hidden, true);
+  assert.equal(input.disabled, true);
+  mode.value = 'public'; change();
+  assert.equal(address.hidden, false);
+  assert.equal(input.disabled, false);
+  assert.equal(input.value, 'shop-health');
+}
+console.log('Status-page access: hide private address and preserve its draft passed.');

@@ -3,12 +3,12 @@
     viewBox="0 0 1200 20"
     preserveAspectRatio="none"
     role="img"
-    aria-label="{% blocktranslate with successful=item.totals.successful failed=item.totals.failed unknown=item.totals.unknown %}HTTP observations: {{ successful }} successful, {{ failed }} failed, {{ unknown }} unknown. Empty space means no observations.{% endblocktranslate %}"
+    aria-label="{% blocktranslate with successful=item.totals.successful failed=item.totals.failed unknown=item.totals.unknown %}HTTP observations: {{ successful }} successful, {{ failed }} failed, {{ unknown }} unknown. Muted marks mean no measurements.{% endblocktranslate %}"
 >
     <rect class="strip-background" width="1200" height="20" rx="3" />
-    {% for bucket in item.buckets %}
+    {% for bucket in item.history_buckets %}
         <rect class="strip-{{ bucket.state }}" x="{{ bucket.x }}" width="7" height="20" rx="2">
-        <title>{% blocktranslate with period=bucket.label successful=bucket.successful failed=bucket.failed unknown=bucket.unknown %}{{ period }}: {{ successful }} successful, {{ failed }} failed, {{ unknown }} unknown{% endblocktranslate %}</title>
+        <title>{% if bucket.state == 'no-data' %}{{ bucket.label }}: {% translate 'No measurements' %}{% else %}{% blocktranslate with period=bucket.label successful=bucket.successful failed=bucket.failed unknown=bucket.unknown %}{{ period }}: {{ successful }} successful, {{ failed }} failed, {{ unknown }} unknown{% endblocktranslate %}{% endif %}</title>
         </rect>
     {% endfor %}
 </svg>

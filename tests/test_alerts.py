@@ -27,7 +27,8 @@ def test_missing_virustotal_report_is_neutral_but_errors_and_detections_are_not(
     import asyncio
     from sitewatcher.bot.formatting import _format_results_summary
 
-    for message in ('VirusTotal has no report for this URL', 'VT: not_found [cached 2m]'):
+    for message in ('VirusTotal has no report for this URL', 'VT: not_found [cached 2m]',
+                    'VirusTotal analysis is pending'):
         result = CheckOutcome('malware', Status.UNKNOWN, message)
         assert _overall_from_results([result]) == 'OK'
         assert result.status == Status.UNKNOWN

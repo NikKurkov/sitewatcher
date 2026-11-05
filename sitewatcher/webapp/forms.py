@@ -23,10 +23,10 @@ class OwnerAuthenticationForm(AuthenticationForm):
             raise ValidationError(AUTH_ERROR, code='invalid_login')
 
 
-def parse_management_form(content_type: str, body: bytes) -> dict[str, str]:
+def parse_management_form(content_type: str, body: bytes, *, max_fields=40) -> dict[str, str]:
     """Decode a bounded native form; ambiguous fields are never silently accepted."""
     if content_type.split(';', 1)[0].strip().lower() == 'application/x-www-form-urlencoded':
-        values = parse_qs(body.decode('utf-8'), keep_blank_values=True, max_num_fields=40,
+        values = parse_qs(body.decode('utf-8'), keep_blank_values=True, max_num_fields=max_fields,
                           encoding='utf-8', errors='strict')
         if any(len(value) != 1 for value in values.values()):
             raise ValueError('Duplicate fields')
@@ -41,7 +41,7 @@ def parse_management_form(content_type: str, body: bytes) -> dict[str, str]:
     values = {}
     for part in message.iter_parts():
         name = part.get_param('name', header='content-disposition')
-        if (not name or name in values or len(values) >= 40 or part.is_multipart()
+        if (not name or name in values or len(values) >= max_fields or part.is_multipart()
                 or part.get_content_disposition() != 'form-data' or part.defects):
             raise ValueError('Invalid form field')
         values[name] = (part.get_payload(decode=True) or b'').decode('utf-8-sig')

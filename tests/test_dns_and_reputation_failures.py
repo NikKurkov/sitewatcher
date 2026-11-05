@@ -126,16 +126,16 @@ def test_virustotal_unavailable_or_missing_report_stays_unknown(api_key):
         requests = []
         def handler(request):
             requests.append(request)
-            return httpx.Response(404)
+            return (httpx.Response(404) if request.method == 'GET' else
+                    httpx.Response(200, json={'data': {'id': 'queued'}}))
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             result = await MalwareScanCheck('example.test', client=client,
                                            vt_cfg=_VTConfig(api_key=api_key)).run()
         assert result.status is Status.UNKNOWN
         assert result.message == (
-            'VirusTotal has no report for this URL' if api_key else
+            'VirusTotal analysis is pending' if api_key else
             'VirusTotal is not configured: API key is missing')
-        assert len(requests) == (1 if api_key else 0)
-        assert all(request.method == 'GET' for request in requests)
+        assert [request.method for request in requests] == (['GET', 'POST'] if api_key else [])
     asyncio.run(scenario())
 
 

@@ -50,7 +50,9 @@ def test_overview_problem_first_and_real_measurement(owner, client):
     assert 'data-domain-summary' in main and 'data-domain-toggle' in main
     assert 'class="domain-detail-row" hidden' in main
     assert 'class="domain-detail-layout"' in main
-    assert 'Latest monitoring checks' in main and 'Response time' in main
+    assert 'Latest monitoring checks' in main and 'Website response time' in main
+    assert 'View chart data' not in main
+    assert '<h3>Checks</h3>' in main
 
 
 def test_empty_and_no_observation_states(owner, client):
@@ -448,14 +450,14 @@ def test_overview_actions_are_accessible_header_icons_without_intro(owner, clien
     assert '/assets/activity.css' in body
     assert 'href="/domains/new"' in header and 'action="/domains/check"' in header
     assert 'aria-label="Refresh now"' in header
-    assert 'data-refresh-enabled' in header and 'aria-pressed="true"' in header
+    assert 'data-auto-refresh' in header and 'auto-refresh-toggle' not in header
     assert 'Your workspace' not in body and 'Keep an eye on the sites that matter.' not in body
     assert '<h1>Overview</h1>' not in body
     assert 'class="refresh-controls"' not in body
     settings.SITEWATCHER_READ_ONLY = True
     header = get(client, '/').content.decode().split('</header>', 1)[0]
     assert 'href="/domains/new"' not in header and 'action="/domains/check"' not in header
-    assert 'data-refresh-enabled' in header and 'aria-label="Refresh now"' in header
+    assert 'data-auto-refresh' in header and 'aria-label="Refresh now"' in header
 
 
 def test_settings_navigation_is_a_header_icon_and_marks_current_page(owner, client):
@@ -479,8 +481,9 @@ def test_owner_toolbar_keeps_order_and_limits_refresh_to_overview(owner, client,
     assert response.status_code == 200
     body = response.content.decode()
     header = body.split('<header class="topbar">', 1)[1].split('</header>', 1)[0]
-    labels = ['Add domain', 'Check all domains now', 'Live checks', 'Refresh now',
-              'Refresh every minute', 'Settings', 'Dark theme']
+    activity_label = 'Signal room' if route == '/' else 'Live checks'
+    labels = ['Add domain', 'Check all domains now', activity_label, 'Refresh now',
+              'Settings', 'Dark theme']
     positions = [header.index(f'aria-label="{label}"') for label in labels]
     assert positions == sorted(positions)
     assert 'method="post" action="/domains/check"' in header
@@ -490,7 +493,7 @@ def test_owner_toolbar_keeps_order_and_limits_refresh_to_overview(owner, client,
     else:
         assert 'data-auto-refresh' not in body and 'data-refresh-option' not in body
         assert 'data-activity-navigation hidden' in header
-        assert 'Automatic refresh is available on the overview' in header
+        assert 'auto-refresh-toggle' not in header
         assert '/assets/activity.js' not in body and 'data-live-activity' not in body
 
 
@@ -592,11 +595,26 @@ def test_chart_time_ticks_cover_full_window_in_workspace_timezone(days):
 def test_chart_caption_is_compact_and_points_keep_accessible_exact_values():
     from django.template.loader import render_to_string
     from sitewatcher.webapp.presentation import chart_context
-    report = {'domain': 'one.example', 'totals': {'latency_ms': 125.5}, 'chart': chart_context([
+    report = {'domain': 'one.example', 'totals': {'latency_ms': 125.5},
+              'response_times': [
+                  {'minutes': 15, 'latency_ms': 125.5},
+                  {'minutes': 60, 'latency_ms': 200},
+                  {'minutes': 1440, 'latency_ms': None},
+              ], 'chart': chart_context([
         {'index': 0, 'latency_ms': 125.5, 'label': '03 Nov 2026, 13:00 MSK'},
     ], 'latency_ms')}
     body = render_to_string('sitewatcher/partials/chart.html', {'report': report})
-    assert 'Website response time' in body and 'Average — 126 ms' in body
+    assert 'Website response time' in body and '126 ms' in body and '200 ms' in body
+    caption = body.split('<figcaption>', 1)[1].split('</figcaption>', 1)[0]
+    assert 'Average:' in caption
+    assert 'chart-window-label' not in caption
+    for minutes, period in [(15, '15 minutes'), (60, '1 hour'), (1440, '1 day')]:
+        tooltip_id = f'response-window-one.example-{minutes}'
+        assert f'popovertarget="{tooltip_id}"' in caption
+        assert f'aria-describedby="{tooltip_id}"' in caption
+        assert f'popover="auto" role="tooltip">{period}</span>' in caption
+    assert caption.count('class="chart-window-value"') == 3
+    assert 'Maximum' not in body and 'No data' in body
     assert 'Average of successful HTTP responses' not in body
     assert 'class="chart-y-axis"' in body and 'class="chart-plot"' in body
     assert 'tabindex="0"' in body and '13:00 MSK · 125.5 ms' in body

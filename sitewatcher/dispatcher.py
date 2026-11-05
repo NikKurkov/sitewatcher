@@ -479,7 +479,7 @@ class Dispatcher:
         if getattr(settings.checks, "ip_change", False):
             out.append(IpChangeCheck(settings.name, cfg=self.cfg.ipchange, owner_id=owner_id))
 
-        # Malware reputation check (VirusTotal passive lookup) — now with strict rate limiting
+        # Malware reputation: report lookup and missing-URL submission share the limiter.
         if getattr(settings.checks, "malware", False):
             # Provider config
             vt_key = None
@@ -509,6 +509,7 @@ class Dispatcher:
                     settings.name,
                     client=self._client,
                     vt_cfg=vt_cfg,
+                    owner_id=owner_id,
                     timeout_s=float(timeout_s),
                     vt_limiter=self._vt_limiter,
                     vt_max_wait_s=vt_max_wait_s,
@@ -535,7 +536,7 @@ class Dispatcher:
         """
         Return cached CheckOutcome if fresh enough, otherwise None. (owner-aware)
 
-        For WHOIS and RKN we do not serve cached UNKNOWN by default,
+        For WHOIS, RKN and malware we do not serve cached UNKNOWN by default,
         to allow recovery from missing evidence. Override per check with cache_unknown: true.
         """
         ttl = ttl_fn(check_name)
@@ -546,8 +547,8 @@ class Dispatcher:
         if not row:
             return None
 
-        # WHOIS/RKN failures are cached only when explicitly allowed by configuration.
-        if check_name in {'whois', 'rkn_domain', 'rkn_ip'}:
+        # Missing evidence must be retried unless unknown-result caching was explicitly enabled.
+        if check_name in {'whois', 'rkn_domain', 'rkn_ip', 'malware'}:
             try:
                 status_str = str(row["status"]).upper()
             except Exception:
