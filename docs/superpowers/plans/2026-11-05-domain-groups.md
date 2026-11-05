@@ -24,7 +24,7 @@ search and status filtering across collapsed groups, empty/failed HTTP observati
   grouped reorder/rollback, mobile and light/dark presentation, JS behavior checks.
 - [x] Integrate: full Python/JS/translation/Compose suites and independent review;
   browser acceptance and screenshots desktop/mobile/light/dark.
-- [ ] Release: verified backups and clone migration rehearsal, immutable artifacts,
+- [x] Release: verified backups and clone migration rehearsal, immutable artifacts,
   runtime source/settings/history/publication read-back and rollback record.
 
 - [x] Status-page group selection: additive migration, current/future members, flat
