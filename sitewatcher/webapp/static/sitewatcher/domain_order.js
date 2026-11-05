@@ -9,6 +9,10 @@
   if (!token || !handles.length) return;
   const rows = () => [...body.children].filter(node => node.matches('tbody[data-domain-name]'));
   const rowOf = target => target.closest('tbody[data-domain-name]');
+  const groupOf = target => {
+    const node = target.closest('[data-domain-group], tbody[data-group-id]');
+    return node ? node.dataset.domainGroup ?? node.dataset.groupId : null;
+  };
   const sameGroup = (a, b) => a.dataset.favorite === b.dataset.favorite && a.dataset.groupId === b.dataset.groupId;
   let source = null;
   let marked = null;
@@ -19,7 +23,7 @@
     message.classList.toggle('domain-order-error', error);
   };
   const clearMarker = () => {
-    marked?.classList.remove('domain-drop-before', 'domain-drop-after');
+    marked?.classList.remove('domain-drop-before', 'domain-drop-after', 'domain-drop-group');
     marked = null;
   };
   const endDrag = () => {
@@ -51,6 +55,38 @@
       pending = false;
       table.setAttribute('aria-busy', 'false');
       handles.forEach(handle => { handle.draggable = true; handle.setAttribute('aria-disabled', 'false'); });
+    }
+  };
+  const moveGroup = async (row, groupId) => {
+    if (pending) return;
+    pending = true;
+    table.setAttribute('aria-busy', 'true');
+    row.classList.add('domain-is-moving');
+    handles.forEach(handle => { handle.draggable = false; });
+    try {
+      const response = await fetch('/settings/groups', {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+          'X-CSRFToken': token.value, Accept: 'application/json'},
+        body: new URLSearchParams({operation: 'move', group_id: groupId,
+          domains: JSON.stringify([row.dataset.domainName])}),
+      });
+      if (!response.ok || response.redirected || !(await response.json()).saved) throw new Error('Move not confirmed');
+      try {
+        const key = table.dataset.groupStorageKey;
+        const saved = JSON.parse(localStorage.getItem(key) || '{}');
+        const state = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+        state[groupId] = true;
+        localStorage.setItem(key, JSON.stringify(state));
+      } catch { /* Persistence is optional; the group move is already saved. */ }
+      location.reload();
+    } catch {
+      announce(table.dataset.moveFailed, true);
+    } finally {
+      pending = false;
+      table.setAttribute('aria-busy', 'false');
+      row.classList.remove('domain-is-moving');
+      handles.forEach(handle => { handle.draggable = true; });
     }
   };
   handles.forEach(handle => {
@@ -86,6 +122,14 @@
     if (!source) return;
     const target = rowOf(event.target);
     clearMarker();
+    const groupId = groupOf(event.target);
+    if (groupId !== null && groupId !== source.dataset.groupId) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      marked = event.target.closest('[data-domain-group], tbody[data-group-id]');
+      marked.classList.add('domain-drop-group');
+      return;
+    }
     if (!target || target === source || !sameGroup(target, source)) {
       event.dataTransfer.dropEffect = 'none';
       return;
@@ -99,6 +143,13 @@
   table.addEventListener('drop', event => {
     if (!source) return;
     event.preventDefault();
+    const groupId = groupOf(event.target);
+    if (groupId !== null && groupId !== source.dataset.groupId) {
+      const row = source;
+      endDrag();
+      moveGroup(row, groupId);
+      return;
+    }
     const target = rowOf(event.target);
     if (target && target !== source && sameGroup(target, source)) {
       const before = [...body.children];

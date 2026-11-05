@@ -83,16 +83,22 @@ def group_for_domain(owner_id: int, name: str) -> int:
         return _group_for_domain(conn, owner_id, name)
 
 
-def create_group(owner_id: int, name: str) -> int:
+def _create(conn: sqlite3.Connection, owner_id: int, name: str) -> int:
+    """Create within the caller's transaction so failed domain writes leave no group."""
     name, key = _name(name)
-    storage._ensure_initialized()
     try:
-        with storage._write_connection() as conn:
-            conn.execute('INSERT OR IGNORE INTO users(telegram_id) VALUES(?)', (owner_id,))
-            return conn.execute('INSERT INTO domain_groups(owner_id,name,name_key) VALUES(?,?,?)',
-                                (owner_id, name, key)).lastrowid
+        return conn.execute('INSERT INTO domain_groups(owner_id,name,name_key) VALUES(?,?,?)',
+                            (owner_id, name, key)).lastrowid
     except sqlite3.IntegrityError:
         raise ValueError('Group already exists') from None
+
+
+def create_group(owner_id: int, name: str) -> int:
+    _name(name)
+    storage._ensure_initialized()
+    with storage._write_connection() as conn:
+        conn.execute('INSERT OR IGNORE INTO users(telegram_id) VALUES(?)', (owner_id,))
+        return _create(conn, owner_id, name)
 
 
 def rename_group(owner_id: int, group_id: int, name: str) -> None:

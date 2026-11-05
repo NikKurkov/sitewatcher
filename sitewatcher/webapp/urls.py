@@ -17,6 +17,7 @@ ASSETS = {
     'activity.css': 'text/css; charset=utf-8',
     'domain_order.js': 'application/javascript; charset=utf-8',
     'domain_groups.js': 'application/javascript; charset=utf-8',
+    'group_form.js': 'application/javascript; charset=utf-8',
     'route_view.js': 'application/javascript; charset=utf-8',
     'activity.js': 'application/javascript; charset=utf-8',
     'theme.js': 'application/javascript; charset=utf-8',
@@ -43,7 +44,7 @@ def health(request):
                 ('domain_groups', 'id,owner_id,name,name_key'),
                 ('domain_group_members', 'owner_id,domain,group_id'),
                 ('webapp_workspace', 'owner_id,public_enabled'),
-                ('webapp_statuspage', 'workspace_id,access_mode,public_enabled,private_token_nonce'),
+                ('webapp_statuspage', 'workspace_id,access_mode,public_enabled,private_token_nonce,public_groups'),
                 ('auth_user', 'password'), ('django_session', 'session_key'),
             ):
                 connection.execute(f'SELECT {columns} FROM {table} LIMIT 0')

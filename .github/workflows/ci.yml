@@ -28,6 +28,8 @@ jobs:
           node --check sitewatcher/webapp/static/sitewatcher/theme.js
           node tests/test_web_controls.cjs
           node tests/test_domain_groups.cjs
+          node tests/test_domain_drag.cjs
+          node --check sitewatcher/webapp/static/sitewatcher/group_form.js
           node --check sitewatcher/webapp/static/sitewatcher/activity.js
           node tests/test_live_activity.cjs
           node tests/test_route_view.cjs

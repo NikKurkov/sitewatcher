@@ -272,6 +272,7 @@ def dashboard(request):
                                for row in members)})
         return _render(request, 'overview', {'rows': filtered, 'total': len(rows),
             'groups': groups, 'group_choices': snapshot['groups'],
+            'show_groups': len(snapshot['groups']) > 1,
             'group_filtered': bool(search or status != 'all'),
             'attention': attention, 'summary': snapshot['summary'], 'report': report,
             'healthy': sum(row['state'] == 'ok' for row in rows),
@@ -377,7 +378,7 @@ def _mutate(request, action):
     form.pop('csrfmiddlewaretoken', None)
     allowed = {'domain'}
     if action in {'add', 'save'}:
-        allowed.update((*NUMERIC_FIELDS, *LIST_FIELDS, 'http_url', 'http_scheme', 'original_domain', 'revision', 'proxy_mode', 'proxy', 'group_id', 'original_group_id'))
+        allowed.update((*NUMERIC_FIELDS, *LIST_FIELDS, 'http_url', 'http_scheme', 'original_domain', 'revision', 'proxy_mode', 'proxy', 'group_id', 'original_group_id', 'new_group_name'))
         allowed.update(f'check.{name}' for name in ChecksModel.model_fields)
     elif action == 'favorite':
         allowed.update({'favorite', 'q', 'status', 'days'})

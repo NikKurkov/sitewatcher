@@ -358,18 +358,30 @@ VirusTotal submission uses the same private proxy and counts as a separate API r
 
 ## Site groups
 
-The owner list uses collapsible groups. Main is permanent; existing and unassigned
-sites belong to it. Select a group when adding or editing a site. Batch-add applies
-one group to all addresses. Manage groups creates/renames/deletes custom groups;
-deleting a group moves its sites to Main without changing settings or history.
+Main is permanent and contains existing/unassigned sites. With one group the owner
+list is an ordinary table; multiple group headers independently collapse their
+sites while retaining problem counts. Search spans all groups and opens results.
+Disclosure state is saved per owner/browser. There are no selection checkboxes or
+global disclosure buttons in the list; group management is linked from Settings.
 
-Select rows or the displayed sites of a group, then Move selected. Search and
-status filters span all groups and open matching groups. Disclosure preferences
-are saved per owner/browser. Problem counts remain visible when collapsed.
-Favorites and manual ordering stay within each group. Group names are private and
-are not published on status pages. An outdated edit form cannot revert a later
-bulk move: reload the form after a settings/group conflict.
+Add/edit forms select an existing group or New. A new name is saved atomically with
+the domain or batch; validation failures and cancellation create no orphan groups.
+A stale edit cannot undo a newer group transfer. Reload after a conflict.
+
+Drag a domain by its handle onto another group's header or domain row, including
+empty/collapsed groups. Confirmation opens the destination group and refreshes
+counts. If confirmation fails, reload to check saved state. Favorites and manual
+ordering remain within groups. Editing a domain provides a keyboard-accessible
+transfer alternative. Deleting a group returns its sites to Main with history and
+monitoring settings retained.
+
+Status-page editors can select one or several groups. Current members and future
+additions are dynamically published, unioned with explicitly selected domains.
+Only selected group names may enter public HTML. Existing pages default to no
+selected groups and retain their old site selection. Moving a domain changes its
+visibility on group-bound pages. Public data/activity use the same owner-bound
+selection; JSON stays flat and contains no internal group identifiers.
 
 Response charts require enabled HTTP checks and observations in the selected
-period. Missing observations hide the chart section while preserving other checks.
-Failed/unknown HTTP observations still count as observations.
+period; otherwise the chart section is hidden. Failed/unknown HTTP observations
+still count as observations. Other checks remain visible.

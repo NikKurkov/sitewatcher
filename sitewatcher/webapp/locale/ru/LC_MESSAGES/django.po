@@ -2306,3 +2306,27 @@ msgstr "Выбрать показанные сайты группы «%(group)s�
 
 msgid "Select displayed sites"
 msgstr "Выбрать показанные"
+
+msgid "New"
+msgstr "Новая"
+
+msgid "New group name"
+msgstr "Название новой группы"
+
+msgid "Choose New to create a group when you save this site."
+msgstr "Выберите «Новая»: группа создастся при сохранении сайта."
+
+msgid "Could not confirm the group move. Reload the page to check the saved group."
+msgstr "Не удалось подтвердить перенос. Обновите страницу, чтобы проверить сохранённую группу."
+
+msgid "Publish groups"
+msgstr "Показывать группы"
+
+msgid "All current and future sites in selected groups appear on this page."
+msgstr "Все текущие и новые сайты выбранных групп появятся на этой странице."
+
+msgid "Selected domains appear alongside selected groups. Monitoring settings stay in your workspace."
+msgstr "Выбранные отдельно сайты показываются вместе с группами. Настройки проверок остаются в вашем рабочем пространстве."
+
+msgid "Other sites"
+msgstr "Другие сайты"

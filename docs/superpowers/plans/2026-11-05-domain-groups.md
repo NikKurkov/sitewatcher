@@ -19,10 +19,13 @@ search and status filtering across collapsed groups, empty/failed HTTP observati
 - [x] Charts: regression-first conditional presentation owner/detail/public, including
   disabled checks and failed-only observations. Assigned hide_empty_http_charts.
 - [x] Owner UI: regression-first group routes/forms, owner isolation/read-only/CSRF,
-  add/edit selection, bulk move and group management. Root.
-- [x] Accordion UX: grouped table headers/counters, search behavior, persisted state,
+  add/edit selection, cross-group dragging, inline New and Settings-only group management. Root.
+- [x] Accordion UX: grouped table headers/counters, search behavior, persisted state, no list selection/global buttons,
   grouped reorder/rollback, mobile and light/dark presentation, JS behavior checks.
 - [x] Integrate: full Python/JS/translation/Compose suites and independent review;
   browser acceptance and screenshots desktop/mobile/light/dark.
 - [ ] Release: verified backups and clone migration rehearsal, immutable artifacts,
   runtime source/settings/history/publication read-back and rollback record.
+
+- [x] Status-page group selection: additive migration, current/future members, flat
+  public data/activity privacy, old-page compatibility and browser verification.

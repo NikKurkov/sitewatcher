@@ -42,6 +42,8 @@
     <h1 class="{% if status_page_title %}status-page-title{% else %}sr-only{% endif %}">{% if status_page_title %}{{ status_page_title }}{% else %}{% translate 'Service status' %}{% endif %}</h1>
     {% if report.domains %}{% include 'sitewatcher/partials/activity.html' %}{% endif %}
     {% if report.domains %}
+        {% for section in published_sections %}
+        {% if section.label %}<details class="public-group" open><summary class="group-toggle"><span class="group-name">{{ section.label }}</span> <span class="group-count">{% blocktranslate count count=section.domains|length %}{{ count }} site{% plural %}{{ count }} sites{% endblocktranslate %}</span></summary>{% endif %}
         <section class="panel public-services" aria-label="{% translate 'Published service status' %}">
             <div class="public-services-header">
                 <span>{% translate 'Domain' %}</span>
@@ -52,7 +54,7 @@
                 <span class="public-periods">{% include 'sitewatcher/partials/periods.html' %}</span>
             </div>
             <ul class="public-services-list" data-disclosure-scope="public">
-                {% for item in report.domains %}
+                {% for item in section.domains %}
                     <li data-domain-key="{{ item.domain }}">
                         <details class="public-component-chart" data-domain-disclosure>
                             <summary class="public-service-row">
@@ -73,6 +75,8 @@
             </ul>
             {% include 'sitewatcher/partials/history_legend.html' %}
         </section>
+        {% if section.label %}</details>{% endif %}
+        {% endfor %}
     {% else %}
         <section class="panel empty-state">
             <div class="empty-symbol" aria-hidden="true">◉</div>

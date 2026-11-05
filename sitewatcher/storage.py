@@ -648,7 +648,7 @@ def set_domain_override(
     owner_id: int, domain: str, patch: dict, *, replace: bool = False,
     create_missing: bool = False, create_only: bool = False,
     expected_revision: str | None = None, group_id: int | None = None,
-    expected_group_id: int | None = None,
+    expected_group_id: int | None = None, new_group_name: str | None = None,
 ) -> dict:
     """Atomically merge settings; explicit creation includes the domain in the same transaction."""
     _ensure_initialized()
@@ -689,6 +689,9 @@ def set_domain_override(
         current = {} if replace else (_read_domain_override(conn, owner_id, domain) or {})
         _merge(current, patch)
         _store_domain_override(conn, owner_id, domain, current)
+        if new_group_name is not None:
+            from .domain_groups import _create
+            group_id = _create(conn, owner_id, new_group_name)
         if group_id is not None:
             from .domain_groups import _assign
             _assign(conn, owner_id, [domain], group_id)
@@ -698,7 +701,8 @@ def set_domain_override(
 
 def rename_domain(owner_id: int, old: str, new: str, override: dict, *,
                   expected_revision: str, group_id: int | None = None,
-                  expected_group_id: int | None = None) -> None:
+                  expected_group_id: int | None = None,
+                  new_group_name: str | None = None) -> None:
     """Move one owned monitor atomically, retaining history/order and resetting host state."""
     _ensure_initialized()
     with _write_connection() as conn:
@@ -758,6 +762,9 @@ def rename_domain(owner_id: int, old: str, new: str, override: dict, *,
         conn.execute('DELETE FROM owner_dns_state WHERE owner_id=? AND domain IN (?,?)',
                      (owner_id, old, new))
         from .domain_groups import _assign, _group_for_domain
+        if new_group_name is not None:
+            from .domain_groups import _create
+            group_id = _create(conn, owner_id, new_group_name)
         target_group = group_id if group_id is not None else _group_for_domain(conn, owner_id, old)
         _assign(conn, owner_id, [new], target_group)
         # Cascades discard old route/activity/alert state rather than attaching it to another host.
@@ -765,6 +772,7 @@ def rename_domain(owner_id: int, old: str, new: str, override: dict, *,
 
 def create_domains_with_overrides(
     owner_id: int, overrides: dict[str, dict], *, group_id: int | None = None,
+    new_group_name: str | None = None,
 ) -> None:
     """Create a validated batch for one owner, rolling back on conflicts or write errors."""
     _ensure_initialized()
@@ -776,6 +784,9 @@ def create_domains_with_overrides(
                 raise ValueError("Domain already exists")
             conn.execute("INSERT INTO domains(owner_id,name) VALUES(?,?)", (int(owner_id), domain))
             _store_domain_override(conn, owner_id, domain, data)
+        if new_group_name is not None:
+            from .domain_groups import _create
+            group_id = _create(conn, owner_id, new_group_name)
         if group_id is not None:
             from .domain_groups import _assign
             _assign(conn, owner_id, list(overrides), group_id)

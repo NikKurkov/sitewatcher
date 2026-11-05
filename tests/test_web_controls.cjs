@@ -109,7 +109,7 @@ assert.equal(p.timers.size, 0);
 assert.equal(JSON.parse(p.storage.get(focusKey)).id, 'q', 'native Enter also remembers focus');
 console.log('Automatic filters: debounce, external form controls, Enter, IME, focus and disclosure restoration passed.');
 
-function refreshPage(stored, {sceneOpen = false, tooltipOpen = false, hidden = false, selected = false} = {}) {
+function refreshPage(stored, {sceneOpen = false, tooltipOpen = false, hidden = false} = {}) {
   const values = new Map([['refresh', stored]]);
   let interval;
   let reloads = 0;
@@ -117,7 +117,6 @@ function refreshPage(stored, {sceneOpen = false, tooltipOpen = false, hidden = f
     document: {hidden, activeElement: {matches: () => false}, addEventListener() {},
       querySelector: selector => selector === '[data-auto-refresh]' ? {}
         : selector === '[data-live-activity]:not([hidden])' && sceneOpen ? {}
-        : selector === '[data-domain-select]:checked' && selected ? {}
         : selector.includes('.chart-tooltip') && tooltipOpen ? {} : null,
       querySelectorAll: () => []},
     sessionStorage: {getItem: key => values.get(key) ?? null},
@@ -132,7 +131,7 @@ for (const stored of ['off', 'on', null]) {
   refresh.tick();
   assert.equal(refresh.reloads(), 1, 'Refresh stays on even with an old disabled preference');
 }
-for (const options of [{sceneOpen: true}, {tooltipOpen: true}, {hidden: true}, {selected: true}]) {
+for (const options of [{sceneOpen: true}, {tooltipOpen: true}, {hidden: true}]) {
   const refresh = refreshPage('on', options);
   refresh.tick();
   assert.equal(refresh.reloads(), 0, 'Active reading and hidden pages defer refresh');

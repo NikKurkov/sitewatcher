@@ -6,7 +6,7 @@ import secrets
 
 from django import forms
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.http import Http404, HttpResponse
 from django.shortcuts import render
 from django.utils import timezone
@@ -15,7 +15,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views.decorators.debug import sensitive_variables
 from django.views.decorators.http import require_http_methods, require_safe
 
-from sitewatcher import storage
+from sitewatcher import domain_groups, storage
 from .accounts import owner_required
 from .models import StatusPage, Workspace
 from .status_page_links import private_token
@@ -94,7 +94,8 @@ def listing(request):
 
 
 @sensitive_variables('private_link')
-def _editor(request, page, form=None, *, selected=None, error='', status=200, private_link=''):
+def _editor(request, page, form=None, *, selected=None, selected_groups=None,
+            error='', status=200, private_link=''):
     if form is None:
         form = StatusPageForm(initial={
             'title': (page.title or _('Service status')) if page else '',
@@ -106,9 +107,13 @@ def _editor(request, page, form=None, *, selected=None, error='', status=200, pr
     if not private_link and page and page.private_path:
         private_link = request.build_absolute_uri(page.private_path)
     selected = set(page.public_domains if page else []) if selected is None else set(selected)
+    selected_groups = set(page.public_groups if page else []) if selected_groups is None else set(selected_groups)
+    groups = [{**group, 'label': _('Main') if group['is_default'] else group['name'],
+               'selected': group['id'] in selected_groups}
+              for group in domain_groups.list_groups(request.workspace.owner_id)]
     try:
         return render(request, 'sitewatcher/status_page_form.html', {
-            'page': page, 'form': form, 'error': error,
+            'page': page, 'form': form, 'error': error, 'groups': groups,
             'private_link': private_link, 'read_only': settings.SITEWATCHER_READ_ONLY,
             'domains': [{'name': name, 'selected': name in selected}
                         for name in storage.list_domains(request.workspace.owner_id)],
@@ -138,27 +143,40 @@ def editor(request, page_id=None):
     action = values.pop('action', 'save')
     owned = set(storage.list_domains(request.workspace.owner_id))
     selection = {name[7:]: value for name, value in values.items() if name.startswith('domain.')}
-    allowed = set(StatusPageForm.base_fields) | {'domain.' + name for name in owned}
+    owned_groups = {str(group['id']) for group in domain_groups.list_groups(request.workspace.owner_id)}
+    group_selection = {key[6:]: value for key, value in values.items() if key.startswith('group.')}
+    selected_groups = sorted(int(key) for key in group_selection if key in owned_groups)
+    allowed = (set(StatusPageForm.base_fields) | {'domain.' + name for name in owned}
+               | {'group.' + key for key in owned_groups})
     if (action not in {'save', 'rotate', 'delete'} or set(values) - allowed
-            or not set(selection) <= owned or any(value != 'on' for value in selection.values())):
+            or not set(selection) <= owned or any(value != 'on' for value in selection.values())
+            or not set(group_selection) <= owned_groups
+            or any(value != 'on' for value in group_selection.values())):
         return HttpResponse(_('Invalid request'), status=400)
     form = StatusPageForm({key: value for key, value in values.items()
                            if key in StatusPageForm.base_fields}, page=page)
     if not form.is_valid():
-        return _editor(request, page, form, selected=selection, status=400)
+        return _editor(request, page, form, selected=selection, selected_groups=selected_groups, status=400)
     if page and form.cleaned_data['revision'] != page.updated_at.isoformat():
-        return _editor(request, page, form, selected=selection,
+        return _editor(request, page, form, selected=selection, selected_groups=selected_groups,
                        error=_('This page changed. Reload before saving.'), status=409)
     if not page and action != 'save':
         return HttpResponse(_('Invalid request'), status=400)
     private_link = ''
     try:
         with transaction.atomic():
+            # Validate live choices in the same database transaction as the page write.
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT id FROM domain_groups WHERE owner_id=%s',
+                               (request.workspace.owner_id,))
+                current_groups = {0, *(row[0] for row in cursor.fetchall())}
+            if not set(selected_groups) <= current_groups:
+                return HttpResponse(_('Invalid request'), status=400)
             if action == 'delete':
                 deleted, _delete_counts = StatusPage.objects.filter(pk=page.pk,
                     workspace=request.workspace, updated_at=page.updated_at).delete()
                 if not deleted:
-                    return _editor(request, page, form, selected=selection,
+                    return _editor(request, page, form, selected=selection, selected_groups=selected_groups,
                        error=_('This page changed. Reload before saving.'), status=409)
                 sync_legacy_page(page, deleted=True)
                 return HttpResponse(status=303, headers={'Location': '/settings/status-pages'})
@@ -170,7 +188,8 @@ def editor(request, page_id=None):
                 update = {'title': form.cleaned_data['title'],
                           'access_mode': form.cleaned_data['access_mode'],
                           'public_enabled': form.cleaned_data['enabled'],
-                          'public_domains': sorted(selection)}
+                          'public_domains': sorted(selection),
+                          'public_groups': selected_groups}
                 if form.cleaned_data['access_mode'] == 'public' and form.cleaned_data['public_slug']:
                     update['public_slug'] = form.cleaned_data['public_slug']
             enabled = update.get('public_enabled', page.public_enabled if page else True)
@@ -188,7 +207,7 @@ def editor(request, page_id=None):
                 updated = StatusPage.objects.filter(pk=page.pk, workspace=request.workspace,
                     updated_at=page.updated_at).update(**update, updated_at=timezone.now())
                 if not updated:
-                    return _editor(request, page, form, selected=selection,
+                    return _editor(request, page, form, selected=selection, selected_groups=selected_groups,
                        error=_('This page changed. Reload before saving.'), status=409)
                 page.refresh_from_db()
             else:
@@ -197,7 +216,7 @@ def editor(request, page_id=None):
                 page = StatusPage.objects.create(workspace=request.workspace, **update)
             sync_legacy_page(page)
     except IntegrityError:
-        return _editor(request, page, form, selected=selection,
+        return _editor(request, page, form, selected=selection, selected_groups=selected_groups,
                        error=_('The page could not be saved. Reload and try again.'), status=409)
     if private_link:
         return _editor(request, page, private_link=private_link)

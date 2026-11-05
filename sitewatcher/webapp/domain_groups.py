@@ -2,7 +2,7 @@
 import json
 
 from django.conf import settings
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils.translation import gettext as _
 from django.views.decorators.http import require_http_methods
@@ -50,6 +50,8 @@ def management(request):
                             or len(set(names)) != len(names)):
                         raise ValueError('Select between 1 and 1000 sites')
                     domain_groups.move_domains(owner_id, names, group_id)
+            if operation == 'move' and request.headers.get('Accept') == 'application/json':
+                return JsonResponse({'saved': True})
             return HttpResponse(status=303, headers={'Location': (
                 '/' if operation == 'move' else '/settings/groups')})
         except (ValueError, TypeError, OverflowError, RecursionError) as exception:

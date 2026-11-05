@@ -133,16 +133,9 @@
 .public-status-summary p { font-size: 13px; }
 
 /* Shared table columns keep dense monitoring rows aligned across collapsible groups. */
-.group-toolbar, .group-view-actions, .bulk-move, .group-header-content,
+.group-header-content,
 .group-management-heading, .group-rename, .group-create { display: flex; align-items: center; gap: 12px; }
-.group-toolbar { flex-wrap: wrap; justify-content: space-between; margin: 0 0 16px; }
-.group-view-actions, .bulk-move { flex-wrap: wrap; }
-.group-view-actions button, .group-view-actions .button { font-size: 13px; min-height: 40px; padding: 8px 12px; }
-.bulk-move { border-left: 1px solid var(--line); padding-left: 16px; }
-.bulk-move select { width: auto; max-width: 240px; }
-[data-domain-groups] > tbody[hidden], [data-bulk-move][hidden],
-[data-domain-selection][hidden], [data-group-selection][hidden],
-[data-groups-expand][hidden], [data-groups-collapse][hidden] { display: none !important; }
+[data-domain-groups] > tbody[hidden] { display: none !important; }
 .domains-table > .domain-group-heading > tr > th { padding: 0; background: var(--surface-soft); border-block: 1px solid var(--line); }
 .group-header-content { gap: 16px; padding: 6px 12px; }
 .group-toggle { flex: 1; min-width: 0; justify-content: flex-start; flex-wrap: wrap; gap: 10px 14px; text-align: left; padding: 8px 4px; border: 0; background: transparent; }
@@ -154,10 +147,6 @@
 .group-attention, .group-healthy { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; }
 .group-attention { color: var(--amber); }
 .group-healthy { color: var(--green); }
-.group-select-all, .domain-selection { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; flex-shrink: 0; }
-.group-select-all { font-size: 12px; color: var(--muted); }
-.group-select-all input, .domain-selection input { width: 17px; height: 17px; min-height: 17px; padding: 0; margin: 0; flex: 0 0 17px; accent-color: var(--green); cursor: pointer; }
-.domain-selection { min-height: 40px; margin-right: 2px; }
 .group-management-list { display: grid; gap: 16px; }
 .group-management-heading { justify-content: space-between; margin-bottom: 16px; }
 .group-management-heading h2 { margin: 0; overflow-wrap: anywhere; }
@@ -172,20 +161,15 @@
   .domains-table > .domain-group-heading > tr { display: block; padding: 0; margin: 0; border: 0; box-shadow: none; }
   .domains-table > .domain-group-heading > tr > th { display: block; border: 1px solid var(--line); border-radius: 8px; }
   .group-header-content { flex-wrap: nowrap; gap: 8px; padding: 6px 10px; }
-  .group-select-all { min-height: 44px; }
-  .group-select-all > span { display: none; }
   .group-healthy, .group-attention { margin-left: 32px; }
-  .group-toolbar { align-items: stretch; }
-  .bulk-move { border-left: 0; padding: 12px 0 0; border-top: 1px solid var(--line); flex-basis: 100%; }
 }
 @media (max-width: 560px) {
-  .group-view-actions { gap: 6px; }
-  .group-view-actions button, .group-view-actions .button { padding-inline: 8px; font-size: 12px; }
   .group-rename, .group-create { align-items: stretch; flex-direction: column; }
-  .bulk-move select { max-width: 100%; }
 }
 @media (max-width: 1000px) {
   .domains-table > .domain-group-empty { display: block; }
   .domains-table > .domain-group-empty > tr { display: block; padding: 0; border: 0; }
   .domains-table > .domain-group-empty > tr > td { display: block; padding: 16px; }
 }
+.domains-table > .domain-drop-group > tr { box-shadow: inset 0 0 0 2px var(--green); background: var(--green-soft); }
+.domain-is-moving { opacity: .5; }

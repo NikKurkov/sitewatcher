@@ -186,3 +186,102 @@ def test_edit_group_assignment_requires_valid_original_group(baseline):
     with pytest.raises(ValueError, match='Settings changed; reload this page before saving'):
         web_actions.save_domain(cfg, 11, form)
     assert storage.get_domain_override(11, 'example.com') is None
+
+
+def test_add_batch_creates_one_group_with_all_domains():
+    groups = groups_module()
+    cfg = AppConfig()
+    assert web_actions.add_domains(cfg, 11, {
+        'domain': 'a.com,b.com', 'group_id': 'new', 'new_group_name': ' Projects ',
+    }) == 2
+    created = groups.list_groups(11)[1]
+    assert created['name'] == 'Projects'
+    assert groups.group_for_domain(11, 'a.com') == created['id']
+    assert groups.group_for_domain(11, 'b.com') == created['id']
+
+
+@pytest.mark.parametrize('rename', [False, True])
+def test_edit_creates_group_atomically_and_requires_fresh_baseline(rename):
+    groups = groups_module()
+    cfg = AppConfig()
+    storage.add_domain(11, 'example.com')
+    context = web_actions.settings_context(cfg, 11, 'example.com')
+    form = {**context['values'], 'group_id': 'new', 'new_group_name': 'Projects',
+            'check.ping': 'off'}
+    if rename:
+        form['domain'] = 'renamed.com'
+    moved = groups.create_group(11, 'Moved')
+    groups.move_domains(11, ['example.com'], moved)
+    with pytest.raises(ValueError, match='Settings changed'):
+        web_actions.save_domain(cfg, 11, form)
+    assert [item['name'] for item in groups.list_groups(11)] == ['', 'Moved']
+    assert storage.get_domain_override(11, 'example.com') is None
+    assert not storage.domain_exists(11, 'renamed.com')
+    form['original_group_id'] = str(moved)
+    target = web_actions.save_domain(cfg, 11, form)
+    assert target == ('renamed.com' if rename else 'example.com')
+    assert groups.list_groups(11)[2]['name'] == 'Projects'
+    assert groups.group_for_domain(11, target) == groups.list_groups(11)[2]['id']
+    assert storage.get_domain_override(11, target)['checks']['ping'] is False
+
+
+@pytest.mark.parametrize('form', [
+    {'domain': 'a.com', 'new_group_name': ''},
+    {'domain': 'a.com', 'new_group_name': 'Main'},
+    {'domain': 'a.com', 'new_group_name': 'Projects', 'http_timeout_s': '0'},
+    {'domain': 'invalid host', 'new_group_name': 'Projects'},
+    {'domain': 'a.com,a.com', 'new_group_name': 'Projects'},
+])
+def test_invalid_batch_does_not_create_orphan_group(form):
+    groups = groups_module()
+    with pytest.raises(ValueError):
+        web_actions.add_domains(AppConfig(), 11, {**form, 'group_id': 'new'})
+    assert groups.list_groups(11) == [{'id': 0, 'name': '', 'is_default': True}]
+    assert not storage.domain_exists(11, 'a.com')
+
+
+def test_new_group_conflict_rolls_back_settings_and_batch_domains():
+    groups = groups_module()
+    cfg = AppConfig()
+    groups.create_group(11, 'Café')
+    with pytest.raises(ValueError, match='Group already exists'):
+        web_actions.add_domains(cfg, 11, {
+            'domain': 'a.com,b.com', 'group_id': 'new', 'new_group_name': 'CAFE\u0301',
+        })
+    assert not storage.domain_exists(11, 'a.com')
+    assert not storage.domain_exists(11, 'b.com')
+    storage.add_domain(11, 'example.com')
+    context = web_actions.settings_context(cfg, 11, 'example.com')
+    with pytest.raises(ValueError, match='Group already exists'):
+        web_actions.save_domain(cfg, 11, {
+            **context['values'], 'domain': 'renamed.com', 'group_id': 'new',
+            'new_group_name': 'CAFÉ', 'check.ping': 'off',
+        })
+    assert storage.domain_exists(11, 'example.com')
+    assert not storage.domain_exists(11, 'renamed.com')
+    assert storage.get_domain_override(11, 'example.com') is None
+
+
+def test_direct_batch_conflict_rolls_back_new_group_and_partial_domains():
+    groups = groups_module()
+    storage.add_domain(11, 'existing.com')
+    with pytest.raises(ValueError, match='Domain already exists'):
+        storage.create_domains_with_overrides(11, {'new.com': {}, 'existing.com': {}},
+                                              new_group_name='Projects')
+    assert not storage.domain_exists(11, 'new.com')
+    assert len(groups.list_groups(11)) == 1
+
+
+def test_create_single_domain_in_new_group_and_ignore_name_for_existing_group():
+    groups = groups_module()
+    cfg = AppConfig()
+    web_actions.save_domain(cfg, 11, {
+        'domain': 'example.com', 'group_id': 'new', 'new_group_name': 'Projects',
+    }, create=True)
+    gid = groups.list_groups(11)[1]['id']
+    assert groups.group_for_domain(11, 'example.com') == gid
+    web_actions.add_domains(cfg, 11, {
+        'domain': 'another.com', 'group_id': str(gid), 'new_group_name': 'Ignored',
+    })
+    assert len(groups.list_groups(11)) == 2
+    assert groups.group_for_domain(11, 'another.com') == gid

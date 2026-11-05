@@ -26,20 +26,12 @@
     {% endif %}
     {% if total %}
         {% include 'sitewatcher/partials/activity.html' %}
-        <div class="group-toolbar">
-            <div class="group-view-actions"><button type="button" data-groups-expand hidden>{% translate 'Expand all' %}</button><button type="button" data-groups-collapse hidden>{% translate 'Collapse all' %}</button><a class="button" href="{% url 'domain_groups' %}">{% translate 'Manage groups' %}</a></div>
-            {% if not read_only %}<form method="post" action="{% url 'domain_groups' %}" class="bulk-move" data-bulk-move hidden>
-                {% csrf_token %}<input type="hidden" name="operation" value="move"><input type="hidden" name="domains" value="[]" data-selected-domains>
-                <span data-selected-count aria-live="polite" data-template="{% translate 'Selected: {count}' %}"></span>
-                <label class="sr-only" for="bulk-group">{% translate 'Move selected sites to group' %}</label><select id="bulk-group" name="group_id">{% for group in group_choices %}<option value="{{ group.id }}">{% if group.is_default %}{% translate 'Main' %}{% else %}{{ group.name }}{% endif %}</option>{% endfor %}</select>
-                <button type="submit" data-move-submit disabled>{% translate 'Move selected' %}</button><button type="button" data-selection-clear>{% translate 'Clear selection' %}</button>
-            </form>{% endif %}
-        </div>
         <section class="panel domain-list" data-disclosure-scope="owner-{{ request.workspace.pk }}" aria-label="{% translate 'Domains' %}">
             <p class="sr-only" data-order-status role="status"></p>
             <table class="domains-table" data-domain-groups data-group-storage-key="sitewatcher-groups-{{ request.workspace.pk }}" data-group-filtered="{{ group_filtered|yesno:'true,false' }}"{% if not read_only %} data-domain-order
                 data-saved="{% translate 'Domain order saved' %}"
                 data-failed="{% translate 'Could not confirm the new order. Reload the page and try again.' %}"
+                data-move-failed="{% translate 'Could not confirm the group move. Reload the page to check the saved group.' %}"
                 data-group="{% translate 'Favorites stay at the top. Move domains within their group.' %}"{% endif %}>
                 <caption class="sr-only">{% translate 'Domains, with favorites first. Historical percentages describe HTTP checks in the selected period.' %}</caption>
                 <colgroup>
@@ -77,6 +69,7 @@
                     </tr>
                 </thead>
                     {% for group in groups %}
+                    {% if show_groups %}
                     <tbody class="domain-group-heading" data-domain-group="{{ group.id }}" data-group-domain-count="{{ group.total }}">
                         <tr><th colspan="6" scope="colgroup"><div class="group-header-content">
                             <button class="group-toggle" type="button" data-group-toggle aria-expanded="true">
@@ -84,15 +77,14 @@
                                 <span class="group-count">{% blocktranslate count count=group.total %}{{ count }} site{% plural %}{{ count }} sites{% endblocktranslate %}</span>
                                 {% if group.attention %}<span class="group-attention"><span class="status-dot" aria-hidden="true"></span>{% blocktranslate count count=group.attention %}{{ count }} needs attention{% plural %}{{ count }} need attention{% endblocktranslate %}</span>{% else %}<span class="group-healthy">{% translate 'No active warnings' %}</span>{% endif %}
                             </button>
-                            {% if not read_only %}<label class="group-select-all" data-group-selection hidden><input type="checkbox" data-group-select aria-label="{% blocktranslate with group=group.label %}Select displayed sites in {{ group }}{% endblocktranslate %}"><span>{% translate 'Select displayed sites' %}</span></label>{% endif %}
                         </div></th></tr>
                     </tbody>
+                    {% endif %}
                     {% for row in group.rows %}
                     <tbody data-domain-key="{{ row.name }}" data-domain-name="{{ row.name }}" data-group-id="{{ group.id }}" data-favorite="{{ row.favorite|yesno:'true,false' }}">
                         <tr data-domain-summary>
                             <th scope="row" data-label="{% translate 'Domain' %}">
                                 <div class="domain-heading">
-                                    {% if not read_only %}<label class="domain-selection" data-domain-selection hidden><input type="checkbox" data-domain-select value="{{ row.name }}" aria-label="{% blocktranslate with domain=row.name %}Select {{ domain }}{% endblocktranslate %}"></label>{% endif %}
                                     {% if not read_only %}<button type="button" class="domain-reorder-handle" data-domain-drag draggable="true" hidden
                                         title="{% translate 'Drag to reorder. Keyboard: Alt + Up or Down.' %}"
                                         aria-label="{% blocktranslate with domain=row.name %}Move {{ domain }}{% endblocktranslate %}"><svg width="12" height="18" viewBox="0 0 12 18" aria-hidden="true"><g fill="currentColor"><circle cx="3" cy="4" r="1.3"/><circle cx="9" cy="4" r="1.3"/><circle cx="3" cy="9" r="1.3"/><circle cx="9" cy="9" r="1.3"/><circle cx="3" cy="14" r="1.3"/><circle cx="9" cy="14" r="1.3"/></g></svg></button>{% endif %}

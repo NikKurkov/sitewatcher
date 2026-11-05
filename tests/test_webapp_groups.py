@@ -28,13 +28,27 @@ def post(client, data):
 def test_default_group_and_group_controls(owner, client):
     storage.add_domain(41, 'first.example')
     body = get(client, '/').content.decode()
-    assert 'data-domain-group="0"' in body
-    assert 'data-group-toggle' in body
-    assert '/settings/groups' in body
+    assert 'data-domain-group="0"' not in body
+    assert 'data-group-toggle' not in body
+    assert '/settings/groups' not in body
+    assert '/settings/groups' in get(client, '/settings').content.decode()
     assert 'domain_groups.js' in body
-    assert 'Expand all' in body and 'Collapse all' in body
+    assert 'data-groups-expand' not in body and 'data-groups-collapse' not in body
+    assert 'data-select-visible' not in body
+    assert 'data-domain-select' not in body
+    assert 'data-bulk-move' not in body
     assert 'name="group_id"' in get(client, '/domains/new').content.decode()
     assert get(client, '/settings/groups').status_code == 200
+
+
+def test_second_group_enables_headers_even_when_search_matches_only_one(owner, client):
+    from sitewatcher import domain_groups
+    storage.add_domain(41, 'first.example')
+    domain_groups.create_group(41, 'Empty')
+    body = get(client, '/?q=first').content.decode()
+    assert 'data-domain-group="0"' in body
+    assert 'data-group-toggle' in body
+    assert 'data-groups-expand' not in body
 
 
 def test_group_crud_and_private_names(owner, client):
@@ -132,3 +146,40 @@ def test_empty_group_has_collapsible_content(owner, client):
     group = domain_groups.create_group(41, 'Empty')
     body = get(client, '/').content.decode()
     assert f'class="domain-group-empty" data-group-id="{group}"' in body
+
+
+def test_domain_form_offers_transactional_new_group(owner, client):
+    body = get(client, '/domains/new').content.decode()
+    assert '<option value="new"' in body
+    assert 'name="new_group_name"' in body
+    assert 'data-new-group-field' in body
+    assert 'group_form.js' in body
+
+
+def test_inline_group_creation_through_add_and_edit_forms(owner, client):
+    from sitewatcher import domain_groups
+    from sitewatcher.config import AppConfig
+    from sitewatcher.web_actions import settings_context
+    form = settings_context(AppConfig(), 41)['values']
+    form.update(domain='new.example', group_id='new', new_group_name='Inline add')
+    response = client.post('/domains/add', form, HTTP_HOST='localhost')
+    assert response.status_code == 303
+    first = domain_groups.group_for_domain(41, 'new.example')
+    assert first != 0
+    form = settings_context(AppConfig(), 41, 'new.example')['values']
+    form.update(group_id='new', new_group_name='Inline edit')
+    response = client.post('/domains/save', form, HTTP_HOST='localhost')
+    assert response.status_code == 303
+    assert domain_groups.group_for_domain(41, 'new.example') not in {0, first}
+
+
+def test_drag_move_returns_confirmation_without_redirect(owner, client):
+    from sitewatcher import domain_groups
+    storage.add_domain(41, 'move.example')
+    group = domain_groups.create_group(41, 'Destination')
+    response = client.post('/settings/groups', {'operation': 'move', 'group_id': group,
+                          'domains': json.dumps(['move.example'])}, HTTP_HOST='localhost',
+                          HTTP_ACCEPT='application/json')
+    assert response.status_code == 200
+    assert response.json() == {'saved': True}
+    assert domain_groups.group_for_domain(41, 'move.example') == group

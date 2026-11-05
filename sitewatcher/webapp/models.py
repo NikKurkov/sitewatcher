@@ -39,6 +39,7 @@ class StatusPage(models.Model):
                                    choices=[('public', 'Public'), ('private', 'Private link')])
     public_enabled = models.BooleanField(default=True)
     public_domains = models.JSONField(default=list)
+    public_groups = models.JSONField(default=list)
     public_slug = models.CharField(max_length=64, unique=True)
     public_token_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
     private_token_nonce = models.CharField(max_length=64, blank=True, default='')
