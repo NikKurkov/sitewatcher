@@ -111,13 +111,13 @@ def test_legacy_combined_critical_does_not_seed_current_status_cache_or_schedule
     assert build_snapshot(cfg, 1)['domains'][0]['overall'] == 'UNKNOWN'
     dispatcher = Dispatcher(cfg)
     for name in ('rkn_domain', 'rkn_ip'):
-        assert dispatcher._maybe_cached_result(1, 'example.com', name, lambda _: 1440) is None
+        assert dispatcher._daily_cached_result(1, 'example.com', name, resolve_settings(cfg, 'example.com')) is None
     metrics = {'source': 'antifilter', 'source_updated_at': datetime.now(timezone.utc).isoformat()}
     storage.save_history(1, 'example.com', 'rkn_domain', 'OK', 'not listed', metrics)
     storage.save_history(1, 'example.com', 'rkn_ip', 'WARN', 'shared IP listed', metrics)
     assert build_snapshot(cfg, 1)['domains'][0]['overall'] == 'WARN'
     assert due_checks(cfg, 1, 'example.com') == []
-    assert dispatcher._maybe_cached_result(2, 'example.com', 'rkn_ip', lambda _: 1440) is None
+    assert dispatcher._daily_cached_result(2, 'example.com', 'rkn_ip', resolve_settings(cfg, 'example.com')) is None
 
 
 def test_dispatcher_builds_independent_rkn_checks_with_shared_index(tmp_path, monkeypatch):

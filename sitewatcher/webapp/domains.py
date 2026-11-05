@@ -66,12 +66,12 @@ async def _refresh_metadata(cfg, owner_id, domain, check):
 @require_POST
 def refresh(request):
     if settings.SITEWATCHER_READ_ONLY:
-        return _private(HttpResponse(_('Read-only workspace'), status=405))
+        return HttpResponse(_('Read-only workspace'), status=405)
     form = dict(request.management_form)
     form.pop('csrfmiddlewaretoken', None)
     allowed = {'domain', 'check', 'q', 'status', 'days', 'history'}
     if request.GET or set(form) - allowed or not {'domain', 'check'} <= set(form):
-        return _private(HttpResponse(_('Invalid request'), status=400))
+        return HttpResponse(_('Invalid request'), status=400)
     try:
         check = form['check']
         if check not in {'tls_cert', 'whois'} or form.get('history', '') not in {'', '1'}:
@@ -84,7 +84,7 @@ def refresh(request):
         if not getattr(resolved.checks, check):
             raise ValueError('Check disabled')
         if not _check_lock.acquire(blocking=False):
-            return _private(HttpResponse(_('Another manual check is running'), status=409))
+            return HttpResponse(_('Another manual check is running'), status=409)
         try:
             results = asyncio.run(_refresh_metadata(cfg, owner_id, domain, check))
         finally:
@@ -93,24 +93,19 @@ def refresh(request):
                   if not results or any(result.cached for result in results)
                   else _('Metadata refresh completed; results saved'))
         if form.get('history') == '1':
-            return _private(HttpResponse(status=303, headers={'Location': '/domains/history?' +
-                urlencode({'domain': domain, 'days': filters['days'], 'notice': notice})}))
+            return HttpResponse(status=303, headers={'Location': '/domains/history?' +
+                urlencode({'domain': domain, 'days': filters['days'], 'notice': notice})})
         return _redirect(notice, filters)
     except ValueError:
-        return _private(HttpResponse(_('Invalid request'), status=400))
+        return HttpResponse(_('Invalid request'), status=400)
     except TimeoutError:
-        return _private(HttpResponse(_('Checks timed out; inspect saved results before retrying'),
-                                     status=504))
+        return HttpResponse(_('Checks timed out; inspect saved results before retrying'),
+                            status=504)
     except Http404:
         raise
     except Exception:
-        return _private(HttpResponse(_('Operation failed; inspect saved state before retrying'),
-                                     status=503))
-
-
-def _private(response):
-    response['Cache-Control'] = 'no-store'
-    return response
+        return HttpResponse(_('Operation failed; inspect saved state before retrying'),
+                            status=503)
 
 
 def _render(request, template, context, *, status=200):
@@ -118,7 +113,7 @@ def _render(request, template, context, *, status=200):
     for name in ('error', 'notice'):
         if context.get(name):
             context[name] = _(context[name])
-    return _private(render(request, 'sitewatcher/' + template + '.html', context, status=status))
+    return render(request, 'sitewatcher/' + template + '.html', context, status=status)
 
 
 def _period(request):
@@ -156,7 +151,7 @@ def _page(request, view, domain='', *, error='', values=None, status=200):
                 return _render(request, 'domain_recovery', {
                     'domain': domain, 'reset_revision': reset_revision,
                 })
-            return _private(HttpResponse(_('Settings unavailable; reload the page'), status=400))
+            return HttpResponse(_('Settings unavailable; reload the page'), status=400)
         context['reset_revision'] = reset_revision
     elif view == 'history':
         try:
@@ -165,7 +160,7 @@ def _page(request, view, domain='', *, error='', values=None, status=200):
         except ValueError:
             if not storage.domain_exists(owner_id, domain):
                 raise Http404('Domain not found') from None
-            return _private(HttpResponse(_('Invalid request'), status=400))
+            return HttpResponse(_('Invalid request'), status=400)
         snapshot = build_snapshot(cfg, owner_id)
         row = next((row for row in snapshot['domains'] if row['name'] == domain), None)
         if row is None:
@@ -334,9 +329,9 @@ def dashboard(request):
             'observed': local_time(last, zone), 'query': search, 'status': status,
             'filters': FILTERS.items(), 'notice': query.get('notice', '')})
     except ValueError:
-        return _private(HttpResponse(_('Invalid request'), status=400))
+        return HttpResponse(_('Invalid request'), status=400)
     except SnapshotError:
-        return _private(HttpResponse(_('Monitoring unavailable'), status=503))
+        return HttpResponse(_('Monitoring unavailable'), status=503)
 
 
 @owner_required(api=True)
@@ -346,16 +341,16 @@ def status(request):
         _query(request)
         snapshot = build_snapshot(settings.SITEWATCHER_CONFIG, request.workspace.owner_id)
     except ValueError:
-        return _private(JsonResponse({'error': 'Invalid request'}, status=400))
+        return JsonResponse({'error': 'Invalid request'}, status=400)
     except SnapshotError:
-        return _private(JsonResponse({'error': 'Monitoring unavailable'}, status=503))
-    return _private(JsonResponse({'owner_id': request.workspace.owner_id, **snapshot}))
+        return JsonResponse({'error': 'Monitoring unavailable'}, status=503)
+    return JsonResponse({'owner_id': request.workspace.owner_id, **snapshot})
 
 
 def _redirect(notice, filters=None):
-    return _private(HttpResponse(status=303, headers={
+    return HttpResponse(status=303, headers={
         'Location': '/?' + urlencode({'notice': notice, **(filters or {})}),
-    }))
+    })
 
 
 def _list_filters(form):
@@ -378,7 +373,7 @@ def _act(request, action, form):
         if not storage.set_domain_favorite(owner_id, domain, state == 'on'):
             raise Http404('Domain not found')
         query = urlencode(filters)
-        return _private(HttpResponse(status=303, headers={'Location': '/?' + query}))
+        return HttpResponse(status=303, headers={'Location': '/?' + query})
     if action == 'add':
         count = add_domains(cfg, owner_id, form)
         return _redirect(_('Domains added: %(count)s') % {'count': count})
@@ -396,7 +391,7 @@ def _act(request, action, form):
             if not names:
                 raise ValueError(gettext_noop('No domains to check'))
             if not _check_lock.acquire(blocking=False):
-                return _private(HttpResponse(_('Another manual check is running'), status=409))
+                return HttpResponse(_('Another manual check is running'), status=409)
             try:
                 run_manual_checks(cfg, owner_id, names)
             finally:
@@ -428,7 +423,7 @@ def _act(request, action, form):
 
 def _mutate(request, action):
     if settings.SITEWATCHER_READ_ONLY:
-        return _private(HttpResponse(_('Read-only workspace'), status=405, headers={'Allow': 'GET, HEAD'}))
+        return HttpResponse(_('Read-only workspace'), status=405, headers={'Allow': 'GET, HEAD'})
     form = dict(request.management_form)
     form.pop('csrfmiddlewaretoken', None)
     allowed = {'domain'}
@@ -448,26 +443,26 @@ def _mutate(request, action):
     elif action == 'import':
         allowed = {'csv_file', 'csv_text', 'mode'}
     if request.GET or set(form) - allowed:
-        return _private(HttpResponse(_('Invalid request'), status=400))
+        return HttpResponse(_('Invalid request'), status=400)
     if action == 'save':
         _existing(request.workspace.owner_id, form.get('original_domain', form.get('domain', '')))
     try:
         return _act(request, action, form)
     except ValueError as error:
         if action == 'reset' and str(error) == 'Settings changed; reload this page before saving':
-            return _private(HttpResponse(_('Settings changed; reload the domain before resetting'),
-                                         status=409))
+            return HttpResponse(_('Settings changed; reload the domain before resetting'),
+                                         status=409)
         view = {'add': 'add', 'save': 'edit', 'import': 'import'}.get(action)
         if view:
             return _page(request, view, form.get('original_domain', form.get('domain', '')), error=str(error),
                          values=form, status=400)
-        return _private(HttpResponse(_('Invalid action; reload the page'), status=400))
+        return HttpResponse(_('Invalid action; reload the page'), status=400)
     except Http404:
         raise
     except TimeoutError:
-        return _private(HttpResponse(_('Checks timed out; inspect saved results before retrying'), status=504))
+        return HttpResponse(_('Checks timed out; inspect saved results before retrying'), status=504)
     except Exception:
-        return _private(HttpResponse(_('Operation failed; inspect saved state before retrying'), status=503))
+        return HttpResponse(_('Operation failed; inspect saved state before retrying'), status=503)
 
 
 @owner_required
@@ -475,14 +470,14 @@ def _mutate(request, action):
 def management(request, view):
     if request.method == 'POST':
         if view == 'history':
-            return _private(HttpResponse(_('Method not allowed'), status=405,
-                                         headers={'Allow': 'GET, HEAD'}))
+            return HttpResponse(_('Method not allowed'), status=405,
+                                         headers={'Allow': 'GET, HEAD'})
         return _mutate(request, {'add': 'add', 'edit': 'save', 'delete': 'delete',
                                  'import': 'import'}[view])
     try:
         query = _query(request)
     except ValueError:
-        return _private(HttpResponse(_('Invalid request'), status=400))
+        return HttpResponse(_('Invalid request'), status=400)
     domain = ''
     if view in {'edit', 'delete', 'history'}:
         domain = _existing(request.workspace.owner_id, query.get('domain', ''))
@@ -501,11 +496,11 @@ def export(request):
     try:
         _query(request)
     except ValueError:
-        return _private(HttpResponse(_('Invalid request'), status=400))
-    return _private(HttpResponse(export_domains_csv(request.workspace.owner_id),
+        return HttpResponse(_('Invalid request'), status=400)
+    return HttpResponse(export_domains_csv(request.workspace.owner_id),
                                 content_type='text/csv; charset=utf-8', headers={
                                     'Content-Disposition': 'attachment; filename="sitewatcher-domains.csv"',
-                                }))
+                                })
 
 
 @require_safe
@@ -520,8 +515,8 @@ def theme(request):
                 or any(ord(char) < 32 or char == chr(92) for char in target)):
             raise ValueError('Invalid theme')
     except ValueError:
-        return _private(HttpResponse(_('Invalid request'), status=400))
-    response = _private(HttpResponse(status=303, headers={'Location': target}))
+        return HttpResponse(_('Invalid request'), status=400)
+    response = HttpResponse(status=303, headers={'Location': target})
     response.set_cookie('sitewatcher_theme', mode, max_age=31536000, samesite='Strict',
                         secure=settings.SESSION_COOKIE_SECURE)
     return response

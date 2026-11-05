@@ -5,12 +5,11 @@ import logging
 import os
 from pathlib import Path
 import re
-import stat
-import tempfile
 
 import httpx
 
 from . import storage
+from .utils.private_file import load_private_file, save_private_file
 from .telegram_proxy import load_proxy
 
 TOKEN_RE = re.compile(r'[0-9]{3,20}:[A-Za-z0-9_-]{20,200}\Z')
@@ -33,37 +32,18 @@ def load_bot_token() -> str | None:
     explicit = os.getenv('TELEGRAM_TOKEN', '').strip()
     if explicit:
         return explicit
-    try:
-        fd = os.open(token_path(), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    except FileNotFoundError:
-        return None
-    except OSError:
-        raise ValueError('Telegram token file could not be read securely.') from None
-    with os.fdopen(fd, encoding='utf-8') as stream:
-        metadata = os.fstat(stream.fileno())
-        if not stat.S_ISREG(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o600:
-            raise ValueError('Telegram token file requires mode 0600 permissions.')
-        try:
-            return validate_bot_token(stream.read(256))
-        except (ValueError, UnicodeError):
-            raise ValueError('Telegram token file is invalid.') from None
+    return load_private_file(
+        token_path(), validate_bot_token, 256,
+        read_error='Telegram token file could not be read securely.',
+        permissions_error='Telegram token file requires mode 0600 permissions.',
+        invalid_error='Telegram token file is invalid.',
+    )
 
 
 def save_bot_token(token: str) -> None:
     """Publish a complete mode-0600 file atomically, including concurrent saves."""
     token = validate_bot_token(token)
-    path = token_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix='.telegram-token-', dir=path.parent)
-    try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
-            stream.write(token)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    save_private_file(token_path(), token, '.telegram-token-')
 
 
 class TelegramConnectionError(ValueError):

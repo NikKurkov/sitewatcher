@@ -191,3 +191,24 @@ def test_rkn_index_cannot_share_a_database_that_contains_application_state(tmp_p
     assert 'rkn' in validation_message(caught.value)
     assert 'private-' not in validation_message(caught.value)
     assert not target.exists()
+
+
+@pytest.mark.parametrize(('section', 'field', 'value'), [
+    ('scheduler', 'interval_minutes', 0), ('scheduler', 'jitter_seconds', -1),
+    ('alerts', 'cooldown_sec', -1), ('ports', 'read_bytes', 0),
+    ('whois', 'warn_days', -1), ('http', 'max_connections', 0),
+    ('ipbl', 'concurrency', 0), ('history', 'retention_days', -1),
+])
+def test_scalar_bounds_are_enforced_on_load_and_mutable_runtime_config(section, field, value):
+    from sitewatcher.config import validation_message
+
+    settings = {section: {field: value}}
+    with pytest.raises(ValueError) as caught:
+        AppConfig.model_validate(settings)
+    assert f'{section}.{field}' in validation_message(caught.value)
+
+    cfg = AppConfig.model_validate({'http': {}})
+    setattr(getattr(cfg, section), field, value)
+    with pytest.raises(ValueError) as caught:
+        validate_config(cfg)
+    assert f'{section}.{field}' in validation_message(caught.value)

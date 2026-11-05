@@ -655,12 +655,7 @@ class Dispatcher:
         check_name: str,
         ttl_fn,
     ) -> Optional[CheckOutcome]:
-        """
-        Return cached CheckOutcome if fresh enough, otherwise None. (owner-aware)
-
-        For WHOIS, RKN, IP blocklists and malware we do not serve cached UNKNOWN by default,
-        to allow recovery from missing evidence. Override per check with cache_unknown: true.
-        """
+        """Reuse owner-scoped operational history under its manual-run TTL."""
         ttl = ttl_fn(check_name)
         if ttl <= 0:
             return None
@@ -668,27 +663,6 @@ class Dispatcher:
         row = storage.last_history_for_check(owner_id, domain, check_name)
         if not row:
             return None
-
-        # Missing evidence must be retried unless unknown-result caching was explicitly enabled.
-        if check_name in {'whois', 'rkn_domain', 'rkn_ip', 'ip_blacklist', 'malware'}:
-            try:
-                status_str = str(row["status"]).upper()
-            except Exception:
-                status_str = "UNKNOWN"
-            sc = getattr(self.cfg.schedules, check_name, None)
-            cache_unknown = bool(getattr(sc, "cache_unknown", False)) if sc is not None else False
-            if status_str == "UNKNOWN" and not cache_unknown:
-                log.info(
-                    "check.cache_bypass",
-                    extra={
-                        "event": "check.cache_bypass",
-                        "owner_id": owner_id,
-                        "domain": domain,
-                        "check": check_name,
-                        "reason": "unknown_result",
-                    },
-                )
-                return None
 
         mins = storage.minutes_since_last(owner_id, domain, check_name)
         if mins is None or mins > ttl:
@@ -700,14 +674,6 @@ class Dispatcher:
             metrics = {}
 
         if isinstance(metrics, dict) and metrics.get('original_domain', domain) != domain:
-            return None
-
-        if check_name == 'ip_blacklist' and not current_ipbl_result(metrics, self.cfg.ipbl):
-            return None
-
-        from .utils.results import current_rkn_result
-        if not current_rkn_result(check_name, metrics, self.cfg.rkn.max_source_age_hours,
-                                  status=row['status']):
             return None
 
         base_msg = strip_cached_suffix(row["message"] or "")

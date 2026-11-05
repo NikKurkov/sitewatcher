@@ -168,9 +168,9 @@ def test_ports_child_cancellation_propagates(monkeypatch):
 
 
 def test_http_slow_redirect_retains_critical_latency(monkeypatch):
-    from sitewatcher.checks import http_basic
-    times = iter([0.0, 4.0, 4.0, 4.0])
-    monkeypatch.setattr(http_basic, 'time', SimpleNamespace(perf_counter=lambda: next(times)))
+    from sitewatcher import check_context
+    times = iter([0.0, 4.0, 4.0])
+    monkeypatch.setattr(check_context, 'time', SimpleNamespace(perf_counter=lambda: next(times)))
     async def scenario():
         def handler(request):
             if request.url.path == '/':

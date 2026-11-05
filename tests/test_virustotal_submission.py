@@ -165,13 +165,14 @@ def test_new_url_object_without_completed_statistics_remains_pending():
     asyncio.run(scenario())
 
 
-def test_pending_unknown_cache_is_bypassed_unless_explicitly_allowed():
-    from sitewatcher.config import AppConfig
+def test_pending_malware_uses_daily_policy_regardless_of_legacy_cache_unknown():
+    from sitewatcher.config import AppConfig, resolve_settings
     from sitewatcher.dispatcher import Dispatcher
     storage.save_history(41, 'example.test', 'malware', 'UNKNOWN',
                          'VirusTotal analysis is pending', {})
     cfg = AppConfig()
     dispatcher = Dispatcher(cfg)
-    assert dispatcher._maybe_cached_result(41, 'example.test', 'malware', lambda _: 1440) is None
+    settings = resolve_settings(cfg, 'example.test')
+    assert dispatcher._daily_cached_result(41, 'example.test', 'malware', settings) is not None
     cfg.schedules.malware.cache_unknown = True
-    assert dispatcher._maybe_cached_result(41, 'example.test', 'malware', lambda _: 1440) is not None
+    assert dispatcher._daily_cached_result(41, 'example.test', 'malware', settings) is not None

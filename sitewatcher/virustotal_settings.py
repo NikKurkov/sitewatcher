@@ -4,11 +4,10 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from pathlib import Path
-import stat
-import tempfile
 from urllib.parse import urlsplit
 
 from . import storage
+from .utils.private_file import load_private_file, save_private_file
 from .telegram_proxy import normalize_proxy
 
 
@@ -43,41 +42,18 @@ def load_api_key(configured: str | None = None) -> str | None:
 
 
 def _load_secret(path: Path, validate: Callable[[str], str | None]) -> str | None:
-    try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    except FileNotFoundError:
-        return None
-    except OSError:
-        raise ValueError(KEY_FILE_ERROR) from None
-    with os.fdopen(fd, encoding='utf-8') as stream:
-        metadata = os.fstat(stream.fileno())
-        if not stat.S_ISREG(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o600:
+    def validate_bounded(value: str) -> str | None:
+        if len(value) > MAX_KEY_LENGTH:
             raise ValueError(KEY_FILE_ERROR)
-        try:
-            value = stream.read(MAX_KEY_LENGTH + 1)
-            if len(value) > MAX_KEY_LENGTH:
-                raise ValueError(KEY_FILE_ERROR)
-            return validate(value)
-        except (ValueError, UnicodeError):
-            raise ValueError(KEY_FILE_ERROR) from None
+        return validate(value)
+
+    return load_private_file(
+        path, validate_bounded, MAX_KEY_LENGTH + 1, read_error=KEY_FILE_ERROR,
+    )
 
 
 def save_api_key(value: str) -> None:
-    _save_secret(key_path(), validate_api_key(value), '.virustotal-key-')
-
-
-def _save_secret(path: Path, value: str, prefix: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=prefix, dir=path.parent)
-    try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
-            stream.write(value)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    save_private_file(key_path(), validate_api_key(value), '.virustotal-key-')
 
 
 def remove_api_key() -> None:
@@ -117,7 +93,7 @@ def save_vt_proxy(value: str) -> None:
     normalized = validate_vt_proxy(value)
     if not normalized:
         raise ValueError('Enter an HTTP(S) or SOCKS5 proxy URL.')
-    _save_secret(vt_proxy_path(), normalized, '.virustotal-proxy-')
+    save_private_file(vt_proxy_path(), normalized, '.virustotal-proxy-')
 
 
 def remove_vt_proxy() -> None:
@@ -142,4 +118,4 @@ def load_vt_proxy_enabled() -> bool | None:
 
 
 def save_vt_proxy_enabled(enabled: bool) -> None:
-    _save_secret(vt_proxy_enabled_path(), '1' if enabled else '0', '.vt-proxy-enabled-')
+    save_private_file(vt_proxy_enabled_path(), '1' if enabled else '0', '.vt-proxy-enabled-')

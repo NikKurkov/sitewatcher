@@ -8,7 +8,7 @@ import pytest
 
 from sitewatcher.checks.base import Status
 from sitewatcher.checks.ip_blacklist import IpBlacklistCheck
-from sitewatcher.config import AppConfig
+from sitewatcher.config import AppConfig, resolve_settings
 from sitewatcher import storage
 from sitewatcher.dispatcher import Dispatcher
 
@@ -127,11 +127,11 @@ def test_cache_rejects_unverified_stale_or_incomplete_coverage(status, metrics, 
     storage.add_domain(41, 'example.test')
     storage.save_history(41, 'example.test', 'ip_blacklist', status, 'saved', metrics)
     cfg = AppConfig.model_validate({'ipbl': {'zones': ['bl.example']}})
-    result = Dispatcher(cfg)._maybe_cached_result(41, 'example.test', 'ip_blacklist', lambda _: 60)
+    result = Dispatcher(cfg)._daily_cached_result(41, 'example.test', 'ip_blacklist', resolve_settings(cfg, 'example.test'))
     assert (result is not None) is reuse
     cfg.ipbl.dns_servers = ['1.1.1.1']
-    assert Dispatcher(cfg)._maybe_cached_result(
-        41, 'example.test', 'ip_blacklist', lambda _: 60) is None
+    assert Dispatcher(cfg)._daily_cached_result(
+        41, 'example.test', 'ip_blacklist', resolve_settings(cfg, 'example.test')) is None
 
 
 def test_known_provider_rejects_undocumented_return_code(monkeypatch):
