@@ -40,7 +40,7 @@ def current_ipbl_result(metrics: dict | str | None, config) -> bool:
             metrics = json.loads(metrics)
         except (ValueError, TypeError):
             return False
-    return (isinstance(metrics, dict) and metrics.get('dnsbl_version') == 2
+    return (isinstance(metrics, dict) and metrics.get('dnsbl_version') == 3
             and metrics.get('zones') == _normalize_zones(config.zones)
             and metrics.get('dns_servers') == config.dns_servers
             and metrics.get('check_ipv6') == config.check_ipv6)
@@ -96,12 +96,14 @@ class IpBlacklistCheck(BaseCheck):
 
     async def run(self) -> CheckOutcome:
         metrics = {
-            'dnsbl_version': 2,
+            'dnsbl_version': 3,
             'zones': self.zones,
             'dns_servers': self.dns_servers,
             'check_ipv6': self.check_ipv6,
             'zones_total': len(self.zones),
             'zones_checked': 0,
+            'zones_completed': 0,
+            'partial_coverage': True,
             'zone_errors': [],
             'query_errors': [],
             'queries_total': 0,
@@ -189,8 +191,13 @@ class IpBlacklistCheck(BaseCheck):
                         if isinstance(result, Exception)]
         errors_count = len(query_errors) + len(zone_errors)
         queries_total = len(pairs)
+        failed_zones = {error['zone'] for error in query_errors}
+        completed_zones = [zone for zone in healthy_zones if zone not in failed_zones] if ips else []
+        partial_coverage = len(completed_zones) < len(self.zones)
         metrics.update({
             'zones_checked': len(healthy_zones),
+            'zones_completed': len(completed_zones),
+            'partial_coverage': partial_coverage,
             'zone_errors': zone_errors,
             'query_errors': query_errors,
             'ips_v4': ips_v4,
@@ -237,7 +244,9 @@ class IpBlacklistCheck(BaseCheck):
             return CheckOutcome(self.name, Status.CRIT, message, metrics)
 
         message = 'not listed'
-        if errors_count or not queries_total:
+        if completed_zones and partial_coverage:
+            message = 'Not listed; incomplete DNSBL coverage'
+        elif not completed_zones:
             message = 'DNSBL queries incomplete'
             if not ips:
                 message = 'IP blocklists require an IPv4 address'
@@ -246,7 +255,7 @@ class IpBlacklistCheck(BaseCheck):
                 message += ': ' + '; '.join(details)[:500]
         return CheckOutcome(
             self.name,
-            Status.UNKNOWN if errors_count or not queries_total else Status.OK,
+            Status.OK if completed_zones else Status.UNKNOWN,
             message,
             metrics,
         )

@@ -31,6 +31,7 @@ _DIAGNOSTIC_MESSAGES = {
     'IP blocklists are not configured': _('IP blocklists are not configured'),
     'IP blocklists require an IPv4 address': _('IP blocklists require an IPv4 address'),
     'not listed': _('Not found in the configured IP blocklists'),
+    'Not listed; incomplete DNSBL coverage': _('Not listed; incomplete DNSBL coverage'),
     'VirusTotal analysis is pending': _('VirusTotal analysis is pending'),
     'VirusTotal submission could not be confirmed. Try again later.':
         _('VirusTotal submission could not be confirmed. Try again later.'),

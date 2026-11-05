@@ -2195,3 +2195,6 @@ msgstr "Для проверки чёрных списков нужен IPv4-ад
 
 msgid "Not found in the configured IP blocklists"
 msgstr "IP-адреса не найдены в настроенных чёрных списках"
+
+msgid "Not listed; incomplete DNSBL coverage"
+msgstr "Попаданий не найдено. Неполное покрытие источников DNSBL."

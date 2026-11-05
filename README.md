@@ -43,8 +43,9 @@ Available checks:
 - **Website reputation** — threat reports from VirusTotal; an API key is required.
 - **IP addresses** — address changes and IP blocklist checks through DroneBL,
   Blocklist.de and PSBL by default. Each source must pass positive and negative
-  control queries; unavailable sources and access errors never produce a clean result
-  or a false listing. Override sources with `ipbl.zones` in YAML.
+  control queries. At least one completed clean source is enough for OK; missing
+  sources are noted as incomplete coverage. If none completes, the result is unknown.
+  Access errors never become false listings. Override sources with `ipbl.zones` in YAML.
 - **Network** — connection latency, TCP port availability and the route to the server.
 
 Choose which checks to run for each website. See the [user guide](docs/usage.en.md) for details.

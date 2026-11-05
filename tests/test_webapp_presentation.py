@@ -19,6 +19,25 @@ def get(client, path):
     return client.get(path, HTTP_HOST='localhost')
 
 
+def test_partial_dnsbl_coverage_does_not_raise_site_attention(owner, client):
+    from django.utils.translation import override
+    from sitewatcher.config import ChecksModel
+    storage.add_domain(41, 'partial.example')
+    storage.set_domain_override(41, 'partial.example', {'checks': {
+        name: name == 'ip_blacklist' for name in ChecksModel.model_fields}})
+    storage.save_history(41, 'partial.example', 'ip_blacklist', 'OK',
+                         'Not listed; incomplete DNSBL coverage', {
+                             'zones_total': 3, 'zones_completed': 2, 'partial_coverage': True})
+    body = get(client, '/').content.decode()
+    assert 'No active warnings' in body
+    assert 'Not listed; incomplete DNSBL coverage' in body
+    assert 'partial.example' not in get(client, '/?status=problems').content.decode()
+    from sitewatcher.webapp.presentation import diagnostic_message
+    with override('ru'):
+        assert str(diagnostic_message('Not listed; incomplete DNSBL coverage')) == (
+            'Попаданий не найдено. Неполное покрытие источников DNSBL.')
+
+
 def test_overview_problem_first_and_real_measurement(owner, client):
     for name, ok in [('a-healthy.example', True), ('z-failing.example', False)]:
         storage.add_domain(41, name)
