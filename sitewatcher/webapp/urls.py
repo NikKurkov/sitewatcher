@@ -40,7 +40,7 @@ def health(request):
             for table, columns in (
                 ('domains', 'owner_id,name,favorite'), ('history', 'source,metrics_json'),
                 ('webapp_workspace', 'owner_id,public_enabled'),
-                ('webapp_statuspage', 'workspace_id,access_mode,public_enabled'),
+                ('webapp_statuspage', 'workspace_id,access_mode,public_enabled,private_token_nonce'),
                 ('auth_user', 'password'), ('django_session', 'session_key'),
             ):
                 connection.execute(f'SELECT {columns} FROM {table} LIMIT 0')

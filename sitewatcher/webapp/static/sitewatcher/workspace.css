@@ -2256,3 +2256,16 @@ html { scrollbar-gutter: stable; }
 @media (pointer: coarse) {
   .status-page-domain-picker .publication-domains label { min-height: 36px; }
 }
+
+.auth-panel .remember-me { display: flex; align-items: center; gap: 10px; min-height: 36px; margin: 0; font-weight: 400; cursor: pointer; }
+.auth-panel .remember-me input { flex: 0 0 18px; width: 18px; height: 18px; min-height: 18px; margin: 0; padding: 0; accent-color: var(--green); }
+
+.status-page-card > div { flex: 1; }
+.status-page-links { max-width: 640px; margin-top: 12px; }
+.status-page-links .copy-link-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.status-page-links .copy-public-link { margin: 0; }
+
+@media (max-width: 720px) {
+  .status-pages-heading { flex-direction: column; align-items: stretch; }
+  .status-pages-heading .primary { align-self: flex-start; }
+}

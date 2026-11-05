@@ -41,6 +41,7 @@ class StatusPage(models.Model):
     public_domains = models.JSONField(default=list)
     public_slug = models.CharField(max_length=64, unique=True)
     public_token_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    private_token_nonce = models.CharField(max_length=64, blank=True, default='')
     legacy_primary = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -59,6 +60,11 @@ class StatusPage(models.Model):
     @property
     def public_path(self):
         return '/' + self.public_slug
+
+    @property
+    def private_path(self):
+        from .status_page_links import private_path
+        return private_path(self)
 
     class Meta:
         ordering = ['pk']

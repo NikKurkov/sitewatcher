@@ -62,7 +62,7 @@ def test_multiple_public_pages_have_independent_titles_and_domain_selection(owne
     assert 'Shop availability' in listing and 'Other services' in listing
 
 
-def test_private_page_has_no_public_alias_and_only_shows_token_once(owner, client):
+def test_private_page_link_is_recoverable_only_in_owner_settings(owner, client):
     response = create(client, mode='private')
     assert response.status_code == 200
     path, token = private_path(response)
@@ -72,8 +72,11 @@ def test_private_page_has_no_public_alias_and_only_shows_token_once(owner, clien
     assert guest.get(path, HTTP_HOST='localhost').status_code == 200
     for suffix in ('', '/data', '/activity'):
         assert guest.get(page.public_path + suffix, HTTP_HOST='localhost').status_code == 404
-    for route in ('/settings/status-pages', f'/settings/status-pages/{page.pk}', path):
-        assert token not in client.get(route, HTTP_HOST='localhost').content.decode()
+    for route in ('/settings/status-pages', f'/settings/status-pages/{page.pk}'):
+        assert token in client.get(route, HTTP_HOST='localhost').content.decode()
+    assert token not in guest.get(path, HTTP_HOST='localhost').content.decode()
+    assert token not in Client().get('/settings/status-pages', HTTP_HOST='localhost').content.decode()
+    assert 'data-copy-target' in client.get('/settings/status-pages', HTTP_HOST='localhost').content.decode()
 
 
 def test_access_changes_revoke_previous_paths_and_rotation_revokes_old_tokens(owner, client):
@@ -180,7 +183,7 @@ def test_migration_preserves_existing_public_and_bearer_addresses(web_database):
     from django.db import connection
     from django.db.migrations.executor import MigrationExecutor
     old_target = [('webapp', '0005_workspace_public_slug')]
-    new_target = [('webapp', '0006_status_pages')]
+    new_target = [('webapp', '0007_statuspage_private_token_nonce')]
     executor = MigrationExecutor(connection)
     executor.migrate(old_target)
     try:
@@ -246,3 +249,35 @@ def test_legacy_primary_address_can_stay_or_change_and_syncs_workspace(owner, cl
     assert edit(client, page, public_slug='renamed-legacy').status_code == 303
     owner.refresh_from_db()
     assert owner.public_slug == 'renamed-legacy'
+
+
+
+def test_legacy_private_link_stays_valid_but_requires_reissue_to_display(owner, client):
+    token = 'l' * 43
+    page = StatusPage.objects.create(workspace=owner, title='Old private page',
+        access_mode='private', public_slug='old-private-page',
+        public_token_hash=hashlib.sha256(token.encode()).hexdigest(), public_domains=['one.example'])
+    guest = Client()
+    assert guest.get('/status/' + token + '/', HTTP_HOST='localhost').status_code == 200
+    body = client.get('/settings/status-pages', HTTP_HOST='localhost').content.decode()
+    assert token not in body and 'Reissue the private link' in body
+    replacement, _ = private_path(edit(client, page, action='rotate'))
+    assert guest.get('/status/' + token + '/', HTTP_HOST='localhost').status_code == 404
+    assert guest.get(replacement, HTTP_HOST='localhost').status_code == 200
+    assert replacement in client.get('/settings/status-pages', HTTP_HOST='localhost').content.decode()
+
+
+def test_recovered_link_uses_server_secret_and_is_bound_to_its_workspace(owner, client, settings):
+    path, token = private_path(create(client, mode='private'))
+    page = StatusPage.objects.get(workspace=owner)
+    assert page.private_token_nonce and token not in page.private_token_nonce
+    assert page.private_path == path
+    other = Workspace.objects.get(owner_id=973)
+    copied = StatusPage.objects.create(workspace=other, title='Copied private page',
+        access_mode='private', public_slug='copied-private-page',
+        private_token_nonce=page.private_token_nonce, public_token_hash=page.public_token_hash)
+    assert copied.private_path == ''
+    settings.SECRET_KEY = 'changed-test-secret'
+    assert page.private_path == ''
+    body = client.get('/settings/status-pages', HTTP_HOST='localhost').content.decode()
+    assert token not in body

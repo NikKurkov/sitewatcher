@@ -23,7 +23,7 @@ docker compose run --rm --build setup
 docker compose up -d
 ```
 
-Choose a username and password when `setup` asks. Open **http://127.0.0.1:8080** and sign in. A password must be at least 8 characters long and pass the on-screen checks.
+Choose a username and password when `setup` asks. Open **http://127.0.0.1:8080** and sign in. A password must be at least 8 characters long and pass the on-screen checks. Normal sign-in lasts 12 hours. Select **Remember me for 30 days** to keep this browser signed in for 30 days; it is off by default. Signing out revokes that session; changing or resetting the password revokes other browser sessions.
 
 No `.env` file, Telegram account or external service key is required to start. Containers run as a regular user. By default, only the local computer can reach the dashboard.
 
@@ -226,7 +226,7 @@ WHOIS/RDAP availability depends on the zone; supported Russian zones can fall ba
 
 ## Public status page
 
-In **Settings → Status pages**, create pages with their own title, selected domains and access mode. Public pages are open to everyone at a stable address. Public page addresses can be edited (for example, `/shop-health`); changing the address disables the old path. Private pages require a bearer link, shown only after creation or reissue; save it immediately. Reissuing revokes the previous link. Disabling a page closes all its addresses; deleting it retains monitoring domains and history. Existing pages and issued links survive the update. Pages expose selected sites and safe check results, without private domains, diagnostic messages or internal routes.
+In **Settings → Status pages**, create pages with their own title, selected domains and access mode. Public pages are open to everyone at a stable address. Public page addresses can be edited (for example, `/shop-health`); changing the address disables the old path. Private pages require a bearer link. New private links can be opened and copied in the page list and editor. Previously issued links still work, but need a one-time reissue before their address can be displayed in the list. Reissuing revokes the previous link. Disabling a page closes all its addresses; deleting it retains monitoring domains and history. Existing pages and issued links survive the update. Pages expose selected sites and safe check results, without private domains, diagnostic messages or internal routes.
 
 The public page uses the same compact header and domain-list layout as the owner workspace. Rows start closed and disclose check statuses plus the HTTP chart. A green HTTP badge means HTTP availability only; other check notices are shown separately. Previews: [desktop](screenshots/public-unified-desktop.png), [mobile](screenshots/public-unified-mobile.png), [expanded](screenshots/public-inline-details.png).
 

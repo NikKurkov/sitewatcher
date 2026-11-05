@@ -378,3 +378,62 @@ def test_production_uvicorn_boundary_preserves_peer_and_login_limit(
     bootstrap.run_asgi(AppConfig(), port=0)
     assert set(observed) == {('127.0.0.1', trust_proxy)}
     assert set(AccessAttempt.objects.values_list('ip_address', flat=True)) == {'127.0.0.1'}
+
+
+def test_remember_me_sets_month_cookie_and_survives_browser_reopen(owner, password):
+    client = Client()
+    response = client.post('/login/', {'username': owner.user.username, 'password': password,
+                           'remember_me': 'on'}, HTTP_HOST='localhost')
+    assert response.status_code == 302
+    assert client.session.get_expiry_age() == 30 * 24 * 60 * 60
+    cookie = response.cookies['sessionid']
+    assert cookie['max-age'] == 30 * 24 * 60 * 60
+    assert cookie['expires'] and cookie['httponly'] and cookie['samesite'] == 'Lax'
+    reopened = Client()
+    reopened.cookies['sessionid'] = cookie.value
+    assert reopened.get('/api/status', HTTP_HOST='localhost').status_code == 200
+    assert reopened.post('/logout/', HTTP_HOST='localhost').status_code == 302
+    assert client.get('/api/status', HTTP_HOST='localhost').status_code == 401
+
+
+def test_login_without_remember_me_keeps_twelve_hour_cookie(owner, client, password):
+    response = login(client, password)
+    assert response.status_code == 302
+    assert response.cookies['sessionid']['max-age'] == 12 * 60 * 60
+    form = Client().get('/login/', HTTP_HOST='localhost').context['form']
+    assert form.fields['remember_me'].required is False
+    assert not form['remember_me'].value()
+
+
+def test_remembered_session_expires_and_password_change_revokes_it(owner, password):
+    from django.contrib.sessions.models import Session
+    remembered = Client()
+    response = remembered.post('/login/', {'username': owner.user.username, 'password': password,
+                               'remember_me': 'on'}, HTTP_HOST='localhost')
+    assert response.status_code == 302
+    key = remembered.session.session_key
+    Session.objects.filter(session_key=key).update(expire_date=timezone.now()-timedelta(seconds=1))
+    assert remembered.get('/api/status', HTTP_HOST='localhost').status_code == 401
+    assert remembered.post('/login/', {'username': owner.user.username, 'password': password,
+                           'remember_me': 'on'}, HTTP_HOST='localhost').status_code == 302
+    other = Client()
+    assert login(other, password).status_code == 302
+    replacement = secrets.token_urlsafe(32)
+    assert other.post('/password/', {'old_password': password,
+        'new_password1': replacement, 'new_password2': replacement}, HTTP_HOST='localhost').status_code == 302
+    assert remembered.get('/api/status', HTTP_HOST='localhost').status_code == 401
+
+
+def test_failed_remembered_login_does_not_authenticate_and_https_cookie_stays_secure(
+        owner, password, settings):
+    client = Client()
+    response = client.post('/login/', {'username': owner.user.username, 'password': 'invalid',
+                           'remember_me': 'on'}, HTTP_HOST='localhost')
+    assert response.status_code == 200
+    assert 'sessionid' not in response.cookies
+    assert client.get('/api/status', HTTP_HOST='localhost').status_code == 401
+    settings.SESSION_COOKIE_SECURE = True
+    response = client.post('/login/', {'username': owner.user.username, 'password': password,
+                           'remember_me': 'on'}, HTTP_HOST='localhost')
+    assert response.status_code == 302
+    assert response.cookies['sessionid']['secure']

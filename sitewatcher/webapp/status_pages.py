@@ -1,4 +1,4 @@
-"""Owner-scoped status-page configuration and one-time private links."""
+"""Owner-scoped status-page configuration and recoverable private links."""
 import hashlib
 import logging
 import re
@@ -18,6 +18,7 @@ from django.views.decorators.http import require_http_methods, require_safe
 from sitewatcher import storage
 from .accounts import owner_required
 from .models import StatusPage, Workspace
+from .status_page_links import private_token
 from .public import RESERVED_PUBLIC_SLUGS
 
 
@@ -74,14 +75,22 @@ def sync_legacy_page(page, *, deleted=False):
 
 @owner_required
 @require_safe
+@sensitive_variables('pages', 'page')
 def listing(request):
     if request.GET and (set(request.GET) != {'saved'} or request.GET.getlist('saved') != ['1']):
         return HttpResponse(_('Invalid request'), status=400)
-    return render(request, 'sitewatcher/status_pages.html', {
-        'pages': StatusPage.objects.filter(workspace=request.workspace),
-        'read_only': settings.SITEWATCHER_READ_ONLY,
-        'notice': _('Status page saved.') if request.GET.get('saved') else '',
-    })
+    pages = list(StatusPage.objects.filter(workspace=request.workspace))
+    for page in pages:
+        path = page.public_path if page.public_enabled and page.access_mode == 'public' else page.private_path
+        page.view_url = request.build_absolute_uri(path) if path else ''
+    try:
+        return render(request, 'sitewatcher/status_pages.html', {
+            'pages': pages, 'read_only': settings.SITEWATCHER_READ_ONLY,
+            'notice': _('Status page saved.') if request.GET.get('saved') else '',
+        })
+    except Exception as error:
+        logging.getLogger(__name__).warning('Status page list unavailable (%s)', type(error).__name__)
+        return HttpResponse(_('Status page settings temporarily unavailable.'), status=503)
 
 
 @sensitive_variables('private_link')
@@ -94,6 +103,8 @@ def _editor(request, page, form=None, *, selected=None, error='', status=200, pr
             'enabled': page.public_enabled if page else True,
             'revision': page.updated_at.isoformat() if page else '',
         }, page=page)
+    if not private_link and page and page.private_path:
+        private_link = request.build_absolute_uri(page.private_path)
     selected = set(page.public_domains if page else []) if selected is None else set(selected)
     try:
         return render(request, 'sitewatcher/status_page_form.html', {
@@ -166,11 +177,13 @@ def editor(request, page_id=None):
             mode = update.get('access_mode', page.access_mode if page else 'public')
             if enabled and mode == 'private' and (not page or action == 'rotate'
                     or page.access_mode != 'private' or not page.public_token_hash):
-                token = secrets.token_urlsafe(32)
+                update['private_token_nonce'] = secrets.token_urlsafe(32)
+                token = private_token(request.workspace.pk, update['private_token_nonce'])
                 update['public_token_hash'] = hashlib.sha256(token.encode()).hexdigest()
                 private_link = request.build_absolute_uri('/status/' + token + '/')
             elif not enabled or page and page.access_mode == 'private' and mode == 'public':
                 update['public_token_hash'] = ''
+                update['private_token_nonce'] = ''
             if page:
                 updated = StatusPage.objects.filter(pk=page.pk, workspace=request.workspace,
                     updated_at=page.updated_at).update(**update, updated_at=timezone.now())
