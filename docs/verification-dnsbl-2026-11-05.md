@@ -68,3 +68,44 @@ probe, not future uptime or completeness/freshness of a provider's underlying da
 
 Deployment evidence is recorded separately after runtime verification. No database
 schema change is required for this fix.
+
+## Runtime verification
+
+Code release: `2a6e247` (branch `fix/dnsbl-source-validation`).
+
+Local Compose was rebuilt and restarted with image `87bd9c356c6b`. The pre-switch
+SQLite backup is `/data/backups/before-dnsbl-20261105T145557547221Z/sitewatcher.sqlite3`.
+All 18 domain rows and the full domain-overrides fingerprint were preserved.
+Web is healthy, exactly one worker holds the scheduler lock, and all 137 tracked
+runtime files in both containers match the committed source. The running worker
+returned OK with all three sources for the real clean-target probe.
+
+The VPS archive SHA-256 is
+`063b8d0e74327a147bc1d19715c408f6c22c9e23ec2c176cf5f835699a300f83`.
+It was verified before building `sitewatcher:2a6e247` (image `72154be00f9d`). Before
+the switch, this image passed migration/preservation/integrity checks on a private
+clone of the VPS database in a network-disabled nonroot container. Live probes
+from that image returned OK/three checked sources for a.tabak-pochtoy.com and
+CRIT/three hits for the synthetic 127.0.0.2 target. Controls were tested before
+adding the default sources to the running deployment.
+
+The final VPS pre-switch backup is
+`/data/backups/before-dnsbl-20261105T150352106056Z/sitewatcher.sqlite3`, private with
+integrity OK. Host configuration/release snapshots are in
+`/opt/sitewatcher/backups/dnsbl-2a6e247/`; immutable source, commit ID, binary patch
+and deployment script remain in `/opt/sitewatcher/upgrades/`.
+
+Both live VPS services now use `sitewatcher:2a6e247`, with zero restarts and no OOM.
+All 17 domains and domain-settings fingerprints match the final backup. SQLite
+integrity is OK, the worker holds the single scheduler lock, and 137 runtime source
+hashes match in each container. Public HTTPS returned 200 for health, 302 for the
+protected root and 200 for login. The backup timer remained active. A live-worker
+DNSBL probe after switching returned OK with three sources and zero hits/errors.
+
+Rollback requires restoring `compose.yaml` and `release.txt` from the private host
+snapshot and running `docker compose up -d --no-build --wait web worker` in
+`/opt/sitewatcher`; previous image `sitewatcher:98d6977` remains available. No schema
+or application-setting change was made. For local rollback, retag the preserved
+`sitewatcher:before-dnsbl-20261105` as `sitewatcher:local`, then recreate web/worker.
+No browser visual acceptance is claimed; UI diagnostic translations were verified
+through Django and the installed-package checks.
