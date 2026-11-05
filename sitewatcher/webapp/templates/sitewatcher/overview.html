@@ -75,6 +75,7 @@
                             <button class="group-toggle" type="button" data-group-toggle aria-expanded="true">
                                 <svg class="group-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg><span class="group-name">{{ group.label }}</span>
                                 <span class="group-count">{% blocktranslate count count=group.total %}{{ count }} site{% plural %}{{ count }} sites{% endblocktranslate %}</span>
+                                {% if group.critical %}<span class="badge crit"><span aria-hidden="true">⚠</span>{% translate 'Critical' %}</span>{% endif %}
                                 {% if group.attention %}<span class="group-attention"><span class="status-dot" aria-hidden="true"></span>{% blocktranslate count count=group.attention %}{{ count }} needs attention{% plural %}{{ count }} need attention{% endblocktranslate %}</span>{% else %}<span class="group-healthy">{% translate 'No active warnings' %}</span>{% endif %}
                             </button>
                         </div></th></tr>

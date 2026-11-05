@@ -95,3 +95,14 @@ zero restarts and no OOM. Binding remains 127.0.0.1:8080. Public HTTPS health,
 login and demo return 200; the protected group route redirects unauthenticated
 requests with 302 as expected. Browser/visual evidence above uses synthetic data;
 production verification uses HTTP and runtime/data read-back.
+
+## Critical badge on group headings
+
+Group headings reuse the domain's existing `badge crit` markup and translated
+Critical label when any member's displayed state is critical. Aggregation includes
+all group members even when search hides the affected domain; paused domains do
+not raise a group critical badge. Recovery clears the badge on the next render.
+Five regression cases cover CRIT/WARN/UNKNOWN/OK, pausing, recovery and filtering.
+Synthetic Chromium checks at 1366/390px confirmed the badge remains visible while
+collapsed, with no horizontal overflow. Screenshots:
+`docs/screenshots/groups-critical-desktop.png` and `groups-critical-mobile.png`.

@@ -183,3 +183,37 @@ def test_drag_move_returns_confirmation_without_redirect(owner, client):
     assert response.status_code == 200
     assert response.json() == {'saved': True}
     assert domain_groups.group_for_domain(41, 'move.example') == group
+
+
+@pytest.mark.parametrize('status,paused,critical', [
+    ('CRIT', False, True), ('WARN', False, False), ('UNKNOWN', False, False),
+    ('OK', False, False), ('CRIT', True, False),
+])
+def test_group_uses_domain_critical_badge_and_clears_after_recovery(
+        owner, client, status, paused, critical):
+    from sitewatcher import domain_groups
+    from sitewatcher.config import ChecksModel
+
+    group = domain_groups.create_group(41, 'Important sites')
+    storage.add_domain(41, 'critical.example')
+    domain_groups.move_domains(41, ['critical.example'], group)
+    storage.set_domain_override(41, 'critical.example', {
+        'checks': {name: name == 'http_basic' for name in ChecksModel.model_fields},
+        **({'interval_minutes': 0} if paused else {}),
+    })
+    storage.save_history(41, 'critical.example', 'http_basic', status, 'saved', {})
+
+    def header():
+        return get(client, '/').content.decode().split(
+            f'data-domain-group="{group}"', 1)[1].split('</tbody>', 1)[0]
+
+    assert ('class="badge crit"' in header()) is critical
+    if critical:
+        assert 'Critical' in header()
+        storage.add_domain(41, 'healthy.example')
+        domain_groups.move_domains(41, ['healthy.example'], group)
+        filtered = get(client, '/?q=healthy').content.decode().split(
+            f'data-domain-group="{group}"', 1)[1].split('</tbody>', 1)[0]
+        assert 'class="badge crit"' in filtered
+        storage.save_history(41, 'critical.example', 'http_basic', 'OK', 'recovered', {})
+        assert 'class="badge crit"' not in header()

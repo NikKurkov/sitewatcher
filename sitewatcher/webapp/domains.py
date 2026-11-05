@@ -267,6 +267,7 @@ def dashboard(request):
                 continue
             groups.append({**group, 'label': _('Main') if group['is_default'] else group['name'],
                            'rows': visible, 'total': len(members),
+                           'critical': any(row['state'] == 'crit' for row in members),
                            'attention': sum(bool(row['error']) or (
                                row['overall'] in {'CRIT', 'WARN'} and not row['paused'])
                                for row in members)})
