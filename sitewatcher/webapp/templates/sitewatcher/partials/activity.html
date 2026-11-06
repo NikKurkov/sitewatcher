@@ -108,7 +108,6 @@
             <li><i class="signal-outbound"></i>{% translate 'Probe' %}</li><li><i class="signal-ok"></i>OK</li><li><i class="signal-warn"></i>WARN</li><li><i class="signal-crit"></i>CRIT</li><li><i class="signal-unknown"></i>UNKNOWN</li>
         </ul>
     </div>
-    <p class="activity-playback-note">{% translate 'Animation follows recorded events; probe durations are shown in the log.' %}</p>
     {% if not public_view %}{% include 'sitewatcher/partials/route_controls.html' %}{% endif %}
     <ul class="sr-only" data-activity-accessible aria-label="{% translate 'Latest checks' %}"></ul>
 </section>
