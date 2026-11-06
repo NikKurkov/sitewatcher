@@ -156,6 +156,15 @@ CREATE TABLE IF NOT EXISTS alert_state (
   FOREIGN KEY(owner_id, domain) REFERENCES domains(owner_id, name) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS email_alert_state (
+  owner_id INTEGER NOT NULL,
+  domain TEXT NOT NULL,
+  last_overall TEXT,
+  last_sent_at TEXT,
+  PRIMARY KEY(owner_id, domain),
+  FOREIGN KEY(owner_id, domain) REFERENCES domains(owner_id, name) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS hx_owner_created ON history(owner_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS hx_owner_domain_created ON history(owner_id, domain, created_at DESC);
 """
@@ -689,17 +698,42 @@ def clear_whois_cache(db_path: Path = DEFAULT_DB) -> int:
 
 # ---------- Alerts ----------
 
-def get_alert_state(owner_id: int, domain: str) -> Optional[sqlite3.Row]:
+def _alert_state_table(channel: str) -> str:
+    if channel not in {"telegram", "email"}:
+        raise ValueError("Invalid notification channel")
+    return "alert_state" if channel == "telegram" else "email_alert_state"
+
+
+def domain_notifications(cfg, owner_id: int, domain: str) -> dict[str, bool]:
+    """Resolve only subscription flags, keeping recipients out of monitoring DTOs."""
+    from .config import DomainOverride
+    configured = next((item for item in cfg.domains if item.name == domain), None)
+    override = DomainOverride.model_validate(get_domain_override(owner_id, domain) or {})
+    preferences = {}
+    for channel, default in (("telegram", True), ("email", False)):
+        key = f"notify_{channel}"
+        value = getattr(override, key)
+        if value is None:
+            value = getattr(configured, key, None)
+        preferences[channel] = default if value is None else value
+    return preferences
+
+
+
+def get_alert_state(owner_id: int, domain: str, *, channel: str = "telegram") -> Optional[sqlite3.Row]:
+    table = _alert_state_table(channel)
     _ensure_initialized()
     with closing(_connect()) as conn:
         row = conn.execute(
-            "SELECT last_overall, last_sent_at FROM alert_state WHERE owner_id=? AND domain=?",
+            f"SELECT last_overall, last_sent_at FROM {table} WHERE owner_id=? AND domain=?",
             (int(owner_id), (domain or "").lower()),
         ).fetchone()
         return row
 
 
-def upsert_alert_state(owner_id: int, domain: str, last_overall: str, last_sent_at: Optional[str]) -> None:
+def upsert_alert_state(owner_id: int, domain: str, last_overall: str, last_sent_at: Optional[str],
+                       *, channel: str = "telegram") -> None:
+    table = _alert_state_table(channel)
     _ensure_initialized()
     domain = (domain or "").strip().lower()
     if not domain:
@@ -710,8 +744,8 @@ def upsert_alert_state(owner_id: int, domain: str, last_overall: str, last_sent_
         ).fetchone():
             return
         conn.execute(
-            """
-            INSERT INTO alert_state(owner_id,domain,last_overall,last_sent_at)
+            f"""
+            INSERT INTO {table}(owner_id,domain,last_overall,last_sent_at)
             VALUES(?,?,?,?)
             ON CONFLICT(owner_id,domain) DO UPDATE SET
               last_overall=excluded.last_overall,

@@ -134,7 +134,8 @@ def _aggregate(owner_id: int, domain: str | None, window: dict) -> dict:
             names = [domain]
         reports = {name: {'domain': name, 'totals': _counts(), '_buckets': {},
                           'response_times': [{'minutes': minutes, 'sample_count': 0,
-                                              'latency_ms': 0.0} for minutes in (15, 60, 1440)],
+                                              'latency_ms': 0.0}
+                                             for minutes in (15, 60, 1440, 43200)],
                           'latest_observed_at': None, 'latest_availability': 'unknown'}
                    for name in names}
         totals, buckets = _counts(), {}
@@ -144,21 +145,24 @@ def _aggregate(owner_id: int, domain: str | None, window: dict) -> dict:
         if domain is not None:
             domain_filter = ' AND h.domain=?'
             args.append(domain)
-        # No fetchall/sort of raw observations: index bounds the owner/window read;
-        # aggregates retain only configured domains x 120 buckets in Python memory.
+        # One indexed 30-day read supplies response summaries independently of the
+        # chart period. Only grouped rows cross into Python; chart buckets stay
+        # limited to the selected window and at most 120 per configured domain.
         cursor = conn.execute(
             _AGGREGATE_SQL.replace("{domain_filter}", domain_filter),
-            [start.replace(tzinfo=None).isoformat(sep=' '), width, *args],
+            [args[1], width, args[0],
+             (end - timedelta(days=30)).replace(tzinfo=None).isoformat(sep=' '), *args[2:]],
         )
         for row in cursor:
             index = row['bucket_index']
             item = reports[row['domain']]
-            if index not in buckets:
-                buckets[index] = _counts()
-            if index not in item['_buckets']:
-                item['_buckets'][index] = _counts()
-            for count in (totals, item['totals'], buckets[index], item['_buckets'][index]):
-                _merge(count, row)
+            if row['in_window']:
+                if index not in buckets:
+                    buckets[index] = _counts()
+                if index not in item['_buckets']:
+                    item['_buckets'][index] = _counts()
+                for count in (totals, item['totals'], buckets[index], item['_buckets'][index]):
+                    _merge(count, row)
             for response in item['response_times']:
                 count = row[f'latency_{response["minutes"]}_count']
                 if count:
@@ -280,7 +284,7 @@ WITH raw AS (
         ELSE json_type(payload,'$.latency_ms_total') END AS latency_type
     FROM raw
 ), classified AS MATERIALIZED (
-    SELECT domain,created_at,
+    SELECT domain,created_at,created_at>=?1 AS in_window,
       MAX(0,MIN(119,CAST((julianday(created_at)-julianday(?1))*86400/?2 AS INTEGER)))
         AS bucket_index,
       CASE WHEN source IN ('legacy','scheduled','manual') THEN source ELSE 'legacy' END AS source,
@@ -300,7 +304,7 @@ WITH raw AS (
         AND latency>=0 AND latency<=1.7976931348623157e308 THEN latency ELSE NULL END AS latency
     FROM fields
 )
-SELECT domain,bucket_index,source,classification,COUNT(*) AS sample_count,
+SELECT domain,bucket_index,in_window,source,classification,COUNT(*) AS sample_count,
   COUNT(CASE WHEN classification='successful' THEN latency END) AS latency_sample_count,
   AVG(CASE WHEN classification='successful' THEN latency/1e100 END)*1e100 AS latency_ms,
   COUNT(CASE WHEN classification='successful' AND julianday(created_at)>=julianday(?5)-15.0/1440
@@ -314,7 +318,9 @@ SELECT domain,bucket_index,source,classification,COUNT(*) AS sample_count,
   COUNT(CASE WHEN classification='successful' AND julianday(created_at)>=julianday(?5)-1
     THEN latency END) AS latency_1440_count,
   AVG(CASE WHEN classification='successful' AND julianday(created_at)>=julianday(?5)-1
-    THEN latency/1e100 END)*1e100 AS latency_1440_mean
+    THEN latency/1e100 END)*1e100 AS latency_1440_mean,
+  COUNT(CASE WHEN classification='successful' THEN latency END) AS latency_43200_count,
+  AVG(CASE WHEN classification='successful' THEN latency/1e100 END)*1e100 AS latency_43200_mean
 FROM classified
-GROUP BY domain,bucket_index,source,classification
+GROUP BY domain,bucket_index,in_window,source,classification
 """

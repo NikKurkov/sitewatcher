@@ -93,6 +93,16 @@ def _domain(owner_id: int, raw: str, *, existing: bool = True) -> str:
     return domain
 
 
+def telegram_notifications_ready(cfg: AppConfig, owner_id: int) -> bool:
+    from .bot.utils import _resolve_alert_chat_id
+    from .telegram_connection import load_bot_token
+    try:
+        return bool(load_bot_token() and storage.is_user_alerts_enabled(owner_id)
+                    and _resolve_alert_chat_id(None, None, cfg, owner_id))
+    except (OSError, ValueError):
+        return False
+
+
 def settings_context(cfg: AppConfig, owner_id: int, domain: str | None = None) -> dict:
     """Return editable overrides and defaults without exposing proxy credentials."""
     name = _domain(owner_id, domain) if domain is not None else ''
@@ -118,6 +128,13 @@ def settings_context(cfg: AppConfig, owner_id: int, domain: str | None = None) -
             values[f'check.{key}'] = (
                 'on' if checks[key] else 'off'
             ) if key in checks else ''
+        from .email_settings import email_ready
+        telegram_ready = telegram_notifications_ready(cfg, owner_id)
+        preferences = storage.domain_notifications(cfg, owner_id, name) if name else {
+            'email': False, 'telegram': telegram_ready,
+        }
+        values.update({f'notify_{channel}': 'on' if enabled else ''
+                       for channel, enabled in preferences.items()})
         revision = storage.domain_override_revision(override)
         values['revision'] = revision
         if name:
@@ -135,6 +152,7 @@ def settings_context(cfg: AppConfig, owner_id: int, domain: str | None = None) -
                 defaults.interval_minutes if defaults.interval_minutes is not None
                 else cfg.schedules.http_basic.interval_minutes)},
             'revision': revision,
+            'email_ready': email_ready(owner_id), 'telegram_ready': telegram_ready,
         }
     except (ValueError, TypeError, AttributeError, RecursionError) as error:
         raise ValueError(_message(error)) from None
@@ -155,6 +173,28 @@ def _domain_settings(cfg: AppConfig, owner_id: int, form: dict[str, str], *, cre
     try:
         override = {}
         current = (storage.get_domain_override(owner_id, original) or {}) if not create else {}
+        if form.get('notifications_present') == '1':
+            from .email_settings import email_ready
+            previous_notifications = storage.domain_notifications(cfg, owner_id, original)
+            for channel in ('email', 'telegram'):
+                key = f'notify_{channel}'
+                if form.get(key, '') not in ('', 'on'):
+                    raise ConfigurationError(f'{key}: Choose a valid notification channel.')
+                enabled = form.get(key) == 'on'
+                already_enabled = not create and previous_notifications[channel]
+                if enabled and not already_enabled:
+                    ready = email_ready(owner_id) if channel == 'email' else (
+                        telegram_notifications_ready(cfg, owner_id))
+                    if not ready:
+                        message = ('Configure the email recipient and SMTP connection in Settings.'
+                                   if channel == 'email' else
+                                   'Configure and enable Telegram notifications in Settings.')
+                        raise ConfigurationError(f'{key}: {message}')
+                override[key] = enabled
+        else:
+            for key in ('notify_email', 'notify_telegram'):
+                if key in current:
+                    override[key] = current[key]
         target = None
         if 'http_scheme' in form:
             scheme = form['http_scheme']
@@ -209,6 +249,8 @@ def _domain_settings(cfg: AppConfig, owner_id: int, form: dict[str, str], *, cre
         if not create and domain != original:
             previous = resolve_settings(cfg, original, current)
             inherited = {key: getattr(previous, key) for key in NUMERIC_FIELDS}
+            inherited.update({f'notify_{channel}': enabled for channel, enabled in
+                              storage.domain_notifications(cfg, owner_id, original).items()})
             inherited['keywords'] = previous.keywords
             if previous.ports is not None:
                 inherited['ports'] = [port.model_dump() for port in previous.ports]

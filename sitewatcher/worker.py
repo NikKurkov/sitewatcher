@@ -70,9 +70,8 @@ async def run_worker(cfg: AppConfig) -> None:
                 run_id = uuid.uuid4().hex
 
                 async def on_results(owner_id, domain, results, *, warmup):
-                    if warmup or context.bot is not None:
-                        await jobs.process_results(context, owner_id, domain, results,
-                                                   warmup=warmup, run_id=run_id)
+                    await jobs.process_results(context, owner_id, domain, results,
+                                               warmup=warmup, run_id=run_id)
 
                 await scheduler.run_tick(cfg, warmup=warmup, on_results=on_results, run_id=run_id)
 
@@ -101,8 +100,7 @@ async def run_worker(cfg: AppConfig) -> None:
                     next_cleanup = datetime.combine(now_utc.date() + timedelta(days=1),
                                                     maintenance.cleanup_time(cfg))
                 if monotonic() >= next_summary:
-                    if context.bot is not None:
-                        await jobs._flush_alert_summaries_job(context)
+                    await jobs._flush_alert_summaries_job(context)
                     next_summary = monotonic() + summary_interval
                 delay = min(next_tick - monotonic(), next_summary - monotonic(),
                             (next_cleanup - datetime.now(timezone.utc)).total_seconds())

@@ -184,7 +184,7 @@ def test_migration_preserves_existing_public_and_bearer_addresses(web_database):
     from django.db.migrations.executor import MigrationExecutor
     old_target = [('webapp', '0005_workspace_public_slug')]
     previous_target = [('webapp', '0007_statuspage_private_token_nonce')]
-    new_target = [('webapp', '0008_statuspage_public_groups')]
+    new_target = MigrationExecutor(connection).loader.graph.leaf_nodes('webapp')
     executor = MigrationExecutor(connection)
     executor.migrate(old_target)
     try:
@@ -203,6 +203,7 @@ def test_migration_preserves_existing_public_and_bearer_addresses(web_database):
         assert previous_page.public_domains == ['legacy.example']
         MigrationExecutor(connection).migrate(new_target)
         page = StatusPage.objects.get(workspace_id=workspace.pk)
+        assert Workspace.objects.get(pk=workspace.pk).notification_email == ''
         assert page.public_groups == []
         assert page.legacy_primary and page.public_enabled
         assert page.public_domains == ['legacy.example']

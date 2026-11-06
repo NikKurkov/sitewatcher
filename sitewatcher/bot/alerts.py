@@ -289,8 +289,48 @@ async def maybe_send_alert(update, context, owner_id: int, domain: str, results,
     locks = context.application.bot_data.setdefault("alert_locks", {})
     lock = locks.setdefault((owner_id, domain), asyncio.Lock())
     async with lock:
-        if storage.domain_exists(owner_id, domain):
-            await _maybe_send_alert(update, context, owner_id, domain, results, run_id=run_id)
+        if not storage.domain_exists(owner_id, domain):
+            return
+        cfg = context.application.bot_data['cfg']
+        preferences = storage.domain_notifications(cfg, owner_id, domain)
+        errors = []
+        for channel in ('telegram', 'email'):
+            if not preferences[channel]:
+                continue
+            try:
+                await _maybe_send_alert(update, context, owner_id, domain, results,
+                                        run_id=run_id, channel=channel)
+            except Exception as error:
+                errors.append(error)
+        if errors:
+            raise errors[0]
+
+
+def _channel_deduper(context, channel: str):
+    key = 'alert_deduper' if channel == 'telegram' else 'email_alert_deduper'
+    if channel == 'email' and key not in context.application.bot_data:
+        cfg = context.application.bot_data['cfg']
+        context.application.bot_data[key] = AlertDeduper(cfg.alerts.effective_cooldown)
+    return context.application.bot_data.get(key)
+
+
+def _channel_available(update, context, cfg, owner_id: int, channel: str) -> bool:
+    if channel == 'email':
+        from ..email_settings import email_ready
+        return email_ready(owner_id)
+    return bool(context.bot and _resolve_alert_chat_id(context, update, cfg, owner_id))
+
+
+async def _deliver_channel(update, context, cfg, owner_id: int, domain: str,
+                           channel: str, text: str) -> None:
+    if channel == 'email':
+        from ..email_delivery import send_notification_email
+        await send_notification_email(owner_id, f'SiteWatcher: {domain}', text)
+    else:
+        await safe_send_message(
+            context.bot, chat_id=_resolve_alert_chat_id(context, update, cfg, owner_id),
+            text=text, parse_mode='HTML', disable_web_page_preview=True,
+        )
 
 
 async def _maybe_send_alert(
@@ -301,6 +341,7 @@ async def _maybe_send_alert(
     results,
     *,
     run_id: Optional[str] = None,
+    channel: str = "telegram",
 ) -> None:
     """Send problem alerts (WARN/CRIT) and a recovery alert when status returns to OK.
 
@@ -310,7 +351,7 @@ async def _maybe_send_alert(
         but only when all enabled checks are confirmed OK (fresh/OK).
       - Policy (cfg.alerts.policy): "worsen_only" | "overall_change" | "all" (default: "overall_change").
       - Cooldown (cfg.alerts.cooldown_sec or cfg.alerts.debounce_sec) applies to repeating problem states.
-      - If chat_id cannot be resolved, just persist state without sending.
+      - An unavailable destination does not consume a pending transition.
     """
     cfg: AppConfig = context.application.bot_data["cfg"]
     if not results:
@@ -319,8 +360,8 @@ async def _maybe_send_alert(
         _log_alert_skipped("alerts_disabled", owner_id=owner_id, domain=domain, level="-", run_id=run_id)
         return
 
-    # Per-user switch: skip all alert sends for this owner if disabled
-    if not storage.is_user_alerts_enabled(owner_id):
+    # The workspace Telegram switch is independent of email subscriptions.
+    if channel == "telegram" and not storage.is_user_alerts_enabled(owner_id):
         _log_alert_skipped("user_alerts_disabled", owner_id=owner_id, domain=domain, level="-", run_id=run_id)
         return
 
@@ -330,7 +371,7 @@ async def _maybe_send_alert(
     overall = _overall_from_results(results)
     overall_txt = _status_text(overall)
 
-    row = storage.get_alert_state(owner_id, domain)
+    row = storage.get_alert_state(owner_id, domain, channel=channel)
     prev_overall = (row["last_overall"] if row else None)
     prev_overall_txt = _status_text(prev_overall) if prev_overall else None
 
@@ -345,7 +386,7 @@ async def _maybe_send_alert(
 
     # First observation: just persist baseline without sending
     if prev_overall is None:
-        storage.upsert_alert_state(owner_id, domain, overall_txt, None)
+        storage.upsert_alert_state(owner_id, domain, overall_txt, None, channel=channel)
         _log_alert_skipped("baseline", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
         return
 
@@ -360,7 +401,7 @@ async def _maybe_send_alert(
 
         # Add a list of checks that recovered (based on last problem text, if available)
         recovered: list[str] = []
-        deduper = context.application.bot_data.get("alert_deduper")
+        deduper = _channel_deduper(context, channel)
         if deduper is not None:
             prev_key = _AlertKey(owner_id=owner_id, domain=domain, level=prev_overall_txt)
             last_problem_text = deduper.peek_last_text(prev_key)  # may be None (after restart)
@@ -374,19 +415,12 @@ async def _maybe_send_alert(
                 f"<code>{html.escape(c)}</code>" for c in recovered
             )
 
-        chat_id = _resolve_alert_chat_id(context, update, cfg, owner_id)
-        if not chat_id:
+        if not _channel_available(update, context, cfg, owner_id, channel):
             _log_alert_skipped("no_chat_id", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
             return
         try:
-            await safe_send_message(
-                context.bot,
-                chat_id=chat_id,
-                text=text,
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-            )
-            storage.upsert_alert_state(owner_id, domain, overall_txt, now.isoformat())
+            await _deliver_channel(update, context, cfg, owner_id, domain, channel, text)
+            storage.upsert_alert_state(owner_id, domain, overall_txt, now.isoformat(), channel=channel)
             log.info(
                 "alert.sent",
                 extra={"event": "alert.sent", "owner_id": owner_id, "domain": domain, "level": overall_txt, "run_id": run_id, "type": "recovery"},
@@ -405,7 +439,7 @@ async def _maybe_send_alert(
     if policy == "worsen_only":
         # Only notify when the overall severity increases
         if _status_weight(overall_txt) <= _status_weight(prev_overall_txt or "OK"):
-            storage.upsert_alert_state(owner_id, domain, overall_txt, last_sent_iso)
+            storage.upsert_alert_state(owner_id, domain, overall_txt, last_sent_iso, channel=channel)
             _log_alert_skipped("not_worsened", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
             return
     elif policy == "overall_change":
@@ -428,8 +462,7 @@ async def _maybe_send_alert(
         return
 
     # Resolve destination chat
-    chat_id = _resolve_alert_chat_id(context, update, cfg, owner_id)
-    if not chat_id:
+    if not _channel_available(update, context, cfg, owner_id, channel):
         _log_alert_skipped("no_chat_id", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
         return
 
@@ -437,12 +470,12 @@ async def _maybe_send_alert(
     text = _compose_message(domain, overall_txt, prev_overall_txt, results)
 
     # Optional in-process deduper (per (owner, domain, level))
-    deduper: Optional[AlertDeduper] = context.application.bot_data.get("alert_deduper")  # type: ignore[assignment]
+    deduper: Optional[AlertDeduper] = _channel_deduper(context, channel)  # type: ignore[assignment]
     key = _AlertKey(owner_id=owner_id, domain=domain, level=overall_txt)
     if deduper is not None and overall_txt == prev_overall_txt:
         send_now, maybe_text = deduper.should_send_now(key, text)
         if not send_now:
-            storage.upsert_alert_state(owner_id, domain, overall_txt, last_sent_iso)
+            storage.upsert_alert_state(owner_id, domain, overall_txt, last_sent_iso, channel=channel)
             _log_alert_skipped("suppressed_by_deduper", owner_id=owner_id, domain=domain, level=overall_txt, run_id=run_id)
             return
         if maybe_text:
@@ -450,14 +483,8 @@ async def _maybe_send_alert(
 
     # Send and persist
     try:
-        await safe_send_message(
-            context.bot,
-            chat_id=chat_id,
-            text=text,
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-        )
-        storage.upsert_alert_state(owner_id, domain, overall_txt, now.isoformat())
+        await _deliver_channel(update, context, cfg, owner_id, domain, channel, text)
+        storage.upsert_alert_state(owner_id, domain, overall_txt, now.isoformat(), channel=channel)
         if deduper is not None:
             deduper.mark_sent(key, text)
         log.info(

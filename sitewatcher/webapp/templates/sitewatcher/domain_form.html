@@ -68,6 +68,23 @@
                 {% endfor %}
             </div>
         </div>
+        <div class="form-section">
+            <h2>{% translate 'Notifications' %}</h2>
+            <input type="hidden" name="notifications_present" value="1">
+            <div class="form-grid">
+                <div class="field">
+            <label class="checkbox-field" for="notify_email"><input type="checkbox" id="notify_email" name="notify_email" aria-describedby="notification-help{% if field_errors.notify_email %} notify-email-error{% endif %}"{% if field_errors.notify_email %} aria-invalid="true"{% endif %}{% if values.notify_email == 'on' %} checked{% endif %}> Email</label>
+            {% if field_errors.notify_email %}<p class="field-error" id="notify-email-error">{{ field_errors.notify_email }}</p>{% endif %}
+            {% if not email_ready %}<p class="field-help">{% translate 'Configure the email recipient and SMTP connection in Settings.' %} <a href="/settings#email-settings">{% translate 'Settings' %}</a></p>{% endif %}
+                </div>
+                <div class="field">
+            <label class="checkbox-field" for="notify_telegram"><input type="checkbox" id="notify_telegram" name="notify_telegram" aria-describedby="notification-help{% if field_errors.notify_telegram %} notify-telegram-error{% endif %}"{% if field_errors.notify_telegram %} aria-invalid="true"{% endif %}{% if values.notify_telegram == 'on' %} checked{% endif %}> Telegram</label>
+            {% if field_errors.notify_telegram %}<p class="field-error" id="notify-telegram-error">{{ field_errors.notify_telegram }}</p>{% endif %}
+            {% if not telegram_ready %}<p class="field-help">{% translate 'Configure and enable Telegram notifications in Settings.' %} <a href="/settings">{% translate 'Settings' %}</a></p>{% endif %}
+                </div>
+            </div>
+            <p class="field-help" id="notification-help">{% translate 'Receive status changes and recovery alerts through the selected channels.' %}</p>
+        </div>
         <details class="advanced-settings" {% if advanced_error %}open{% endif %}>
             <summary>{% translate 'Advanced checks and settings' %}</summary>
             <div class="form-section">

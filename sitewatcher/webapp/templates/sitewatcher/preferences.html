@@ -59,6 +59,29 @@
                 {% endif %}
                 <p class="field-help">{% translate 'Scheduled checks keep running when notifications are disabled. Keep the monitoring process running to check your sites automatically.' %}</p>
             </div>
+            <section id="email-settings">
+                <h2>{% translate 'Email notifications' %}</h2>
+                <p class="field-help">{% translate 'Save your notification address here, then choose Email for each site that should send alerts.' %}</p>
+                <div class="field">
+                    <label for="{{ form.notification_email.id_for_label }}">{{ form.notification_email.label }}</label>
+                    {{ form.notification_email }}
+                    {% for error in form.notification_email.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+                </div>
+                <details {% if form.smtp_host.errors or form.smtp_password.errors %}open{% endif %}>
+                    <summary>{% translate 'SMTP connection' %}</summary>
+                    <p class="field-help">{% translate 'SMTP settings are shared by this installation. Use the SMTP details supplied by your email provider.' %}</p>
+                    <p class="field-help">{% if smtp_configured %}{% translate 'SMTP connection configured.' %}{% else %}{% translate 'SMTP is not configured.' %}{% endif %}</p>
+                    {{ form.smtp_settings }}
+                    <div class="field"><label for="{{ form.smtp_host.id_for_label }}">{{ form.smtp_host.label }}</label>{{ form.smtp_host }}{% for error in form.smtp_host.errors %}<p class="field-error">{{ error }}</p>{% endfor %}</div>
+                    <div class="field"><label for="{{ form.smtp_port.id_for_label }}">{{ form.smtp_port.label }}</label>{{ form.smtp_port }}{% for error in form.smtp_port.errors %}<p class="field-error">{{ error }}</p>{% endfor %}</div>
+                    <div class="field"><label for="{{ form.smtp_security.id_for_label }}">{{ form.smtp_security.label }}</label>{{ form.smtp_security }}{% for error in form.smtp_security.errors %}<p class="field-error">{{ error }}</p>{% endfor %}</div>
+                    <div class="field"><label for="{{ form.smtp_from_email.id_for_label }}">{{ form.smtp_from_email.label }}</label>{{ form.smtp_from_email }}{% for error in form.smtp_from_email.errors %}<p class="field-error">{{ error }}</p>{% endfor %}</div>
+                    <div class="field"><label for="{{ form.smtp_username.id_for_label }}">{{ form.smtp_username.label }}</label>{{ form.smtp_username }}{% for error in form.smtp_username.errors %}<p class="field-error">{{ error }}</p>{% endfor %}</div>
+                    <div class="field"><label for="{{ form.smtp_password.id_for_label }}">{{ form.smtp_password.label }}</label>{{ form.smtp_password }}{% for error in form.smtp_password.errors %}<p class="field-error">{{ error }}</p>{% endfor %}</div>
+                    <p class="field-help">{% translate 'Leave the password blank to keep the saved password. Saved passwords are never displayed.' %} {% if smtp_password_present %}{% translate 'An SMTP password is saved.' %}{% endif %}</p>
+                    <label class="checkbox-field">{{ form.remove_smtp_password }} {{ form.remove_smtp_password.label }}</label>
+                </details>
+            </section>
             <h2>{% translate 'Telegram connection' %}</h2>
             <p>{% if token_present %}<strong>{% translate 'Bot token configured' %}</strong>{% else %}<strong>{% translate 'Telegram is not connected' %}</strong>{% endif %}. {% translate 'Website monitoring works without Telegram.' %}</p>
             {% if environment_override %}
@@ -206,6 +229,14 @@
                 <button type="submit" class="primary">{% translate 'Save destination' %}</button>
             </form>
         {% endif %}
+    </section>
+    <section class="panel form-section">
+        <h2>{% translate 'Test email connection' %}</h2>
+        <p class="field-help">{% translate 'Save your email settings first. This sends one test email to your saved notification address.' %}</p>
+        <form method="post" action="/settings">
+            {% csrf_token %}
+            <button name="action" value="test_email" type="submit" {% if read_only %}disabled{% endif %}>{% translate 'Send test email' %}</button>
+        </form>
     </section>
     <section class="panel form-section" id="site-groups">
         <h2>{% translate 'Groups' %}</h2>

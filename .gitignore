@@ -64,3 +64,10 @@ compose.override.yaml
 
 # Private VirusTotal proxy switch and atomic-write files.
 .vt-proxy-enabled-*
+
+# Private SMTP configuration, atomic-write files and SQLite3 runtime state.
+*.smtp.json
+.smtp-*
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm

@@ -7,6 +7,7 @@ import secrets
 class Workspace(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     owner_id = models.PositiveBigIntegerField(unique=True)
+    notification_email = models.EmailField(blank=True, default='')
     timezone = models.CharField(max_length=64, default='Europe/Moscow')
     language = models.CharField(max_length=2, choices=[('en', 'English'), ('ru', 'Русский')],
                                 default='en')

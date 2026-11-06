@@ -1,5 +1,6 @@
 """Small presentation adapters for the bounded analytics DTOs and native forms."""
 from datetime import datetime, timezone
+from math import ceil
 from zoneinfo import ZoneInfo
 
 from django.utils.formats import date_format
@@ -96,6 +97,8 @@ def chart_context(points, metric):
     """Position bucket starts within 120 equal intervals; gaps start a new segment."""
     maximum = max((point[metric] for point in points if point.get(metric) is not None),
                   default=0) or 1
+    step = ceil(maximum / 4)
+    maximum = step * 4
     segments, dots, current, previous = [], [], [], None
     for point in points:
         value, index = point.get(metric), point['index']
@@ -113,10 +116,10 @@ def chart_context(points, metric):
         previous = index
     if current:
         segments.append(' '.join(current))
-    y_ticks = [{'value': maximum * fraction, 'y': 150 - fraction * 132,
-                'position': (150 - fraction * 132) / 165 * 100,
-                'short_value': format(maximum * fraction, '.3g') if maximum * fraction >= 1e6 else None}
-               for fraction in [1, .75, .5, .25, 0]]
+    y_ticks = [{'value': step * level, 'y': 150 - level / 4 * 132,
+                'position': (150 - level / 4 * 132) / 165 * 100,
+                'short_value': format(step * level, '.0e') if step * level >= 1e6 else None}
+               for level in (4, 3, 2, 1, 0)]
     return {'segments': segments, 'dots': dots, 'maximum': maximum, 'y_ticks': y_ticks}
 
 
@@ -178,6 +181,8 @@ def domain_form_context(context, error):
         'http_url': _('Enter an HTTP(S) address using this domain.'),
         'http_scheme': _('Choose HTTP or HTTPS.'),
         'proxy_mode': _('Choose a valid proxy action.'),
+        'notify_email': _('Configure the email recipient and SMTP connection in Settings.'),
+        'notify_telegram': _('Configure and enable Telegram notifications in Settings.'),
     }
     field_errors = {key: message for key, message in messages.items()
                     if key + ':' in error or key + '.' in error}
@@ -187,6 +192,10 @@ def domain_form_context(context, error):
                                   else _('Enter a valid hostname, such as example.com.'))
     if error == 'Enter at most 50 domains.':
         field_errors['domain'] = _('Enter at most 50 domains.')
+    notification_error = next((key for key in ('notify_email', 'notify_telegram')
+                               if key in field_errors), None)
+    if notification_error:
+        context['error'] = field_errors[notification_error]
     context['field_errors'] = field_errors
     checks = []
     for name in context['check_names']:
@@ -206,7 +215,7 @@ def domain_form_context(context, error):
                for key, label in zip(NUMERIC_FIELDS, labels, strict=True)]
     context['interval'] = numeric[0]
     context['numeric_fields'] = numeric[1:]
-    context['advanced_error'] = bool(error)
+    context['advanced_error'] = bool(error and not notification_error)
     return context
 
 
