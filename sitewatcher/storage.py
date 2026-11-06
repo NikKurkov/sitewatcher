@@ -6,6 +6,7 @@ import hashlib
 import os
 import sqlite3
 import logging
+from threading import Lock
 from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -170,6 +171,7 @@ CREATE INDEX IF NOT EXISTS hx_owner_domain_created ON history(owner_id, domain, 
 """
 
 _INITIALIZED_PATHS: set[Path] = set()
+_INITIALIZATION_LOCK = Lock()
 
 log = logging.getLogger(__name__)
 
@@ -203,18 +205,22 @@ def _ensure_initialized(db_path: Path | None = None) -> None:
     db_path = db_path or DEFAULT_DB
     if db_path in _INITIALIZED_PATHS and db_path.exists():
         return
-    with closing(_connect(db_path)) as conn:
-        conn.executescript(SCHEMA_SQL)
-        # Serialize the additive migration across bot/web workers starting together.
-        conn.execute("BEGIN IMMEDIATE")
-        with conn:
-            columns = {row["name"] for row in conn.execute("PRAGMA table_info(history)")}
-            if "source" not in columns:
-                conn.execute("ALTER TABLE history ADD COLUMN source TEXT NOT NULL DEFAULT 'legacy'")
-            columns = {row["name"] for row in conn.execute("PRAGMA table_info(domains)")}
-            if "favorite" not in columns:
-                conn.execute("ALTER TABLE domains ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0")
-    _INITIALIZED_PATHS.add(db_path)
+    # Concurrent cold-start probes must not race to enable WAL or create the schema.
+    with _INITIALIZATION_LOCK:
+        if db_path in _INITIALIZED_PATHS and db_path.exists():
+            return
+        with closing(_connect(db_path)) as conn:
+            conn.executescript(SCHEMA_SQL)
+            # Serialize the additive migration across bot/web workers starting together.
+            conn.execute("BEGIN IMMEDIATE")
+            with conn:
+                columns = {row["name"] for row in conn.execute("PRAGMA table_info(history)")}
+                if "source" not in columns:
+                    conn.execute("ALTER TABLE history ADD COLUMN source TEXT NOT NULL DEFAULT 'legacy'")
+                columns = {row["name"] for row in conn.execute("PRAGMA table_info(domains)")}
+                if "favorite" not in columns:
+                    conn.execute("ALTER TABLE domains ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0")
+        _INITIALIZED_PATHS.add(db_path)
 
 
 # ---------- users ----------
