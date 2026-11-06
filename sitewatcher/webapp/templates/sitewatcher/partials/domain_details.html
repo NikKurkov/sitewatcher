@@ -1,6 +1,6 @@
 {% load i18n %}
 <div class="domain-detail-layout">
-    {% if http_enabled and report.totals.sample_count %}
+    {% if http_enabled and report.chart.dots %}
     <section class="domain-detail-chart" aria-label="{% translate 'Website response time' %}">
         {% include 'sitewatcher/partials/chart.html' with report=report %}
     </section>

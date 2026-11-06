@@ -1,4 +1,4 @@
-"""Only configured HTTP monitoring with saved observations gets a chart."""
+"""Only configured HTTP monitoring with actual response-time points gets a chart."""
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -17,10 +17,13 @@ from sitewatcher.config import ChecksModel
     (True, 'old', 1, False),
     (True, 'old', 7, True),
     (True, 'successful', 1, True),
-    (True, 'failed', 1, True),
-    (True, 'unknown', 1, True),
+    (True, 'failed', 1, False),
+    (True, 'unknown', 1, False),
+    (True, 'successful_without_latency', 1, False),
+    (True, 'failed_with_latency', 1, False),
+    (True, 'zero_latency', 1, True),
 ])
-def test_domain_chart_requires_enabled_http_and_observations(
+def test_domain_chart_requires_enabled_http_and_response_time_points(
         web_database, client, page, http_enabled, observation, days, visible):
     from sitewatcher.webapp.models import Workspace
 
@@ -34,10 +37,16 @@ def test_domain_chart_requires_enabled_http_and_observations(
     storage.save_history(628, 'chart.example', 'tls_cert', 'OK', 'Certificate valid', {})
     if observation:
         metrics = ({'availability': 'unavailable', 'final_code': 503}
-                   if observation == 'failed' else {'availability': 'unknown'}
+                   if observation in {'failed', 'failed_with_latency'} else {'availability': 'unknown'}
                    if observation == 'unknown' else {'final_code': 200, 'latency_ms_total': 120})
+        if observation == 'successful_without_latency':
+            metrics.pop('latency_ms_total')
+        elif observation == 'zero_latency':
+            metrics['latency_ms_total'] = 0
+        elif observation == 'failed_with_latency':
+            metrics['latency_ms_total'] = 200
         storage.save_history(628, 'chart.example', 'http_basic',
-                             'CRIT' if observation == 'failed' else 'OK', 'saved', metrics)
+                             'CRIT' if observation in {'failed', 'failed_with_latency'} else 'OK', 'saved', metrics)
         if observation == 'old':
             with storage._write_connection() as connection:
                 connection.execute('UPDATE history SET created_at=? WHERE check_name=?',
