@@ -25,6 +25,11 @@
   const domainMap = find('[data-domain-map]');
   const mapDetail = find('[data-map-detail]');
   const unpin = find('[data-map-unpin]');
+  const criticalPanel = find('[data-critical-panel]');
+  const criticalList = find('[data-critical-list]');
+  const criticalCount = find('[data-critical-count]');
+  const criticalConnection = find('[data-critical-connection]');
+  const incidentRows = new Map();
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
   const publicView = panel.dataset.publicActivity === 'true';
   const storageKey = publicView ? 'sitewatcher_public_live_activity' : 'sitewatcher_live_activity';
@@ -588,6 +593,74 @@
     updateCounters();
     wake();
   };
+  const renderIncidents = incidents => {
+    if (publicView || !criticalPanel || !Array.isArray(incidents)) return;
+    const create = (tag, className, text = '') => {
+      const element = document.createElement(tag);
+      element.className = className;
+      element.textContent = text;
+      return element;
+    };
+    const names = new Set(incidents.map(item => item.domain));
+    for (const [name, row] of incidentRows) {
+      if (!names.has(name)) { row.element.remove(); incidentRows.delete(name); }
+    }
+    let count = 0;
+    for (const incident of incidents) {
+      let row = incidentRows.get(incident.domain);
+      if (!row) {
+        const element = create('li', 'activity-critical-domain');
+        const details = create('details', '');
+        details.open = true;
+        const summary = create('summary', '');
+        const name = create('span', 'activity-critical-name', incident.domain);
+        const total = create('span', 'activity-critical-domain-count');
+        summary.append(name, total);
+        const list = create('ul', 'activity-critical-checks');
+        details.append(summary, list);
+        element.append(details);
+        criticalList.append(element);
+        row = {element, list, total, checks: new Map()};
+        incidentRows.set(incident.domain, row);
+      }
+      const checks = new Set(incident.checks.map(check => check.name));
+      for (const [name, check] of row.checks) {
+        if (!checks.has(name)) { check.element.remove(); row.checks.delete(name); }
+      }
+      row.total.textContent = String(incident.checks.length);
+      for (const check of incident.checks) {
+        let item = row.checks.get(check.name);
+        if (!item) {
+          const element = create('li', '');
+          const link = create('a', 'activity-critical-link');
+          link.href = `/domains/history?domain=${encodeURIComponent(incident.domain)}`;
+          const time = create('time', 'activity-critical-age');
+          const state = create('span', 'activity-critical-state');
+          element.append(link, time, state);
+          row.list.append(element);
+          item = {element, link, time, state};
+          row.checks.set(check.name, item);
+        }
+        item.link.textContent = check.label;
+        const raw = check.opened_at.replace(' ', 'T');
+        const date = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/.test(raw) ? raw : raw + 'Z');
+        const minutes = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
+        item.time.textContent = `${minutes} ${criticalPanel.dataset.minutes}`;
+        item.time.dateTime = date.toISOString();
+        item.time.title = new Intl.DateTimeFormat(document.documentElement.lang, {
+          timeZone: panel.dataset.timezone, dateStyle: 'medium', timeStyle: 'short',
+        }).format(date);
+        item.state.textContent = incident.paused ? criticalPanel.dataset.paused
+          : check.stale || check.status !== 'CRIT' ? criticalPanel.dataset.awaiting : '';
+        item.state.hidden = !item.state.textContent;
+      }
+      count += incident.checks.length;
+    }
+    if (criticalCount.textContent !== String(count)) criticalCount.textContent = String(count);
+    criticalConnection.hidden = true;
+    criticalPanel.hidden = count === 0;
+    panel.dataset.hasCritical = String(count > 0);
+  };
   const poll = async () => {
     if (!enabled || document.hidden || request) return;
     const controller = new AbortController();
@@ -602,9 +675,18 @@
         throw new Error('Activity unavailable');
       }
       const data = await response.json();
-      if (request === controller && enabled && !document.hidden) render(data.events, data.domains);
+      if (!publicView && criticalPanel && !Array.isArray(data.critical_incidents)) {
+        throw new Error('Incident state unavailable');
+      }
+      if (request === controller && enabled && !document.hidden) {
+        render(data.events, data.domains);
+        renderIncidents(data.critical_incidents);
+      }
     } catch (error) {
-      if (request === controller && error.name !== 'AbortError') notice.textContent = panel.dataset.unavailable;
+      if (request === controller && error.name !== 'AbortError') {
+        notice.textContent = panel.dataset.unavailable;
+        if (criticalConnection) criticalConnection.hidden = false;
+      }
     } finally {
       if (request === controller) {
         request = null;
