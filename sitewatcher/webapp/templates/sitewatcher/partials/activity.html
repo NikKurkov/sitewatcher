@@ -1,5 +1,5 @@
 {% load i18n %}
-<section class="panel activity-panel" id="live-checks" data-live-activity hidden
+<section class="panel activity-panel signal-frame" id="live-checks" data-live-activity hidden
     aria-labelledby="live-checks-title" data-timezone="{% if public_view %}{{ public_timezone }}{% else %}{{ request.workspace.timezone }}{% endif %}"
     {% if not public_view %}data-route-read-only="{{ read_only|yesno:'true,false' }}"{% endif %}
     {% if public_view %}data-public-activity="true" data-activity-endpoint="{{ public_activity_url|default:'activity' }}"{% endif %}
@@ -47,7 +47,7 @@
         </div>
     </div>
     <div class="activity-stage">
-    <div class="activity-console">
+    <div class="activity-console signal-frame">
         <div class="activity-console-heading"><h3><span aria-hidden="true">›_</span> {% translate 'Event console' %} <span class="activity-console-count" data-console-count>0</span></h3><button type="button" class="activity-console-follow" data-console-follow aria-pressed="true">{% translate 'Follow latest' %}</button></div>
         <div class="activity-console-scroll" data-console-scroll role="log" aria-live="off" tabindex="0" aria-label="{% translate 'Recent check events' %}"><ol data-activity-console></ol></div>
     </div>
@@ -78,7 +78,7 @@
             <g data-scene-pulses></g>
         </svg>
         </div>
-        <aside class="activity-map" aria-label="{% translate 'All domains' %}">
+        <aside class="activity-map signal-frame" aria-label="{% translate 'All domains' %}">
             <div class="activity-map-heading"><h3>{% translate 'All domains' %} <span data-map-count>0</span></h3><button type="button" data-map-unpin hidden title="{% translate 'Unpin domain' %}" aria-label="{% translate 'Unpin domain' %}">×</button></div>
             <p class="activity-map-key">{% translate 'Last saved check result' %}</p>
             <div class="activity-map-grid" data-domain-map role="group" aria-label="{% translate 'Select a domain to keep its card open' %}"></div>
@@ -94,12 +94,11 @@
             <div class="activity-critical-heading"><span class="activity-critical-beacon" aria-hidden="true">!</span><h3 id="critical-title">{% translate 'Critical problems' %}</h3><span class="activity-critical-count" data-critical-count role="status" aria-live="polite">0</span></div>
             <p class="activity-critical-connection" data-critical-connection hidden>{% translate 'Connection lost. Keeping last known problems.' %}</p>
             <ol class="activity-critical-list" data-critical-list aria-label="{% translate 'Unresolved critical checks' %}"></ol>
-            <p class="activity-critical-note">{% translate 'Kept until the same check confirms recovery.' %}</p>
         </aside>
         {% endif %}
         <div class="activity-stage-bottomline"><span data-activity-status role="status">{% translate 'Connecting…' %}</span><span class="activity-readonly">{% translate 'Observation only' %}</span></div>
     </div>
-    <div class="activity-telemetry">
+    <div class="activity-telemetry signal-frame">
         <dl class="activity-counters" aria-label="{% translate 'Signals in this visualization' %}">
             <div><dt>{% translate 'Sent' %}</dt><dd data-scene-sent>0</dd></div>
             <div><dt>{% translate 'Returned' %}</dt><dd data-scene-returned>0</dd></div>
@@ -109,7 +108,6 @@
             <li><i class="signal-outbound"></i>{% translate 'Probe' %}</li><li><i class="signal-ok"></i>OK</li><li><i class="signal-warn"></i>WARN</li><li><i class="signal-crit"></i>CRIT</li><li><i class="signal-unknown"></i>UNKNOWN</li>
         </ul>
     </div>
-    <p class="activity-playback-note">{% translate 'Animation follows recorded events; probe durations are shown in the log.' %}</p>
     {% if not public_view %}{% include 'sitewatcher/partials/route_controls.html' %}{% endif %}
     <ul class="sr-only" data-activity-accessible aria-label="{% translate 'Latest checks' %}"></ul>
 </section>
