@@ -1,6 +1,6 @@
 {% load i18n %}
 <div class="domain-detail-layout">
-    {% if http_enabled and report.totals.sample_count %}
+    {% if http_enabled and report.chart.dots %}
     <section class="domain-detail-chart" aria-label="{% translate 'Website response time' %}">
         {% include 'sitewatcher/partials/chart.html' with report=report %}
     </section>
@@ -17,18 +17,20 @@
             {% for check in checks %}
                 <li{% if check.attention %} class="check-needs-attention"{% endif %} title="{% if owner_detail and check.message %}{{ check.message }}{% elif check.public_note %}{{ check.public_note }}{% endif %}{% if check.observed %}{% if owner_detail and check.message or check.public_note %} · {% endif %}{{ check.observed.updated_label }} ({% if public_view %}{{ check.observed.display_label }}{% else %}{{ check.observed.label }}{% endif %}){% endif %}">
                     <div class="domain-check-heading">
-                        <strong>{{ check.label }}</strong>
-                        {% if owner_detail and not public_view and not read_only and not settings_error %}{% if check.name == 'tls_cert' or check.name == 'whois' %}
-                        <form method="post" action="/domains/refresh" class="metadata-refresh">
-                            {% csrf_token %}
-                            <input type="hidden" name="domain" value="{{ domain_name }}">
-                            <input type="hidden" name="check" value="{{ check.name }}">
-                            <input type="hidden" name="days" value="{{ report.days }}">
-                            <input type="hidden" name="q" value="{{ query }}">
-                            <input type="hidden" name="status" value="{{ status|default:'all' }}">
-                            <button type="submit" class="button-small" title="{% translate 'Refresh metadata' %}: {{ check.label }}" aria-label="{% translate 'Refresh metadata' %}: {{ check.label }}">{% translate 'Refresh' %}</button>
-                        </form>
-                        {% endif %}{% endif %}
+                        <div class="domain-check-label">
+                            <strong>{{ check.label }}</strong>
+                            {% if owner_detail and not public_view and not read_only and not settings_error %}{% if check.name == 'tls_cert' or check.name == 'whois' %}
+                            <form method="post" action="/domains/refresh" class="metadata-refresh">
+                                {% csrf_token %}
+                                <input type="hidden" name="domain" value="{{ domain_name }}">
+                                <input type="hidden" name="check" value="{{ check.name }}">
+                                <input type="hidden" name="days" value="{{ report.days }}">
+                                <input type="hidden" name="q" value="{{ query }}">
+                                <input type="hidden" name="status" value="{{ status|default:'all' }}">
+                                <button type="submit" class="icon-button" title="{% translate 'Refresh metadata' %}: {{ check.label }}" aria-label="{% translate 'Refresh metadata' %}: {{ check.label }}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 7a9 9 0 1 0 1 8 M20 3v5h-5"/></svg></button>
+                            </form>
+                            {% endif %}{% endif %}
+                        </div>
                         <span class="domain-check-status">
                             {% if check.status == 'OK' %}<span class="check-ok"><span class="status-dot" aria-hidden="true"></span>{{ check.status_label }}</span>{% else %}<span class="badge {{ check.status|lower }}">{{ check.status_label }}</span>{% endif %}
                             {% if check.stale %}<span class="check-freshness">{% translate 'Awaiting update' %}</span>{% endif %}
