@@ -11,7 +11,10 @@ from telegram.ext import Application, ContextTypes
 from .. import storage
 from ..config import AppConfig
 from .. import scheduler
-from .alerts import AlertDeduper, _complete_results, _overall_from_results, maybe_send_alert, safe_send_message
+from .alerts import (
+    AlertDeduper, _channel_available, _complete_results, _deliver_channel, _overall_from_results,
+    maybe_send_alert, safe_send_message,
+)
 from .utils import _resolve_alert_chat_id
 
 # Module-level logger
@@ -126,10 +129,12 @@ async def process_results(context, owner_id: int, domain: str, results: list, *,
                           warmup: bool, run_id: str | None = None) -> None:
     """Shared baseline and retry adapter for polling and unattended monitoring."""
     cfg: AppConfig = context.application.bot_data["cfg"]
-    if warmup and storage.get_alert_state(owner_id, domain) is None:
+    if warmup:
         baseline = _overall_from_results(_complete_results(cfg, owner_id, domain, results))
-        storage.upsert_alert_state(owner_id, domain, baseline, None)
-    elif not warmup:
+        for channel in ('telegram', 'email'):
+            if storage.get_alert_state(owner_id, domain, channel=channel) is None:
+                storage.upsert_alert_state(owner_id, domain, baseline, None, channel=channel)
+    else:
         if not results:
             results = _complete_results(cfg, owner_id, domain, [])
         await maybe_send_alert(update=None, context=context, owner_id=owner_id,
@@ -137,8 +142,14 @@ async def process_results(context, owner_id: int, domain: str, results: list, *,
 
 
 async def _flush_alert_summaries_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    for channel in ('telegram', 'email'):
+        await _flush_channel_summaries(context, channel)
+
+
+async def _flush_channel_summaries(context, channel: str) -> None:
     """Periodic job: flush deduper summaries as compact messages."""
-    deduper: Optional[AlertDeduper] = context.application.bot_data.get("alert_deduper")  # type: ignore[assignment]
+    deduper: Optional[AlertDeduper] = context.application.bot_data.get(
+        "alert_deduper" if channel == "telegram" else "email_alert_deduper")
     if deduper is None:
         return
 
@@ -157,24 +168,27 @@ async def _flush_alert_summaries_job(context: ContextTypes.DEFAULT_TYPE) -> None
                     if not storage.domain_exists(key.owner_id, key.domain):
                         deduper.discard(key)
                         continue
-                    if not storage.is_user_alerts_enabled(key.owner_id):
+                    if not storage.domain_notifications(cfg, key.owner_id, key.domain)[channel]:
+                        deduper.discard(key)
                         continue
-                    chat_id = _resolve_alert_chat_id(context, update=None, cfg=cfg,
-                                                     owner_id=key.owner_id)
-                    if not chat_id:
+                    if channel == 'telegram' and not storage.is_user_alerts_enabled(key.owner_id):
+                        continue
+                    if not _channel_available(None, context, cfg, key.owner_id, channel):
                         continue
                     # An ordinary alert may have consumed these counts while waiting for its lock.
                     summary = deduper.pending_summary(key)
                     if summary is None:
                         continue
                     text, count = summary
-                    await safe_send_message(
-                        context.bot,
-                        chat_id=chat_id,
-                        text=text,
-                        parse_mode=None,
-                        disable_web_page_preview=True,
-                    )
+                    if channel == 'telegram':
+                        await safe_send_message(
+                            context.bot,
+                            chat_id=_resolve_alert_chat_id(context, None, cfg, key.owner_id),
+                            text=text, parse_mode=None, disable_web_page_preview=True,
+                        )
+                    else:
+                        await _deliver_channel(None, context, cfg, key.owner_id, key.domain,
+                                               channel, text)
                     deduper.acknowledge_summary(key, count)
                     log.info(
                         "alert.summary.sent",

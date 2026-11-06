@@ -76,6 +76,20 @@ class WorkspacePreferencesForm(forms.Form):
                                     'autocomplete': 'new-password', 'spellcheck': 'false',
                                 }))
 
+    notification_email = forms.EmailField(label=_('Notification email'), required=False)
+    smtp_settings = forms.ChoiceField(required=False, choices=[('1', '1')],
+                                      initial='1', widget=forms.HiddenInput)
+    smtp_host = forms.CharField(label=_('SMTP host'), required=False, max_length=253)
+    smtp_port = forms.IntegerField(label=_('SMTP port'), required=False, min_value=1, max_value=65535)
+    smtp_security = forms.ChoiceField(label=_('SMTP security'), required=False,
+                                     choices=[('starttls', 'STARTTLS'), ('tls', 'TLS')])
+    smtp_username = forms.CharField(label=_('SMTP username'), required=False, max_length=254)
+    smtp_password = forms.CharField(label=_('New SMTP password'), required=False, max_length=2048,
+                                    strip=False, widget=forms.PasswordInput(render_value=False,
+                                    attrs={'autocomplete': 'new-password'}))
+    remove_smtp_password = forms.BooleanField(label=_('Remove saved SMTP password'), required=False)
+    smtp_from_email = forms.EmailField(label=_('Sender email'), required=False)
+
     telegram_proxy = forms.CharField(label=_('New Telegram proxy'), required=False, max_length=2048,
                                     widget=forms.PasswordInput(render_value=False, attrs={
                                         'autocomplete': 'new-password', 'spellcheck': 'false',
@@ -142,6 +156,8 @@ class WorkspacePreferencesForm(forms.Form):
         if data.get('virustotal_api_key') and data.get('remove_virustotal_api_key'):
             self.add_error('virustotal_api_key',
                            _('Choose a new VirusTotal key or remove the saved key.'))
+        if data.get('smtp_password') and data.get('remove_smtp_password'):
+            self.add_error('smtp_password', _('Enter a new password or remove the saved password.'))
         return data
 
     def clean_timezone(self):

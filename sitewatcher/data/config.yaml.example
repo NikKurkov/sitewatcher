@@ -65,6 +65,8 @@ ipbl:
 #   index_db_path: /var/lib/sitewatcher/z_i_index.db
 # domains:
 #   - name: example.com
+#     notify_email: false          # account recipient + SMTP are configured in Settings
+#     notify_telegram: true        # use the account Telegram channel
 #     keywords: ["homepage phrase"]
 #     checks:
 #       keywords: true

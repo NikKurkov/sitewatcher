@@ -263,6 +263,8 @@ class Defaults(ConfigModel):
 class DomainOverride(ConfigModel):
     """Validated partial settings; missing fields inherit their configured value."""
     http_url: Optional[str] = None
+    notify_email: Optional[bool] = None
+    notify_telegram: Optional[bool] = None
     http_timeout_s: Optional[int] = Field(None, gt=0)
     interval_minutes: Optional[int] = Field(None, ge=0)
     latency_warn_ms: Optional[int] = Field(None, ge=0)
@@ -495,6 +497,8 @@ def resolve_settings(cfg: AppConfig, domain: str, override: Optional[dict] = Non
         if checks is not None:
             values["checks"].update(checks)
         values.update(validated)
+    values.pop("notify_email", None)
+    values.pop("notify_telegram", None)
     ports = values.pop("ports", ports)
     interval = values.pop("interval_minutes", interval)
     http_url = values.pop("http_url", None) or normalize_site_url(domain)

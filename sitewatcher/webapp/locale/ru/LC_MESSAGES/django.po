@@ -2369,3 +2369,111 @@ msgstr "Использованы сохранённые метаданные; д
 
 msgid "Metadata refresh completed; results saved"
 msgstr "Обновление метаданных завершено; результаты сохранены"
+
+msgid "Notification email"
+msgstr "Почта для уведомлений"
+
+msgid "SMTP host"
+msgstr "Сервер SMTP"
+
+msgid "SMTP port"
+msgstr "Порт SMTP"
+
+msgid "SMTP security"
+msgstr "Защита соединения"
+
+msgid "SMTP username"
+msgstr "Логин SMTP"
+
+msgid "New SMTP password"
+msgstr "Новый пароль SMTP"
+
+msgid "Remove saved SMTP password"
+msgstr "Удалить сохранённый пароль SMTP"
+
+msgid "Sender email"
+msgstr "Адрес отправителя"
+
+msgid "Enter a new password or remove the saved password."
+msgstr "Введите новый пароль или удалите сохранённый."
+
+msgid "The saved SMTP settings could not be read. Save the connection again."
+msgstr "Не удалось прочитать настройки SMTP. Сохраните подключение заново."
+
+msgid "Wait one minute before sending another test email."
+msgstr "Подождите минуту перед повторной отправкой тестового письма."
+
+msgid "SiteWatcher test notification"
+msgstr "Тестовое уведомление SiteWatcher"
+
+msgid "<p>SiteWatcher test notification: your email connection works.</p>"
+msgstr "<p>Тестовое уведомление SiteWatcher: отправка писем работает.</p>"
+
+msgid "Email delivery failed. Check your saved SMTP connection and recipient."
+msgstr "Не удалось отправить письмо. Проверьте сохранённые настройки SMTP и адрес получателя."
+
+msgid "Test email sent to your saved notification email."
+msgstr "Тестовое письмо отправлено на сохранённый адрес для уведомлений."
+
+msgid "The saved SMTP password could not be read. Enter a new password or remove it."
+msgstr "Не удалось прочитать сохранённый пароль SMTP. Введите новый пароль или удалите прежний."
+
+msgid "Enter a valid SMTP host, port, security and sender email."
+msgstr "Проверьте сервер SMTP, порт, защиту соединения и адрес отправителя."
+
+msgid "Configure the email recipient and SMTP connection in Settings."
+msgstr "Укажите почту для уведомлений и подключите SMTP в настройках."
+
+msgid "Configure and enable Telegram notifications in Settings."
+msgstr "Подключите Telegram и включите уведомления в настройках."
+
+msgid "Notifications"
+msgstr "Уведомления"
+
+msgid "Receive status changes and recovery alerts through the selected channels."
+msgstr "Получать сообщения об изменении статуса и восстановлении через выбранные каналы."
+
+msgid "30 days"
+msgstr "30 дней"
+
+msgid "Link copied"
+msgstr "Ссылка скопирована"
+
+msgid "Select and copy the link manually."
+msgstr "Выделите и скопируйте ссылку вручную."
+
+msgid "Saving…"
+msgstr "Сохранение…"
+
+msgid "Email notifications"
+msgstr "Уведомления по почте"
+
+msgid "Save your notification address here, then choose Email for each site that should send alerts."
+msgstr "Сохраните адрес получателя, затем выберите Email у сайтов, от которых нужны уведомления."
+
+msgid "SMTP connection"
+msgstr "Подключение SMTP"
+
+msgid "SMTP settings are shared by this installation. Use the SMTP details supplied by your email provider."
+msgstr "Подключение SMTP общее для этой установки. Используйте параметры вашего почтового сервиса."
+
+msgid "SMTP connection configured."
+msgstr "Подключение SMTP настроено."
+
+msgid "SMTP is not configured."
+msgstr "SMTP пока не настроен."
+
+msgid "Leave the password blank to keep the saved password. Saved passwords are never displayed."
+msgstr "Оставьте поле пустым, чтобы сохранить прежний пароль. Сохранённые пароли не показываются."
+
+msgid "An SMTP password is saved."
+msgstr "Пароль SMTP сохранён."
+
+msgid "Test email connection"
+msgstr "Проверка отправки писем"
+
+msgid "Save your email settings first. This sends one test email to your saved notification address."
+msgstr "Сначала сохраните настройки почты. Проверка отправит одно письмо на сохранённый адрес получателя."
+
+msgid "Send test email"
+msgstr "Отправить тестовое письмо"

@@ -50,6 +50,8 @@ jobs:
         run: |
           touch sitewatcher/data/docker-probe.yaml sitewatcher/data/docker-probe.sqlite
           touch sitewatcher/data/docker-probe.db-wal sitewatcher/data/.env.docker-probe
+          touch sitewatcher/data/docker-probe.smtp.json sitewatcher/data/.smtp-docker-probe
+          touch sitewatcher/data/docker-probe.db.refresh.sqlite3
           touch sitewatcher/data/docker-probe.web-secret sitewatcher/data/docker-probe.telegram-token
           touch sitewatcher/data/docker-probe.telegram-proxy sitewatcher/data/.telegram-proxy-docker-probe
           touch sitewatcher/data/docker-probe.virustotal-proxy-enabled sitewatcher/data/.vt-proxy-enabled-docker-probe

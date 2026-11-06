@@ -6,9 +6,9 @@
             {% translate 'Average' %}:
             {% for window in report.response_times %}
             <span class="chart-window">
-                <button type="button" class="chart-window-value" popovertarget="response-window-{{ report.domain }}-{{ window.minutes }}" aria-describedby="response-window-{{ report.domain }}-{{ window.minutes }}"><strong>{% if window.latency_ms != None %}{% blocktranslate with latency=window.latency_ms|floatformat:0 %}{{ latency }} ms{% endblocktranslate %}{% else %}{% translate 'No data' %}{% endif %}</strong></button>
-                <span class="chart-window-tooltip" id="response-window-{{ report.domain }}-{{ window.minutes }}" popover="auto" role="tooltip">{% if window.minutes == 15 %}{% translate '15 minutes' %}{% elif window.minutes == 60 %}{% translate '1 hour' %}{% else %}{% translate '1 day' %}{% endif %}</span>
-            </span>
+                <button type="button" class="chart-window-value" popovertarget="response-window-{{ report.domain }}-{{ window.minutes }}" aria-describedby="response-window-{{ report.domain }}-{{ window.minutes }}"><strong>{% if window.latency_ms != None %}{{ window.latency_ms|floatformat:0 }}{% else %}—{% endif %}</strong></button>
+                <span class="chart-window-tooltip" id="response-window-{{ report.domain }}-{{ window.minutes }}" popover="auto" role="tooltip">{% if window.minutes == 15 %}{% translate '15 minutes' %}{% elif window.minutes == 60 %}{% translate '1 hour' %}{% elif window.minutes == 1440 %}{% translate '1 day' %}{% else %}{% translate '30 days' %}{% endif %} · {% if window.latency_ms != None %}{% blocktranslate with latency=window.latency_ms|floatformat:0 %}{{ latency }} ms{% endblocktranslate %}{% else %}{% translate 'No data' %}{% endif %}</span>
+            </span>{% if not forloop.last %}<span class="chart-window-separator" aria-hidden="true">/</span>{% endif %}
             {% endfor %}
         </span>
     </figcaption>
@@ -16,7 +16,7 @@
         <div class="chart-frame">
             <div class="chart-y-axis" aria-hidden="true">
                 {% for tick in report.chart.y_ticks %}
-                    <span >{% if tick.short_value %}{% blocktranslate with latency=tick.short_value %}{{ latency }} ms{% endblocktranslate %}{% else %}{% blocktranslate with latency=tick.value|floatformat:-2 %}{{ latency }} ms{% endblocktranslate %}{% endif %}</span>
+                    <span >{% if tick.short_value %}{% blocktranslate with latency=tick.short_value %}{{ latency }} ms{% endblocktranslate %}{% else %}{% blocktranslate with latency=tick.value|floatformat:0 %}{{ latency }} ms{% endblocktranslate %}{% endif %}</span>
                 {% endfor %}
             </div>
             <div class="chart-plot">
@@ -39,7 +39,7 @@
                 <g class="chart-point"
                     tabindex="{% if forloop.first %}0{% else %}-1{% endif %}"
                     role="img"
-                    aria-label="{{ point.label }} · {% blocktranslate with latency=point.value|floatformat:1 %}{{ latency }} ms{% endblocktranslate %}"
+                    aria-label="{{ point.label }} · {% blocktranslate with latency=point.value|floatformat:0 %}{{ latency }} ms{% endblocktranslate %}"
                 >
                     <circle class="chart-dot" cx="{{ point.x|unlocalize }}" cy="{{ point.y|unlocalize }}" r="2"/>
                 </g>
