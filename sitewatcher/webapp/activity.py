@@ -8,7 +8,8 @@ from django.utils.translation import gettext as _
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_safe
 
-from sitewatcher import check_activity, network_routes
+from sitewatcher import check_activity, network_routes, critical_incidents
+from sitewatcher.reporting import SnapshotError
 from .accounts import owner_required
 from .presentation import check_label, status_label
 
@@ -48,7 +49,8 @@ def activity(request):
         events = check_activity.recent(request.workspace.owner_id)
         domains = check_activity.domain_roster(request.workspace.owner_id)
         routes = network_routes.read_owner(request.workspace.owner_id)
-    except (sqlite3.Error, OSError):
+        incidents = critical_incidents.read(settings.SITEWATCHER_CONFIG, request.workspace.owner_id)
+    except (sqlite3.Error, OSError, SnapshotError):
         return JsonResponse({'error': 'Activity unavailable'}, status=503)
     present_events(events)
     for domain in domains:
@@ -57,6 +59,9 @@ def activity(request):
         check = domain.pop('check_name')
         domain['label'] = str(check_label(check)) if check else ''
         domain['status_label'] = str(status_label(domain['status']))
-    response = JsonResponse({'events': events, 'domains': domains})
+    for incident in incidents:
+        for check in incident['checks']:
+            check['label'] = str(check_label(check['name']))
+    response = JsonResponse({'events': events, 'domains': domains, 'critical_incidents': incidents})
     response['Cache-Control'] = 'no-store'
     return response

@@ -281,3 +281,22 @@ def test_api_roster_includes_idle_domains_and_only_owned_last_results(owner):
          'status_label': 'OK'},
     ]
     assert 'diagnostic' not in json.dumps(payload) and 'secret_probe' not in json.dumps(payload)
+
+
+def test_critical_panel_is_owner_scoped_read_only_and_diagnostic_free(owner):
+    storage.save_history(31, 'shared.example', 'http_basic', 'CRIT', 'secret diagnostic',
+                         {'private': 'do not expose'})
+    storage.save_history(31, 'shared.example', 'tls_cert', 'CRIT', 'tls secret', {})
+    storage.save_history(99, 'shared.example', 'http_basic', 'CRIT', 'other owner', {})
+    with storage._connect() as connection:
+        before = connection.execute('SELECT * FROM critical_incidents').fetchall()
+    payload = json.loads(call_api(owner).content)
+    incident, = payload['critical_incidents']
+    assert incident['domain'] == 'shared.example'
+    assert {row['name'] for row in incident['checks']} == {'http_basic', 'tls_cert'}
+    assert all(row['label'] for row in incident['checks'])
+    assert all(set(row) == {'name', 'label', 'opened_at', 'last_critical_at', 'status', 'stale'}
+               for row in incident['checks'])
+    assert 'secret' not in json.dumps(payload) and 'private' not in json.dumps(payload)
+    with storage._connect() as connection:
+        assert connection.execute('SELECT * FROM critical_incidents').fetchall() == before

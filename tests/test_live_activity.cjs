@@ -73,7 +73,7 @@ function page({saved = 'on', reduced = false, width = 1000, publicView = false} 
   const selectors = ['activity-scene', 'scene-links', 'scene-nodes', 'scene-pulses', 'scene-hub',
     'activity-status', 'scene-mode', 'scene-empty', 'scene-overflow', 'scene-pause', 'scene-speed',
     'scene-replay', 'scene-fullscreen', 'activity-console', 'console-scroll', 'console-follow',
-    'activity-accessible', 'domain-map', 'map-count', 'map-detail', 'map-unpin', 'scene-sent', 'scene-returned', 'scene-active', 'console-count', 'scene-pause-label'];
+    'activity-accessible', 'domain-map', 'map-count', 'map-detail', 'map-unpin', 'scene-sent', 'scene-returned', 'scene-active', 'console-count', 'scene-pause-label', 'critical-panel', 'critical-list', 'critical-count', 'critical-connection'];
   const elements = Object.fromEntries(selectors.map(name => [name, node(name === 'activity-scene' ? 'svg' : 'div')]));
   const get = name => elements[name];
   get('console-scroll').append(get('activity-console'));
@@ -105,8 +105,8 @@ function page({saved = 'on', reduced = false, width = 1000, publicView = false} 
   });
   const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
   const respond = async (events, {ok = true, redirected = false, request = requests.at(-1),
-    status = 200, domains = [...new Set(events.map(event => event.domain))].sort().map(name => ({name, status: 'UNKNOWN', label: '', status_label: 'No data'}))} = {}) => {
-    request.resolve({ok, redirected, status, json: async () => ({events, domains})});
+    status = 200, incidents = [], domains = [...new Set(events.map(event => event.domain))].sort().map(name => ({name, status: 'UNKNOWN', label: '', status_label: 'No data'}))} = {}) => {
+    request.resolve({ok, redirected, status, json: async () => ({events, domains, critical_incidents: incidents})});
     await flush();
   };
   const poll = () => {
@@ -437,4 +437,34 @@ async function publicActivityScope() {
     await test();
     console.log(`Live activity: ${test.name} passed`);
   }
+})().catch(error => { console.error(error); process.exitCode = 1; });
+
+(async () => {
+  const p = page();
+  const incidents = [{domain: '<script>.example', paused: false, checks: [
+    {name: 'http_basic', label: 'HTTP unavailable', opened_at: '2026-11-03T12:00:00Z', status: 'CRIT', stale: false},
+    {name: 'tls_cert', label: 'TLS certificate', opened_at: '2026-11-03T12:05:00Z', status: 'UNKNOWN', stale: true},
+  ]}];
+  await p.respond([], {incidents});
+  assert.equal(p.get('critical-panel').hidden, false);
+  assert.equal(p.get('critical-count').textContent, '2');
+  assert.equal(p.get('critical-list').children.length, 1);
+  const row = p.get('critical-list').children[0];
+  assert.ok(row.textContent.includes('<script>.example'), 'domain is displayed as text');
+  p.get('scene-pause').click();
+  p.get('scene-replay').click();
+  assert.equal(p.get('critical-list').children[0], row, 'animation controls do not clear incidents');
+  p.poll();
+  await p.respond([], {ok: false});
+  assert.equal(p.get('critical-panel').hidden, false);
+  assert.equal(p.get('critical-list').children[0], row, 'failed transport retains incident rows');
+  assert.equal(p.get('critical-connection').hidden, false);
+  p.poll();
+  await p.respond([], {incidents});
+  assert.equal(p.get('critical-list').children[0], row, 'stable updates preserve reading and disclosure');
+  assert.equal(p.get('critical-connection').hidden, true);
+  p.poll();
+  await p.respond([]);
+  assert.equal(p.get('critical-panel').hidden, true, 'only a successful authoritative snapshot clears it');
+  console.log('Critical panel: grouped stable DOM, safe text, pause/replay and failed transport retention passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

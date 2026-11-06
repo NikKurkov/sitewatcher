@@ -220,6 +220,8 @@ def _ensure_initialized(db_path: Path | None = None) -> None:
                 columns = {row["name"] for row in conn.execute("PRAGMA table_info(domains)")}
                 if "favorite" not in columns:
                     conn.execute("ALTER TABLE domains ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0")
+                from .critical_incidents import initialize
+                initialize(conn)
         _INITIALIZED_PATHS.add(db_path)
 
 
@@ -432,6 +434,10 @@ def _save_history_rows(
             "VALUES (?,?,?,?,?,?,?,datetime('now'))",
             rows,
         )
+        from .critical_incidents import record
+        for item in rows:
+            if is_current_observation(domain, item[5]):
+                record(conn, owner_id, domain, item[2], item[3])
     log.debug("history.saved", extra={"owner_id": owner_id, "domain": domain, "count": len(rows)})
 
 

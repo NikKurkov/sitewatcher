@@ -2477,3 +2477,24 @@ msgstr "Сначала сохраните настройки почты. Про�
 
 msgid "Send test email"
 msgstr "Отправить тестовое письмо"
+
+msgid "Critical problems"
+msgstr "Критические проблемы"
+
+msgid "Unresolved critical checks"
+msgstr "Неустранённые критические ошибки"
+
+msgid "Awaiting confirmed recovery"
+msgstr "Восстановление пока не подтверждено"
+
+msgid "Monitoring paused"
+msgstr "Мониторинг приостановлен"
+
+msgid "Connection lost. Keeping last known problems."
+msgstr "Связь потеряна. Сохранены последние известные проблемы."
+
+msgid "Kept until the same check confirms recovery."
+msgstr "Остаются до успешного результата этой же проверки."
+
+msgid "min"
+msgstr "мин"

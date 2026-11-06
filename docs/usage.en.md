@@ -415,3 +415,13 @@ selection; JSON stays flat and contains no internal group identifiers.
 Response charts require enabled HTTP checks and observations in the selected
 period; otherwise the chart section is hidden. Failed/unknown HTTP observations
 still count as observations. Other checks remain visible.
+
+### Critical problems in Signal room
+
+The bottom-right panel groups unresolved critical checks by domain and keeps their
+opening times across repeated failures, restarts and history cleanup. Only an OK
+result from that same check clears the incident; WARN, missing results, paused
+monitoring and connection loss do not confirm recovery. Disabled checks are hidden;
+deleted or renamed hosts discard the previous host's incidents. The owner-only
+panel stays inside Signal room, including fullscreen. Its red edge pulses slowly;
+reduced-motion preferences disable the animation.

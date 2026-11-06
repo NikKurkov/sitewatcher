@@ -87,6 +87,16 @@
         </div>
         <div class="activity-scene-empty" data-scene-empty hidden><span class="activity-empty-signal" aria-hidden="true"></span><p>{% translate 'No recent checks yet' %}</p><span>{% translate 'Signals will appear here when monitoring runs.' %}</span></div>
         <span class="activity-scene-overflow" data-scene-overflow hidden></span>
+        {% if not public_view %}
+        <aside class="activity-critical" data-critical-panel hidden aria-labelledby="critical-title"
+            data-minutes="{% translate 'min' %}" data-awaiting="{% translate 'Awaiting confirmed recovery' %}"
+            data-paused="{% translate 'Monitoring paused' %}">
+            <div class="activity-critical-heading"><span class="activity-critical-beacon" aria-hidden="true">!</span><h3 id="critical-title">{% translate 'Critical problems' %}</h3><span class="activity-critical-count" data-critical-count role="status" aria-live="polite">0</span></div>
+            <p class="activity-critical-connection" data-critical-connection hidden>{% translate 'Connection lost. Keeping last known problems.' %}</p>
+            <ol class="activity-critical-list" data-critical-list aria-label="{% translate 'Unresolved critical checks' %}"></ol>
+            <p class="activity-critical-note">{% translate 'Kept until the same check confirms recovery.' %}</p>
+        </aside>
+        {% endif %}
         <div class="activity-stage-bottomline"><span data-activity-status role="status">{% translate 'Connecting…' %}</span><span class="activity-readonly">{% translate 'Observation only' %}</span></div>
     </div>
     <div class="activity-telemetry">
