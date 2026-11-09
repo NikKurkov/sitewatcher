@@ -414,3 +414,55 @@
 .activity-console li > :is(.console-check, .console-domain, .console-result, .console-duration) {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* Active problems belong to the room, not to its temporary animated journeys. */
+.activity-critical {
+  position: absolute; z-index: 4; right: 20px; bottom: 48px;
+  width: min(320px, calc(100% - 40px)); color: #f4e2e7;
+  background: #211923; border: 1px solid #b94760; border-radius: 12px;
+  box-shadow: 0 8px 28px #0005; overflow: hidden;
+}
+.activity-critical[hidden], .activity-critical [hidden] { display: none; }
+.activity-critical::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  border: 1px solid #ff849b; border-radius: inherit;
+  animation: critical-panel-pulse 3s ease-in-out infinite;
+}
+.activity-critical-heading { display: flex; align-items: center; gap: 9px; padding: 13px 15px 10px; }
+.activity-critical-heading h3 { margin: 0; font: 650 14px/1.4 system-ui, sans-serif; }
+.activity-critical-beacon {
+  display: grid; place-items: center; flex: 0 0 22px; height: 22px;
+  border-radius: 50%; background: #ab2845; color: #fff; font-weight: 800;
+}
+.activity-critical-count {
+  margin-left: auto; min-width: 24px; padding: 2px 6px; border-radius: 6px;
+  text-align: center; background: #642438; color: #ffdbe3; font: 700 12px/1.5 system-ui;
+}
+.activity-critical-list {
+  list-style: none; padding: 0 15px; margin: 0; max-height: min(210px, 30vh);
+  overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #a54b61 #211923;
+}
+.activity-critical-domain { padding: 10px 0; border-top: 1px solid #69404d; }
+.activity-critical-domain summary { cursor: pointer; color: #fff0f4; font: 600 13px/1.5 system-ui; }
+.activity-critical-name { overflow-wrap: anywhere; }
+.activity-critical-domain-count { margin-left: 8px; color: #e6aab9; font-size: 11px; }
+.activity-critical-checks { list-style: none; margin: 8px 0 0; padding: 0; }
+.activity-critical-checks li { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 3px 12px; margin-top: 8px; }
+.activity-critical-link { color: #edc8d2; font: 12px/1.5 system-ui; overflow-wrap: anywhere; text-decoration: none; }
+.activity-critical-link:hover { color: white; text-decoration: underline; }
+.activity-critical-age { color: #d3a5b2; white-space: nowrap; font: 11px/1.7 system-ui; }
+.activity-critical-state { grid-column: 1/-1; color: #c2a5af; font: 11px/1.5 system-ui; }
+.activity-critical-note { padding: 10px 15px 12px; margin: 0; color: #c8a4b0; font: 11px/1.5 system-ui; }
+.activity-critical-connection { margin: 0; padding: 0 15px 10px; color: #ffcf9c; font: 12px/1.5 system-ui; }
+.activity-critical :is(summary, a):focus-visible { outline: 2px solid #ffadbf; outline-offset: 3px; border-radius: 2px; }
+@keyframes critical-panel-pulse { 0%,100% { opacity: .2; } 50% { opacity: 1; box-shadow: inset 0 0 18px #ff36551a; } }
+@media (max-width: 900px) {
+  .activity-critical { position: sticky; bottom: 12px; right: auto; margin: 0 16px 14px auto; width: min(320px, calc(100% - 32px)); }
+  .activity-critical-list { max-height: 160px; }
+}
+@media (prefers-reduced-motion: reduce) { .activity-critical::after { animation: none; opacity: .7; } }
+@media (min-width: 901px) {
+  .activity-panel[data-has-critical=true] .activity-map { flex-basis: 320px; align-self: flex-start; margin-top: 0; padding-top: 0; }
+  .activity-panel[data-has-critical=true] .activity-map-grid { max-height: 72px; }
+  .activity-panel[data-has-critical=true] .activity-map-detail { min-height: 0; max-height: 34px; overflow: auto; margin-top: 8px; line-height: 1.5; }
+}
