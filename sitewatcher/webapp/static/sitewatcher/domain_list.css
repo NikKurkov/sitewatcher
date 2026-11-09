@@ -21,7 +21,8 @@
 .domain-check-list > li { padding: 10px 0; border-bottom: 1px solid var(--line); }
 .domain-check-list > li:nth-child(-n+2) { padding-top: 0; }
 .domain-check-list .check-needs-attention { border-left: 2px solid var(--amber); padding-left: 10px; }
-.domain-check-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.domain-check-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.domain-check-label { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .domain-check-heading strong { font-weight: 500; overflow-wrap: anywhere; }
 .domain-check-heading .badge { flex-shrink: 0; }
 .domain-check-status { display: inline-flex; justify-content: flex-end; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; font-size: 12px; text-align: right; }
@@ -206,5 +207,11 @@
 
 .domain-move-dialog .domain-move-dialog-error { color: var(--red); }
 
-.metadata-refresh { display: inline-flex; margin: 0 .35rem; }
-.metadata-refresh button { padding: .2rem .45rem; font-size: .75rem; min-height: 1.7rem; }
+.metadata-refresh { display: inline-flex; flex-shrink: 0; margin: 0; }
+.metadata-refresh button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; min-height: 28px; padding: 6px; border-color: transparent; background: transparent; color: var(--muted); }
+.metadata-refresh button svg { width: 14px; height: 14px; }
+.metadata-refresh button:hover { border-color: var(--line); background: var(--surface); color: var(--text); }
+.metadata-refresh button:focus-visible { color: var(--text); }
+@media (pointer: coarse) {
+  .metadata-refresh button { width: 36px; height: 36px; min-height: 36px; }
+}
