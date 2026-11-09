@@ -30,7 +30,7 @@ It helps you:
 - Notice when a website stops responding or becomes slow.
 - See when a domain or HTTPS certificate needs renewing.
 - Look through past checks to find when a problem started.
-- Get Telegram messages about problems and recovery.
+- Get email and Telegram messages about problems and recovery, with channels selected per site.
 - Share a status page for the websites you choose.
 
 ## What does it check?
@@ -56,7 +56,7 @@ TLS, WHOIS, VirusTotal and IP reputation use daily observations even when a site
 
 1. **Add a website address**, such as `example.com` or `example.com/catalog/`.
 2. **SiteWatcher checks it on a schedule** and saves the results.
-3. **Open the dashboard or receive an alert** if you have connected Telegram.
+3. **Open the dashboard or receive an alert** if you have configured notifications.
 
 The map shows checks moving between SiteWatcher and your websites. Open a site's history for the details.
 

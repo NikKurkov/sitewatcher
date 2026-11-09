@@ -89,7 +89,8 @@ def test_response_windows_use_exact_recent_samples_independent_of_chart_period(
     now = datetime(2026, 11, 5, 9, tzinfo=timezone.utc)
     monkeypatch.setattr(analytics, '_now', lambda: now)
     for minutes, latency in [(1, 100), (2, 300), (15, 500), (16, 900), (60, 1200),
-                              (61, 1600), (1440, 2000), (1441, 90000), (-1, 99999)]:
+                              (61, 1600), (1440, 2000), (1441, 9000), (20160, 11000),
+                              (43200, 13000), (43201, 99999), (-1, 99999)]:
         observation({'final_code': 200, 'response_latency_ms': latency},
                     at=(now - timedelta(minutes=minutes)).replace(tzinfo=None).isoformat(' '))
     for metrics in ({'final_code': 503, 'response_latency_ms': 99999},
@@ -101,14 +102,35 @@ def test_response_windows_use_exact_recent_samples_independent_of_chart_period(
     with storage._connect() as conn:
         conn.execute('UPDATE history SET created_at=? WHERE owner_id=2',
                      ((now - timedelta(minutes=1)).replace(tzinfo=None).isoformat(' '),))
-    windows = report(days=days)['response_times']
-    assert [window['minutes'] for window in windows] == [15, 60, 1440]
-    assert [window['sample_count'] for window in windows] == [3, 5, 7]
-    assert [window['latency_ms'] for window in windows] == pytest.approx([300, 600, 6600 / 7])
+    result = report(days=days)
+    windows = result['response_times']
+    assert [window['minutes'] for window in windows] == [15, 60, 1440, 43200]
+    assert [window['sample_count'] for window in windows] == [3, 5, 7, 10]
+    assert [window['latency_ms'] for window in windows] == pytest.approx(
+        [300, 600, 6600 / 7, 39600 / 10])
+    assert result['totals']['sample_count'] == {1: 10, 7: 11, 30: 13}[days]
+    assert sum(bucket['sample_count'] for bucket in result['buckets']) == (
+        result['totals']['sample_count'])
 
 
 def test_empty_response_windows_do_not_show_zero_latency(database):
-    assert [window['latency_ms'] for window in report()['response_times']] == [None] * 3
+    assert [window['latency_ms'] for window in report()['response_times']] == [None] * 4
+
+
+def test_month_response_time_does_not_extend_chart_or_latest_observation(database, monkeypatch):
+    from sitewatcher.webapp import analytics
+
+    now = datetime(2026, 11, 5, 9, tzinfo=timezone.utc)
+    monkeypatch.setattr(analytics, '_now', lambda: now)
+    observation({'final_code': 200, 'response_latency_ms': 250},
+                at=(now - timedelta(days=14)).replace(tzinfo=None).isoformat(' '))
+    result = report(days=1)
+    assert result['totals']['sample_count'] == 0
+    assert result['buckets'] == []
+    assert result['latest_observed_at'] is None
+    assert result['latest_availability'] == 'unknown'
+    assert [window['latency_ms'] for window in result['response_times']] == [
+        None, None, None, 250]
 
 
 def test_sources_cached_skip_and_numeric_latency_allowlist(database):
@@ -218,6 +240,7 @@ def test_malformed_numeric_latency_is_not_exposed(database, latency):
     observation({'final_code': 200, 'latency_ms_total': latency})
     result = report()
     assert result['totals']['latency_ms'] is None
+    assert all(window['latency_ms'] is None for window in result['response_times'])
     json.dumps(result, allow_nan=False)
 
 
@@ -226,6 +249,7 @@ def test_extreme_finite_latencies_cannot_overflow_the_average(database):
         observation({'final_code': 200, 'latency_ms_total': 1e308})
     result = report()
     assert result['totals']['latency_ms'] == 1e308
+    assert all(window['latency_ms'] == 1e308 for window in result['response_times'])
     json.dumps(result, allow_nan=False)
 
 

@@ -584,6 +584,8 @@ def test_chart_y_levels_share_the_polyline_scale(maximum):
     from sitewatcher.webapp.presentation import chart_context
     chart = chart_context([{'index': 60, 'latency_ms': maximum}], 'latency_ms')
     assert len(chart['y_ticks']) == 5
+    assert all(type(tick['value']) is int for tick in chart['y_ticks'])
+    assert len({tick['value'] for tick in chart['y_ticks']}) == 5
     for tick in chart['y_ticks']:
         assert tick['y'] == pytest.approx(150 - tick['value'] / chart['maximum'] * 132)
         assert tick['position'] == pytest.approx(tick['y'] / 165 * 100)
@@ -611,7 +613,7 @@ def test_chart_time_ticks_cover_full_window_in_workspace_timezone(days):
             'Europe/Moscow')).strftime('%d %b %H:%M')
 
 
-def test_chart_caption_is_compact_and_points_keep_accessible_exact_values():
+def test_chart_caption_has_four_compact_integer_averages_and_period_tooltips():
     from django.template.loader import render_to_string
     from sitewatcher.webapp.presentation import chart_context
     report = {'domain': 'one.example', 'totals': {'latency_ms': 125.5},
@@ -619,22 +621,26 @@ def test_chart_caption_is_compact_and_points_keep_accessible_exact_values():
                   {'minutes': 15, 'latency_ms': 125.5},
                   {'minutes': 60, 'latency_ms': 200},
                   {'minutes': 1440, 'latency_ms': None},
+                  {'minutes': 43200, 'latency_ms': 355.7},
               ], 'chart': chart_context([
         {'index': 0, 'latency_ms': 125.5, 'label': '03 Nov 2026, 13:00 MSK'},
     ], 'latency_ms')}
     body = render_to_string('sitewatcher/partials/chart.html', {'report': report})
     assert 'Website response time' in body and '126 ms' in body and '200 ms' in body
+    assert '<strong>126</strong>' in body and '<strong>356</strong>' in body
+    assert '<strong>—</strong>' in body
     caption = body.split('<figcaption>', 1)[1].split('</figcaption>', 1)[0]
     assert 'Average:' in caption
     assert 'chart-window-label' not in caption
-    for minutes, period in [(15, '15 minutes'), (60, '1 hour'), (1440, '1 day')]:
+    for minutes, period in [(15, '15 minutes'), (60, '1 hour'), (1440, '1 day'), (43200, '30 days')]:
         tooltip_id = f'response-window-one.example-{minutes}'
         assert f'popovertarget="{tooltip_id}"' in caption
         assert f'aria-describedby="{tooltip_id}"' in caption
-        assert f'popover="auto" role="tooltip">{period}</span>' in caption
-    assert caption.count('class="chart-window-value"') == 3
+        assert f'popover="auto" role="tooltip">{period} · ' in caption
+    assert caption.count('class="chart-window-value"') == 4
+    assert caption.count('class="chart-window-separator"') == 3
     assert 'Maximum' not in body and 'No data' in body
     assert 'Average of successful HTTP responses' not in body
     assert 'class="chart-y-axis"' in body and 'class="chart-plot"' in body
-    assert 'tabindex="0"' in body and '13:00 MSK · 125.5 ms' in body
+    assert 'tabindex="0"' in body and '13:00 MSK · 126 ms' in body
     assert 'class="chart-tooltip"' in body

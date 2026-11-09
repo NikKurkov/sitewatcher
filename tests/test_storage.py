@@ -72,3 +72,31 @@ def test_favorite_migration_preserves_existing_domains_and_is_owner_scoped(tmp_p
     with sqlite3.connect(path) as conn:
         rows = conn.execute('SELECT owner_id,name,favorite FROM domains ORDER BY owner_id').fetchall()
     assert rows == [(1, 'example.com', 1), (2, 'example.com', 0)]
+
+
+def test_simultaneous_first_use_initializes_database_once(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    import time
+
+    path = tmp_path / 'cold-start.db'
+    original = storage._connect
+    opened = []
+    barrier = Barrier(4)
+
+    def slow_connect(database=None):
+        opened.append(database)
+        time.sleep(0.03)
+        return original(database)
+
+    def initialize(_):
+        barrier.wait(timeout=5)
+        storage._ensure_initialized(path)
+
+    monkeypatch.setattr(storage, '_connect', slow_connect)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(initialize, range(4)))
+    assert opened == [path]
+    with original(path) as connection:
+        assert connection.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
+        assert connection.execute("SELECT name FROM sqlite_master WHERE name='history'").fetchone()

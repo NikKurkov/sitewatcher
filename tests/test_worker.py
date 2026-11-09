@@ -658,3 +658,25 @@ def test_saved_proxy_change_rebuilds_worker_clients_without_resetting_alerts(mon
     assert proxies == ['http://first.example:80'] * 2 + ['socks5://second.example:1080'] * 2 + [None] * 2
     assert dedupers and all(item is dedupers[0] for item in dedupers)
     assert storage.get_alert_state(7, 'example.com')['last_overall'] == 'OK'
+
+
+def test_email_subscription_delivers_without_bot_token(monkeypatch):
+    from sitewatcher import email_delivery, email_settings
+    monkeypatch.delenv('TELEGRAM_TOKEN', raising=False)
+    storage.add_domain(7, 'example.com')
+    storage.set_domain_override(7, 'example.com', {'notify_email': True, 'notify_telegram': False})
+    storage.upsert_alert_state(7, 'example.com', 'OK', None, channel='email')
+    storage.set_user_alerts_enabled(7, False)
+    probes(monkeypatch, status=Status.CRIT)
+    monkeypatch.setattr(email_settings, 'email_ready', lambda owner: owner == 7)
+    sent = []
+
+    async def email(owner, subject, html):
+        sent.append((owner, html))
+
+    monkeypatch.setattr(email_delivery, 'send_notification_email', email)
+    cfg = config()
+    cfg.scheduler.run_on_startup = False
+    run_ticks(monkeypatch, cfg)
+    assert len(sent) == 1 and sent[0][0] == 7 and 'CRIT' in sent[0][1]
+    assert storage.get_alert_state(7, 'example.com', channel='email')['last_overall'] == 'CRIT'

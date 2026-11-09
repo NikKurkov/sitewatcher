@@ -657,3 +657,41 @@ def test_row_actions_keep_list_filters_and_check_only_the_selected_domain(owner,
     for action in ('check', 'pause', 'resume'):
         assert post(client, '/domains/' + action, {**fields, 'days': '0'}).status_code == 400
     assert calls == [(31, ['one.example'])]
+
+
+def test_domain_subscription_ui_saves_selected_channels_and_rerenders_unchecked(owner, client,
+                                                                               monkeypatch):
+    from sitewatcher import email_settings
+    monkeypatch.setattr(email_settings, 'email_ready', lambda owner_id: owner_id == 31)
+    response = client.get('/domains/edit?domain=one.example', HTTP_HOST='localhost')
+    assert response.status_code == 200
+    assert b'name="notifications_present"' in response.content
+    revision = settings_context(AppConfig(), 31, 'one.example')['revision']
+    response = post(client, '/domains/edit', {'domain': 'one.example', 'revision': revision,
+                                            'notifications_present': '1', 'notify_email': 'on'})
+    assert response.status_code == 303
+    assert storage.get_domain_override(31, 'one.example') == {
+        'notify_email': True, 'notify_telegram': False,
+    }
+    revision = settings_context(AppConfig(), 31, 'one.example')['revision']
+    response = post(client, '/domains/edit', {'domain': 'one.example', 'revision': revision,
+                                            'notifications_present': '1', 'http_timeout_s': '0'})
+    assert response.status_code == 400
+    email_checkbox = re.search(r'<input[^>]*id="notify_email"[^>]*>', response.content.decode())[0]
+    assert ' checked' not in email_checkbox
+    assert storage.get_domain_override(31, 'one.example')['notify_email']
+
+
+def test_unconfigured_email_subscription_has_actionable_inline_error(owner, client, monkeypatch):
+    from sitewatcher import email_settings
+    monkeypatch.setattr(email_settings, 'email_ready', lambda _: False)
+    revision = settings_context(AppConfig(), 31, 'one.example')['revision']
+    response = post(client, '/domains/edit', {'domain': 'one.example', 'revision': revision,
+                                            'notifications_present': '1', 'notify_email': 'on'})
+    assert response.status_code == 400
+    body = response.content.decode()
+    assert 'Configure the email recipient and SMTP connection in Settings.' in body
+    assert 'notify_email:' not in body
+    assert 'id="notify-email-error"' in body and 'aria-invalid="true"' in body
+    assert 'class="advanced-settings" open' not in body
+    assert not storage.get_domain_override(31, 'one.example')

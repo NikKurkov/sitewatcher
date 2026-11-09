@@ -2159,7 +2159,7 @@ html { scrollbar-gutter: stable; }
   margin-bottom: 12px;
 }
 .chart-caption-title { font-size: 14px; font-weight: 600; }
-.chart-metrics { display: inline-flex; align-items: baseline; flex-wrap: wrap; column-gap: 12px; min-width: 0; max-width: 100%; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.chart-metrics { display: inline-flex; align-items: baseline; flex-wrap: wrap; column-gap: 6px; min-width: 0; max-width: 100%; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .chart-window { display: inline-block; white-space: nowrap; }
 .chart-window-value { min-height: 0; margin: 0; padding: 2px 0; border: 0; border-radius: 3px; background: transparent; box-shadow: none; color: var(--text); font: inherit; cursor: help; }
 .chart-window-value:hover { background: transparent; color: var(--text); }

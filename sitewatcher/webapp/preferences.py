@@ -1,6 +1,7 @@
 """Owner settings share the existing delivery preferences and UTC monitoring data."""
 import asyncio
 import os
+import time
 
 from django.utils.translation import gettext as _
 
@@ -11,6 +12,8 @@ from django.views.decorators.debug import sensitive_post_parameters, sensitive_v
 from django.views.decorators.http import require_http_methods
 
 from sitewatcher import storage
+from sitewatcher.email_settings import load_smtp_config, save_smtp_config, validate_smtp_config
+from sitewatcher.email_delivery import send_notification_email
 from sitewatcher.bot.utils import _resolve_alert_chat_id
 from sitewatcher.telegram_connection import (
     find_chats, load_bot_token, save_bot_token, send_test_notification,
@@ -38,12 +41,14 @@ def _destination(cfg, owner_id):
     return chat_id, source
 
 
-@sensitive_variables('token', 'proxy', 'api_key', 'configured_key', 'configured_proxy', 'vt_proxy', 'form')
+@sensitive_variables('token', 'proxy', 'api_key', 'configured_key', 'configured_proxy',
+                     'vt_proxy', 'form', 'smtp_config')
 def _render(request, form=None, *, error='', notice='', chats=None, status=200, public_link=''):
     owner_id = request.workspace.owner_id
     destination, source = _destination(settings.SITEWATCHER_CONFIG, owner_id)
     if form is None:
         form = WorkspacePreferencesForm(initial={
+            'notification_email': request.workspace.notification_email,
             'language': request.workspace.language,
             'timezone': request.workspace.timezone,
             'enabled': 'on' if storage.is_user_alerts_enabled(owner_id) else 'off',
@@ -61,6 +66,16 @@ def _render(request, form=None, *, error='', notice='', chats=None, status=200, 
     except (OSError, ValueError):
         proxy_present = False
         error = error or _('The Telegram proxy could not be read. Save a new proxy or remove it.')
+    try:
+        smtp_config = load_smtp_config()
+    except (OSError, ValueError):
+        smtp_config = None
+        error = error or _('The saved SMTP settings could not be read. Save the connection again.')
+    if not form.is_bound:
+        for key in ('host', 'port', 'security', 'username', 'from_email'):
+            form.initial['smtp_' + key] = (smtp_config or {}).get(key, {
+                'port': 587, 'security': 'starttls',
+            }.get(key, ''))
     configured_key = settings.SITEWATCHER_CONFIG.malware.vt_api_key
     try:
         api_key = load_api_key(configured_key)
@@ -84,6 +99,8 @@ def _render(request, form=None, *, error='', notice='', chats=None, status=200, 
         form.initial['virustotal_proxy'] = vt_proxy or ''
         form.fields['virustotal_proxy'].widget.render_value = True
     response = render(request, 'sitewatcher/preferences.html', {
+        'smtp_configured': bool(smtp_config),
+        'smtp_password_present': bool(smtp_config and smtp_config['password']),
         'form': form, 'read_only': settings.SITEWATCHER_READ_ONLY,
         'token_present': token_present, 'environment_override': bool(os.getenv('TELEGRAM_TOKEN', '').strip()),
         'virustotal_present': virustotal_present,
@@ -105,8 +122,8 @@ def _render(request, form=None, *, error='', notice='', chats=None, status=200, 
 
 @owner_required
 @require_http_methods(['GET', 'HEAD', 'POST'])
-@sensitive_post_parameters('bot_token', 'telegram_proxy', 'virustotal_api_key', 'virustotal_proxy')
-@sensitive_variables('token', 'fields', 'form', 'api_key', 'address')
+@sensitive_post_parameters('bot_token', 'telegram_proxy', 'virustotal_api_key', 'virustotal_proxy', 'smtp_password')
+@sensitive_variables('token', 'fields', 'form', 'api_key', 'address', 'smtp_config', 'previous')
 def preferences(request):
     if request.method != 'POST':
         if set(request.GET) - {'saved'} or any(len(v) != 1 for _, v in request.GET.lists()):
@@ -118,8 +135,23 @@ def preferences(request):
     fields.pop('csrfmiddlewaretoken', None)
     action = fields.pop('action', 'save')
     if (request.GET or set(fields) - set(WorkspacePreferencesForm.base_fields)
-            or action not in {'save', 'test', 'find_chats', 'reveal_virustotal_key'} or action != 'save' and fields):
+            or action not in {'save', 'test', 'test_email', 'find_chats', 'reveal_virustotal_key'} or action != 'save' and fields):
         return HttpResponse(_('Invalid request'), status=400)
+    if action == 'test_email':
+        now = time.time()
+        if now - request.session.get('email_test_at', 0) < 60:
+            return _render(request, error=_('Wait one minute before sending another test email.'),
+                           status=429)
+        request.session['email_test_at'] = now
+        try:
+            asyncio.run(send_notification_email(
+                request.workspace.owner_id, _('SiteWatcher test notification'),
+                _('<p>SiteWatcher test notification: your email connection works.</p>'),
+            ))
+        except Exception:
+            return _render(request, error=_(
+                'Email delivery failed. Check your saved SMTP connection and recipient.'), status=400)
+        return _render(request, notice=_('Test email sent to your saved notification email.'))
     if action == 'reveal_virustotal_key':
         try:
             api_key = load_api_key(settings.SITEWATCHER_CONFIG.malware.vt_api_key)
@@ -131,6 +163,27 @@ def preferences(request):
         form = WorkspacePreferencesForm(fields)
         if not form.is_valid():
             return _render(request, form, status=400)
+        smtp_config = None
+        if fields.get('smtp_settings') == '1':
+            try:
+                try:
+                    previous = load_smtp_config() or {}
+                except (OSError, ValueError):
+                    if not (form.cleaned_data['smtp_password']
+                            or form.cleaned_data['remove_smtp_password']):
+                        form.add_error('smtp_password', _(
+                            'The saved SMTP password could not be read. Enter a new password or remove it.'))
+                        return _render(request, form, status=400)
+                    previous = {}
+                if form.cleaned_data['smtp_host'] or previous:
+                    smtp_config = validate_smtp_config({
+                        key: form.cleaned_data['smtp_' + key]
+                        for key in ('host', 'port', 'security', 'username', 'from_email')
+                    } | {'password': ('' if form.cleaned_data['remove_smtp_password'] else
+                                      form.cleaned_data['smtp_password'] or previous.get('password', ''))})
+            except (OSError, ValueError):
+                form.add_error('smtp_host', _('Enter a valid SMTP host, port, security and sender email.'))
+                return _render(request, form, status=400)
         proxy_switch_present = (fields.get('virustotal_proxy_settings') == '1'
                                 or 'virustotal_proxy_enabled' in fields)
         proxy_enabled = (form.cleaned_data['virustotal_proxy_enabled']
@@ -145,6 +198,11 @@ def preferences(request):
                 form.add_error('virustotal_proxy', _('Enter a proxy address to enable it.'))
                 return _render(request, form, status=400)
         try:
+            if smtp_config is not None:
+                save_smtp_config(smtp_config)
+            if 'notification_email' in fields:
+                request.workspace.notification_email = form.cleaned_data['notification_email']
+                request.workspace.save(update_fields=['notification_email'])
             # Empty connection fields retain the existing configuration.
             if form.cleaned_data['remove_virustotal_api_key']:
                 remove_api_key()

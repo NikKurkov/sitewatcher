@@ -194,6 +194,8 @@ def _page(request, view, domain='', *, error='', values=None, status=200):
     if view == 'add' and values is None:
         context['values']['interval_minutes'] = str(context['defaults']['interval_minutes'])
     if values is not None:
+        if values.get('notifications_present') == '1':
+            values = {'notify_email': '', 'notify_telegram': '', **values}
         context['values'] = {**context.get('values', {}), **values, 'proxy': ''}
         context['domain'] = values.get('original_domain', values.get('domain', domain))
         if 'revision' in values:
@@ -429,6 +431,7 @@ def _mutate(request, action):
     allowed = {'domain'}
     if action in {'add', 'save'}:
         allowed.update((*NUMERIC_FIELDS, *LIST_FIELDS, 'http_url', 'http_scheme', 'original_domain', 'revision', 'proxy_mode', 'proxy', 'group_id', 'original_group_id', 'new_group_name'))
+        allowed.update({'notifications_present', 'notify_email', 'notify_telegram'})
         allowed.update(f'check.{name}' for name in ChecksModel.model_fields)
     elif action == 'favorite':
         allowed.update({'favorite', 'q', 'status', 'days'})
