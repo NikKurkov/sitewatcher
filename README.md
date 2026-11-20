@@ -6,6 +6,7 @@
 </h1>
 
 <p align="center"><strong>Checks your websites and lets you know when something goes wrong.</strong></p>
+<p align="center"><strong><a href="https://monitoring.kurkov.dev/demo">Open the live demo</a></strong></p>
 <p align="center"><a href="README.ru.md">Русский</a> · <strong>English</strong></p>
 
 [![Website overview in dark mode — demo data](docs/screenshots/readme-overview-dark-en.png)](docs/screenshots/readme-overview-dark-en.png)
@@ -16,67 +17,38 @@
     <td width="50%"><a href="docs/screenshots/readme-history-dark-en.png"><img src="docs/screenshots/readme-history-dark-en.png" alt="Website history and response times — demo data"></a></td>
   </tr>
   <tr>
-    <td align="center">Watch checks in progress</td>
+    <td align="center">Signal room</td>
     <td align="center">History and response times</td>
   </tr>
 </table>
 
-## What is it for?
+The demo is a public status page in Russian. You can see the monitored sites and open the Signal room without signing in. The screenshots above show the signed-in workspace with sample data.
 
-Keep an eye on an online shop, a company website or your own projects. SiteWatcher brings them together on one screen so you can see whether they open, how quickly they respond and whether anything needs attention.
+## What can I monitor?
 
-It helps you:
+- Whether a site opens, what HTTP status it returns, and how long the request takes.
+- When its HTTPS certificate and domain registration expire.
+- Whether a page still contains the words you expect, or shows signs of defacement.
+- Changes to its IP addresses, blocklist and reputation reports, TCP ports, and the route to the server.
 
-- Notice when a website stops responding or becomes slow.
-- See when a domain or HTTPS certificate needs renewing.
-- Look through past checks to find when a problem started.
-- Get email and Telegram messages about problems and recovery, with channels selected per site.
-- Share a status page for the websites you choose.
+Choose the checks for each site. The dashboard keeps a history so you can see when a problem started. You can send alerts by email or Telegram and share a public status page for selected sites.
 
-## What does it check?
-
-Available checks:
-
-- **Availability and speed** — whether the page opens, its response code and response time.
-- **HTTPS certificate and domain registration** — when they expire.
-- **Page content** — required words and signs of website defacement.
-- **Website reputation** — threat reports from VirusTotal; an API key is required. Each owner/domain report, including provider failures, is cached in the database for 24 hours. Manual checks and shorter schedules cannot bypass this limit. A missing report may require both a lookup and URL submission; the next lookup takes place after a day.
-- **IP addresses** — address changes and IP blocklist checks through DroneBL,
-  Blocklist.de and PSBL by default. Each source must pass positive and negative
-  control queries. At least one completed clean source is enough for OK; missing
-  sources are noted as incomplete coverage. If none completes, the result is unknown.
-  Access errors never become false listings. Override sources with `ipbl.zones` in YAML.
-- **Network** — connection latency, TCP port availability and the route to the server.
-
-Choose which checks to run for each website. See the [user guide](docs/usage.en.md) for details.
-
-TLS, WHOIS, VirusTotal and IP reputation use daily observations even when a site has a shorter operational interval. HTTP, IP changes, ping and ports remain operational. TLS and WHOIS have separate refresh actions in domain details. A failed provider refresh retains confirmed threats with the original evidence age.
-
-## How does it work?
-
-1. **Add a website address**, such as `example.com` or `example.com/catalog/`.
-2. **SiteWatcher checks it on a schedule** and saves the results.
-3. **Open the dashboard or receive an alert** if you have configured notifications.
-
-The map shows checks moving between SiteWatcher and your websites. Open a site's history for the details.
-
-SiteWatcher runs on your computer or server. That machine must stay on for checks to continue.
+Some checks use external data. VirusTotal needs an API key, and its reports are cached for 24 hours. The [user guide](docs/usage.en.md) explains how to set up each check and read its results.
 
 ## Get started
 
-You need Git and a running [Docker](https://docs.docker.com/get-started/get-docker/) installation with Compose. Open a terminal and run:
+Install Git and Docker with Compose, then run:
 
 ```bash
-mkdir sitewatcher &&
-cd sitewatcher &&
-git clone https://github.com/NikKurkov/sitewatcher.git . &&
-docker compose run --rm --build setup &&
+git clone https://github.com/NikKurkov/sitewatcher.git
+cd sitewatcher
+docker compose run --rm --build setup
 docker compose up -d
 ```
 
 The `setup` command asks you to choose a username and password. Then open **http://127.0.0.1:8080**, sign in and click **Add domain** — the **+** icon at the top.
 
-Basic checks work straight away. You can connect Telegram and other services later. By default, the dashboard is accessible only on the computer running it.
+Basic checks work straight away. You can connect Telegram and other services later. The dashboard is local by default. Leave the computer or server running so checks can continue.
 
 ## Next steps
 
