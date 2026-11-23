@@ -171,7 +171,8 @@ def test_manual_check_lock_timeout_and_deleted_domain(owner, client, monkeypatch
         thread.join(5)
     assert not thread.is_alive()
     assert result[0].status_code == 303
-    assert seen == [(31, 'one.example', {'use_cache': False})]
+    assert seen == [(31, 'one.example', {'use_cache': False,
+                                        'refresh_checks': {'tls_cert', 'whois'}})]
     assert not storage.domain_exists(31, 'one.example')
     assert storage.last_results(31, 'one.example') == []
 

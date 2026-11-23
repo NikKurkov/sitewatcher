@@ -14,6 +14,8 @@ from django.shortcuts import render
 from django.views.decorators.http import require_http_methods, require_POST, require_safe
 
 from sitewatcher import storage, domain_groups
+from sitewatcher.check_policy import REFRESHABLE_CHECKS
+from sitewatcher.checks.base import CheckOutcome
 from sitewatcher.config import AppConfig, ChecksModel, resolve_settings
 from sitewatcher.dispatcher import Dispatcher
 from sitewatcher.reporting import SnapshotError, build_snapshot
@@ -38,19 +40,24 @@ from .presentation import (
 _check_lock = Lock()
 
 
-async def _check_domains(cfg: AppConfig, owner_id: int, names: list[str]) -> None:
+async def _check_domains(cfg: AppConfig, owner_id: int, names: list[str]) -> list[CheckOutcome]:
+    metadata = []
     async with Dispatcher(cfg) as dispatcher:
         for name in names:
             if not storage.domain_exists(owner_id, name):
                 continue
             async with asyncio.timeout(cfg.scheduler.domain_timeout_s or 120):
-                results = await dispatcher.run_for(owner_id, name, use_cache=False)
+                results = await dispatcher.run_for(
+                    owner_id, name, use_cache=False, refresh_checks=REFRESHABLE_CHECKS,
+                )
             storage.save_histories(owner_id, name, results, create_missing=False, source="manual")
+            metadata.extend(result for result in results if result.check in REFRESHABLE_CHECKS)
+    return metadata
 
 
-def run_manual_checks(cfg: AppConfig, owner_id: int, names: list[str]) -> None:
+def run_manual_checks(cfg: AppConfig, owner_id: int, names: list[str]) -> list[CheckOutcome]:
     """Run probes without alert delivery; concurrent deletion must never recreate a domain."""
-    asyncio.run(_check_domains(cfg, owner_id, names))
+    return asyncio.run(_check_domains(cfg, owner_id, names))
 
 
 async def _refresh_metadata(cfg, owner_id, domain, check):
@@ -63,6 +70,20 @@ async def _refresh_metadata(cfg, owner_id, domain, check):
             )
     storage.save_histories(owner_id, domain, results, create_missing=False, source='manual')
     return results
+
+
+def _metadata_cooldown_notice(results, zone):
+    retries = [stamp for result in results
+               if (stamp := local_time(result.metrics.get('next_retry_at'), zone))
+               and stamp['future']]
+    if retries:
+        next_retry = min(retries, key=lambda stamp: stamp['value'])
+        return _('Some metadata could not be refreshed. The next retry is available from %(time)s.') % {
+            'time': next_retry['label'],
+        }
+    if not results or any(result.cached for result in results):
+        return _('Cached metadata reused; refresh is temporarily limited')
+    return None
 
 
 @owner_required
@@ -92,9 +113,8 @@ def refresh(request):
             results = asyncio.run(_refresh_metadata(cfg, owner_id, domain, check))
         finally:
             _check_lock.release()
-        notice = (_('Cached metadata reused; refresh is limited by provider cooldown')
-                  if not results or any(result.cached for result in results)
-                  else _('Metadata refresh completed; results saved'))
+        notice = (_metadata_cooldown_notice(results, request.workspace.timezone)
+                  or _('Metadata refresh completed; results saved'))
         if form.get('history') == '1':
             return HttpResponse(status=303, headers={'Location': '/domains/history?' +
                 urlencode({'domain': domain, 'days': filters['days'], 'notice': notice})})
@@ -433,10 +453,11 @@ def _act(request, action, form):
             if not _check_lock.acquire(blocking=False):
                 return HttpResponse(_('Another manual check is running'), status=409)
             try:
-                run_manual_checks(cfg, owner_id, names)
+                metadata = run_manual_checks(cfg, owner_id, names)
             finally:
                 _check_lock.release()
-            return _redirect(_('Checks completed; results saved'), filters)
+            notice = metadata and _metadata_cooldown_notice(metadata, request.workspace.timezone)
+            return _redirect(notice or _('Checks completed; results saved'), filters)
         if action == 'reset' and not form.get('revision'):
             raise ValueError('Reset requires the current settings revision')
         act_on_domain(cfg, owner_id, action, domain, revision=form.get('revision'))

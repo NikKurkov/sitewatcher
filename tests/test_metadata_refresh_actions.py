@@ -223,3 +223,42 @@ def test_cli_refresh_rejects_unowned_before_dispatch(monkeypatch):
         asyncio.run(main._cmd_check_one(AppConfig(), 31, 'private.example', only=None,
                                        use_cache=True, run_id='run', refresh_checks=['whois']))
     run.assert_not_called()
+
+
+def test_manual_domain_check_refreshes_metadata_and_shows_rdap_retry(
+    refresh_owner, client, monkeypatch,
+):
+    from datetime import datetime, timedelta, timezone
+    from urllib.parse import parse_qs, urlsplit
+
+    from sitewatcher.webapp import domains
+    from sitewatcher.webapp.presentation import local_time
+
+    retry_at = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+    run = AsyncMock(return_value=[
+        CheckOutcome('tls_cert', Status.OK, 'Fresh certificate', {}),
+        CheckOutcome('whois', Status.UNKNOWN, 'RDAP rate-limited',
+                     {'next_retry_at': retry_at}, cached=True),
+    ])
+
+    class Dispatcher:
+        def __init__(self, _):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+        run_for = run
+
+    monkeypatch.setattr(domains, 'Dispatcher', Dispatcher)
+    response = client.post('/domains/check', {'domain': 'one.example'}, HTTP_HOST='localhost')
+    assert response.status_code == 303
+    run.assert_awaited_once_with(31, 'one.example', use_cache=False,
+                                 refresh_checks={'tls_cert', 'whois'})
+    notice = parse_qs(urlsplit(response['Location']).query)['notice'][0]
+    assert local_time(retry_at, 'Europe/Moscow')['label'] in notice
+    latest = storage.last_history_for_check(31, 'one.example', 'tls_cert')
+    assert latest['message'] == 'Fresh certificate' and latest['source'] == 'manual'
