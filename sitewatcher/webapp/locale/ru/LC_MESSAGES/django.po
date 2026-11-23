@@ -2022,6 +2022,12 @@ msgstr "Неизвестный результат"
 msgid "No measurements"
 msgstr "Нет измерений"
 
+msgid "Overdue check without a saved result"
+msgstr "Проверка просрочена, результата нет"
+
+msgid "Each point averages successful responses in its time bucket. Shaded gaps show overdue checks without a saved result."
+msgstr "Каждая точка показывает среднее время успешных ответов за интервал. Серым отмечена просрочка проверки, для которой нет сохранённого результата."
+
 #, python-format
 msgid "HTTP observations: %(successful)s successful, %(failed)s failed, %(unknown)s unknown. Muted marks mean no measurements."
 msgstr "HTTP-проверки: %(successful)s успешных, %(failed)s неудачных, %(unknown)s с неизвестным результатом. Приглушённые отметки означают отсутствие измерений."

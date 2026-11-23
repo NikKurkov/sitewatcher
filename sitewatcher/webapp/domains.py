@@ -29,7 +29,10 @@ from .check_presentation import prepare_check_list
 from .models import Workspace
 from .forms import HistoryFiltersForm
 from .analytics import domain_report, summary_report
-from .presentation import domain_state, group_presentation, check_label, diagnostic_message, domain_form_context, local_time, report_context, status_label, summary_strip
+from .presentation import (
+    check_label, diagnostic_message, domain_form_context, domain_report_context, domain_state,
+    group_presentation, local_time, status_label, summary_strip,
+)
 
 # ponytail: one process-local manual run; run a single web process, use a job queue to scale.
 _check_lock = Lock()
@@ -182,7 +185,8 @@ def _page(request, view, domain='', *, error='', values=None, status=200):
             item['message'] = diagnostic_message(item['message'])
             item['status_label'] = status_label(item['status'])
             item['observed'] = local_time(item['created_at'], request.workspace.timezone)
-        return _render(request, 'domain_detail', {'report': report_context(report), 'row': row,
+        report = domain_report_context(report, cfg, owner_id, row)
+        return _render(request, 'domain_detail', {'report': report, 'row': row,
                                                  'history': history, 'history_form': history_form,
                                                  'notice': request.GET.get('notice', ''),
                                                  'history_query': urlencode({
@@ -347,12 +351,15 @@ def details(request):
         status = query.get('status', 'all')
         if status not in FILTERS:
             raise ValueError('Invalid filter')
-        report = report_context(domain_report(owner_id, name, days=days, timezone=zone))
-        snapshot = build_snapshot(settings.SITEWATCHER_CONFIG, owner_id)
+        cfg = settings.SITEWATCHER_CONFIG
+        snapshot = build_snapshot(cfg, owner_id)
         row = next((row for row in snapshot['domains'] if row['name'] == name), None)
         if row is None:
             raise Http404('Domain not found')
         _row_context(row, zone)
+        report = domain_report_context(
+            domain_report(owner_id, name, days=days, timezone=zone), cfg, owner_id, row,
+        )
     except ValueError:
         return HttpResponse(_('Invalid request'), status=400)
     except SnapshotError:

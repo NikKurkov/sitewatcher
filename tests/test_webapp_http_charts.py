@@ -100,3 +100,68 @@ def test_http_history_shows_latency_confirmation_without_exposing_internal_state
     assert '900 мс, 1100 мс, 5000 мс' in body
     assert 'Подтверждённое время ответа 1100 мс' in body
     assert 'confirmation-token-for-test' not in body
+
+
+@pytest.mark.parametrize('page', ['overview', 'history', 'public'])
+@pytest.mark.parametrize('interval,edited_minutes,observations,segments,gaps', [
+    pytest.param(60, 1440, [(age, 'scheduled') for age in (240, 180, 120, 60, 0)], 1, 0,
+                 id='regular-hourly'),
+    pytest.param(60, 1440, [(age, 'scheduled') for age in (240, 180, 60, 0)], 2, 1,
+                 id='missed-hour'),
+    pytest.param(60, 1440, [(240, 'scheduled'), (180, 'scheduled'), (130, 'manual'),
+                 (70, 'scheduled'), (10, 'scheduled')], 1, 0, id='manual-resets-deadline'),
+    pytest.param(60, 1440, [(240, 'scheduled'), (180, 'scheduled'), (120, 'failed'),
+                 (60, 'scheduled'), (0, 'scheduled')], 1, 0, id='failed-result-was-saved'),
+    pytest.param(60, 1440, [(age, 'scheduled') for age in (242, 182, 122, 62)], 1, 1,
+                 id='overdue-at-right-edge'),
+    pytest.param(60, 1440, [(age, 'scheduled') for age in (241, 181, 121, 61)], 1, 0,
+                 id='within-scheduler-tick'),
+    pytest.param(60, 2880, [(age, 'scheduled') for age in (1500, *range(1380, -1, -60))], 1, 1,
+                 id='overdue-from-previous-window'),
+    pytest.param(0, 1440, [(age, 'scheduled') for age in (240, 180, 60)], 1, 0,
+                 id='paused'),
+    pytest.param(60, 90, [(age, 'scheduled') for age in (240, 180, 60, 0)], 1, 0,
+                 id='older-than-current-schedule'),
+])
+def test_hourly_chart_marks_only_overdue_http_checks(
+    web_database, client, monkeypatch, page, interval, edited_minutes, observations, segments, gaps,
+):
+    from sitewatcher.webapp import analytics
+    from sitewatcher.webapp.models import StatusPage, Workspace
+
+    now = analytics._now().replace(second=0, microsecond=0)
+    monkeypatch.setattr(analytics, '_now', lambda: now)
+    owner_id, domain = 628, 'hourly.example'
+    user = get_user_model().objects.create_user(username='hourly-chart-owner')
+    workspace = Workspace.objects.create(user=user, owner_id=owner_id)
+    storage.add_domain(owner_id, domain)
+    storage.set_domain_override(owner_id, domain, {'interval_minutes': interval})
+    with storage._write_connection() as conn:
+        effective_since = (now - timedelta(minutes=edited_minutes)).replace(tzinfo=None).isoformat(sep=' ')
+        conn.execute('UPDATE domain_overrides SET updated_at=? WHERE owner_id=? AND domain=?',
+                     (effective_since, owner_id, domain))
+    for age, source in observations:
+        failed = source == 'failed'
+        storage.save_history(owner_id, domain, 'http_basic', 'CRIT' if failed else 'OK',
+                             'saved', {'final_code': 503 if failed else 200,
+                                       'response_latency_ms': 120},
+                             source='scheduled' if failed else source)
+        with storage._write_connection() as conn:
+            stamp = (now - timedelta(minutes=age)).replace(tzinfo=None).isoformat(sep=' ')
+            conn.execute('UPDATE history SET created_at=? WHERE id=('
+                         'SELECT MAX(id) FROM history WHERE owner_id=? AND domain=?)',
+                         (stamp, owner_id, domain))
+    if page == 'public':
+        StatusPage.objects.create(workspace=workspace, public_slug='hourly',
+                                  public_domains=[domain])
+        path = f'/hourly?domain={domain}&fragment=1'
+    else:
+        client.force_login(user)
+        endpoint = 'details' if page == 'overview' else 'history'
+        path = f'/domains/{endpoint}?domain={domain}'
+    response = client.get(path, HTTP_HOST='localhost')
+    assert response.status_code == 200
+    assert response.content.count(b'class="chart-line"') == segments
+    assert response.content.count(b'class="chart-gap"') == gaps
+    if gaps and edited_minutes == 2880:
+        assert b'class="chart-gap" x="0.0"' in response.content

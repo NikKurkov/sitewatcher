@@ -23,7 +23,9 @@ from . import analytics
 from .accounts import owner_required
 from .check_presentation import prepare_check_list
 from .models import StatusPage, Workspace
-from .presentation import check_label, local_time, report_context, status_label, summary_strip
+from .presentation import (
+    check_label, domain_report_context, local_time, status_label, summary_strip,
+)
 from .activity import present_events
 
 
@@ -204,7 +206,8 @@ def _status_page(request, workspace, *, data):
             return response
     except ValueError:
         return HttpResponse(_('Not found'), status=404)
-    snapshot = build_snapshot(settings.SITEWATCHER_CONFIG, workspace.owner_id)
+    cfg = settings.SITEWATCHER_CONFIG
+    snapshot = build_snapshot(cfg, workspace.owner_id)
     try:
         report = public_report(workspace, days=days, snapshot=snapshot,
                                summary=not data and domain is None, domain=domain)
@@ -216,7 +219,8 @@ def _status_page(request, workspace, *, data):
         if domain is None:
             summary_strip(item, public=True)
         else:
-            report_context(item, public=True)
+            row = next((row for row in snapshot['domains'] if row['name'] == item['domain']), {})
+            domain_report_context(item, cfg, workspace.owner_id, row, public=True)
         item['http_enabled'] = any(check['name'] == 'http_basic' for check in item['checks'])
         for check in item['checks']:
             check['label'] = check_label(check['name'])

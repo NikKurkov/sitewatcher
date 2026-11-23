@@ -1,9 +1,8 @@
 """Safe owner-scoped observation summaries, never continuous-time uptime.
 
 Reports aggregate HTTP rows in SQLite into at most 120 occupied UTC buckets. Empty buckets are
-absent: consumers MUST use start_at/bucket_seconds on the time axis and must not
-connect lines across missing bucket indices. A populated bucket with latency_ms
-None also breaks a latency line. No samples are interpolated.
+absent: consumers use start_at/bucket_seconds on the time axis. The latency chart
+checks for overdue runs separately and draws points only for measured latencies.
 
 A small process-local cache retains detached safe DTOs for at most 60 seconds,
 invalidated immediately by owner history append/delete or owned-domain changes.
@@ -276,6 +275,53 @@ def summary_report(owner_id: int, *, days: int, timezone: str,
                    published: tuple[str, ...] | None = None) -> dict:
     """Batch the visible history strips and totals using only the selected period."""
     return _cached_report(owner_id, None, days, timezone, summary=True, published=published)
+
+
+def http_gap_ranges(owner_id, report, interval_minutes, tick_minutes):
+    """Return overdue ranges (elapsed seconds) and the bucket where the line resumes."""
+    if not interval_minutes or report['totals']['latency_ms'] is None:
+        return []
+    start, end = (datetime.fromisoformat(report[key]).replace(tzinfo=None)
+                  for key in ('window_start', 'window_end'))
+    interval = interval_minutes * 60
+    args = (int(owner_id), report['domain'], start.isoformat(sep=' '), end.isoformat(sep=' '),
+            interval, tick_minutes * 60, report['bucket_seconds'])
+    # Every saved result resets the scheduler deadline, including manual runs
+    # and errors. The preceding observation anchors overdue time at the left edge.
+    # Do not assume the current interval applied before the last domain settings edit.
+    with closing(storage._connect()) as conn:
+        return [tuple(row) for row in conn.execute("""
+            WITH prior AS (
+                SELECT created_at FROM history
+                WHERE owner_id=?1 AND domain=?2 AND check_name='http_basic' AND created_at<?3
+                ORDER BY created_at DESC LIMIT 1
+            ), observations AS (
+                SELECT created_at FROM prior
+                UNION ALL
+                SELECT created_at FROM history
+                WHERE owner_id=?1 AND domain=?2 AND check_name='http_basic'
+                    AND created_at>=?3 AND created_at<=?4
+                UNION ALL SELECT ?4
+            ), elapsed AS (
+                SELECT unixepoch(created_at) - unixepoch(?3) AS current,
+                       MAX(0, MIN(119, CAST((julianday(created_at)-julianday(?3))*86400/?7
+                           AS INTEGER))) AS bucket
+                FROM observations
+            ), pairs AS (
+                SELECT current, bucket, LAG(current) OVER timeline AS previous,
+                       LAG(bucket) OVER timeline AS previous_bucket
+                FROM elapsed
+                WINDOW timeline AS (ORDER BY current)
+            ), deadlines AS (
+                SELECT current, bucket, previous_bucket, MAX(previous, COALESCE((
+                    SELECT unixepoch(updated_at) - unixepoch(?3) FROM domain_overrides
+                    WHERE owner_id=?1 AND domain=?2
+                ), previous)) + ?5 AS due
+                FROM pairs
+            )
+            SELECT MAX(0, due), current, MAX(bucket, previous_bucket + 1)
+            FROM deadlines WHERE current - due > ?6 AND current > 0 ORDER BY current
+        """, args)]
 
 
 # JSON1 runs inside SQLite; only grouped scalar rows cross the Python boundary.

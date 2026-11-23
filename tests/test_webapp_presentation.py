@@ -124,12 +124,13 @@ def test_detail_percent_sources_timezone_and_bounded_chart(owner, client):
         assert get(client, '/domains/history?domain=one.example&days=' + invalid).status_code == 400
 
 
-def test_chart_gaps_break_paths_and_unknown_latency():
+def test_chart_breaks_at_overdue_checks_and_only_plots_measured_latencies():
     from sitewatcher.webapp.presentation import chart_context
     points = [{'index': i, 'latency_ms': value} for i, value in
               [(0, 100), (1, 110), (3, 120), (4, None), (5, 130), (6, 120)]]
-    chart = chart_context(points, 'latency_ms')
-    assert len(chart['segments']) == 3
+    chart = chart_context(points, 'latency_ms', [(15, 25, 3)])
+    assert len(chart['segments']) == 2
+    assert chart['gaps'] == [{'x': 15, 'width': 10}]
     assert len(chart['dots']) == 5
     assert chart['dots'][2]['x'] == pytest.approx(3 * 1000 / 120)
     assert chart_context([], 'latency_ms')['segments'] == []

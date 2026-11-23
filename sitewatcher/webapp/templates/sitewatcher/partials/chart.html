@@ -25,9 +25,9 @@
             aria-labelledby="latency-title-{{ report.domain }} latency-desc-{{ report.domain }}"
         >
             <title id="latency-title-{{ report.domain }}">{% translate 'HTTP response time in milliseconds' %}</title>
-            <desc id="latency-desc-{{ report.domain }}">{% translate 'Each point is an average of successful responses in a time bucket. Missing buckets break the line.' %}</desc>
+            <desc id="latency-desc-{{ report.domain }}">{% translate 'Each point averages successful responses in its time bucket. Shaded gaps show overdue checks without a saved result.' %}</desc>
             {% for gap in report.chart.gaps %}
-                <rect class="chart-gap" x="{{ gap.x|unlocalize }}" y="18" width="{{ gap.width|unlocalize }}" height="132"><title>{% translate 'No measurements' %}</title></rect>
+                <rect class="chart-gap" x="{{ gap.x|unlocalize }}" y="18" width="{{ gap.width|unlocalize }}" height="132"><title>{% translate 'Overdue check without a saved result' %}</title></rect>
             {% endfor %}
             {% for tick in report.chart.y_ticks %}
                 <path class="chart-grid" d="M0 {{ tick.y|unlocalize }}H1000"/>

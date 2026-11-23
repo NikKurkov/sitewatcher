@@ -315,13 +315,13 @@ def test_public_no_data_unknowns_and_gap_axes_are_honest(owner, client):
     assert data['totals']['unknown'] == 1 and data['totals']['success_percent'] is None
     assert data['totals']['failure_percent'] is None
     assert 'unknown-private-sentinel' not in json.dumps(data)
-    # Public graphs use the shared absolute bucket axis and preserve missing intervals.
+    # Public graphs keep the absolute bucket axis and can connect across unneeded slots.
     from sitewatcher.webapp.presentation import report_context
     report = data['domains'][0]
     report['buckets'] = [{**report['buckets'][0], 'index': index, 'latency_ms': value}
                          for index, value in [(1, 100), (3, 200), (4, None), (5, 150)]]
     chart = report_context(report)['chart']
-    assert len(chart['segments']) == 3
+    assert len(chart['segments']) == 1
     assert chart['dots'][1]['x'] == pytest.approx(3 * 1000 / 120)
 
 
@@ -630,8 +630,7 @@ def test_public_chart_distinguishes_missing_failed_and_unknown_measurements(owne
     assert len(report['history_buckets']) == 120
     assert [b['state'] for b in report['history_buckets'][:5]] == [
         'no-data', 'successful', 'no-data', 'failed', 'unknown']
-    assert all(gap['width'] > 0 for gap in report['chart']['gaps'])
-    assert report['chart']['gaps'][0]['x'] == 0
+    assert report['chart']['gaps'] == []
 
 
 def test_public_unknown_failures_and_stale_success_still_need_attention(owner, client):
