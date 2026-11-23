@@ -68,7 +68,7 @@ def test_local_cached_expiry_change_is_recorded_once_with_original_evidence_time
 def test_changed_operational_ip_invalidates_only_address_dependent_daily_evidence():
     cfg=configuration('ip_blacklist');now=datetime.now(timezone.utc)
     storage.set_domain_override(7,'policy.example',{'checks':{'ip_change':True}})
-    data={'dnsbl_version':3,'zones':cfg.ipbl.zones,'dns_servers':cfg.ipbl.dns_servers,
+    data={'dnsbl_version':4,'zones':cfg.ipbl.zones,'dns_servers':cfg.ipbl.dns_servers,
           'check_ipv6':cfg.ipbl.check_ipv6,'ips_v4':['192.0.2.1']}
     storage.save_history(7,'policy.example','ip_blacklist','OK','clean',data)
     storage.save_history(7,'policy.example','ip_change','OK','changed',{'ips_v4':['192.0.2.2']})
@@ -81,7 +81,7 @@ def test_changed_operational_ip_invalidates_only_address_dependent_daily_evidenc
 def test_reused_older_ip_evidence_is_saved_for_changed_address(monkeypatch):
     cfg = configuration('ip_blacklist')
     now = datetime.now(timezone.utc)
-    base = {'dnsbl_version': 3, 'zones': cfg.ipbl.zones,
+    base = {'dnsbl_version': 4, 'zones': cfg.ipbl.zones,
             'dns_servers': cfg.ipbl.dns_servers, 'check_ipv6': cfg.ipbl.check_ipv6,
             'next_refresh_at': (now + timedelta(hours=20)).isoformat()}
     storage.save_history(7, 'policy.example', 'ip_blacklist', 'OK', 'clean', {

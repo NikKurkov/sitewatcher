@@ -132,15 +132,16 @@ def test_dnsbl_confirmed_negative_is_clean(monkeypatch, error):
     assert result.metrics['errors_count'] == 0
 
 
-@pytest.mark.parametrize(('errors', 'status'), [
-    ([dns.exception.Timeout], Status.UNKNOWN),
-    ([dns.resolver.NXDOMAIN, dns.exception.Timeout], Status.OK),
+@pytest.mark.parametrize('errors', [
+    [dns.exception.Timeout],
+    [dns.resolver.NXDOMAIN, dns.exception.Timeout],
 ])
-def test_dnsbl_failed_queries_preserve_successful_source_results(monkeypatch, errors, status):
+def test_dnsbl_failed_queries_preserve_successful_source_results(monkeypatch, errors):
     check = dnsbl(monkeypatch, zones=['bl%d.example' % n for n in range(len(errors))],
                   query_effect=errors)
     result = asyncio.run(check.run())
-    assert result.status is status
+    assert result.status is Status.UNKNOWN
+    assert result.metrics['zones_completed'] == len(errors) - 1
     assert result.metrics['errors_count'] == 1
 
 

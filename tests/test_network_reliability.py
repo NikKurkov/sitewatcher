@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import closing
 import json
 import ssl
 from datetime import datetime, timezone
@@ -47,7 +48,8 @@ def test_dns_default_cache_survives_new_checker(tmp_path, monkeypatch):
     monkeypatch.setattr(storage, 'DEFAULT_DB', db)
     monkeypatch.chdir(tmp_path)
     check = IpChangeCheck('example.com', cfg=SimpleNamespace())
-    check._maybe_upsert(['192.0.2.1'], [], datetime.now(timezone.utc), None, True)
+    with closing(check._connect()) as conn, conn:
+        check._db_upsert(conn, {'ips_v4': ['192.0.2.1'], 'ips_v6': []}, datetime.now(timezone.utc))
     following = IpChangeCheck('example.com', cfg=SimpleNamespace())
     assert json.loads(following._db_get().snapshot_json)['ips_v4'] == ['192.0.2.1']
     assert db.exists()
@@ -146,7 +148,8 @@ def test_whois_truncated_response_does_not_become_healthy(monkeypatch):
 def test_dns_honors_explicit_cache_path(tmp_path):
     custom = tmp_path / 'dns' / 'cache.db'
     check = IpChangeCheck('example.com', cfg=SimpleNamespace(db_path=str(custom)))
-    check._maybe_upsert(['192.0.2.1'], [], datetime.now(timezone.utc), None, True)
+    with closing(check._connect()) as conn, conn:
+        check._db_upsert(conn, {'ips_v4': ['192.0.2.1'], 'ips_v6': []}, datetime.now(timezone.utc))
     assert custom.exists()
     assert check._db_get() is not None
 

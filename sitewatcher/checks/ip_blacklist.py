@@ -19,6 +19,9 @@ from .base import BaseCheck, CheckOutcome, Status
 # Module-level logger for structured events
 log = logging.getLogger(__name__)
 
+# Version of aggregate verdicts saved in monitoring history.
+_VERDICT_VERSION = 4
+
 # Documented IP-listing codes; unknown providers must still use 127.0.0.x.
 _RETURN_CODES = {
     'bl.spamcop.net': {2},
@@ -42,7 +45,7 @@ def current_ipbl_result(metrics: dict | str | None, config) -> bool:
             metrics = json.loads(metrics)
         except (ValueError, TypeError):
             return False
-    return (isinstance(metrics, dict) and metrics.get('dnsbl_version') == 3
+    return (isinstance(metrics, dict) and metrics.get('dnsbl_version') == _VERDICT_VERSION
             and metrics.get('zones') == _normalize_zones(config.zones)
             and metrics.get('dns_servers') == config.dns_servers
             and metrics.get('check_ipv6') == config.check_ipv6)
@@ -100,7 +103,7 @@ class IpBlacklistCheck(BaseCheck):
 
     async def run(self) -> CheckOutcome:
         metrics = {
-            'dnsbl_version': 3,
+            'dnsbl_version': _VERDICT_VERSION,
             'zones': self.zones,
             'dns_servers': self.dns_servers,
             'check_ipv6': self.check_ipv6,
@@ -285,7 +288,7 @@ class IpBlacklistCheck(BaseCheck):
                 message += ': ' + '; '.join(details)[:500]
         return CheckOutcome(
             self.name,
-            Status.OK if completed_zones else Status.UNKNOWN,
+            Status.UNKNOWN if partial_coverage else Status.OK,
             message,
             metrics,
             cached=cached,
