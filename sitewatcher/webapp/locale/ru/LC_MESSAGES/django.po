@@ -2541,3 +2541,11 @@ msgstr "Остаются до успешного результата этой �
 
 msgid "min"
 msgstr "мин"
+
+
+#, python-format
+msgid "Some metadata could not be refreshed. The next retry is available from %(time)s."
+msgstr "Часть сведений пока не обновилась. Следующий запрос возможен с %(time)s."
+
+msgid "Cached metadata reused; refresh is temporarily limited"
+msgstr "Показаны сохранённые сведения. Обновление временно ограничено."

@@ -238,7 +238,7 @@ When a scheduled HTTP response takes at least three times the median of the last
 
 ## Cache policy and metadata refresh
 
-TLS and WHOIS facts are cached for 24 hours. Expiry severity is assessed locally, so a threshold transition does not require another network request. Use **Refresh metadata** beside TLS or WHOIS in domain details/history. Repeated clicks within one minute reuse the cache; active requests, failures and Retry-After retain their cooldown. General checks and `--force` keep provider cache limits.
+TLS and WHOIS facts are cached for 24 hours. Expiry severity is assessed locally, so a threshold transition does not require another network request. Use **Refresh metadata** beside TLS or WHOIS in domain details/history. Repeated clicks within one minute reuse the cache; active requests, failures and Retry-After retain their cooldown. The dashboard’s **Check now** and **Check all** also refresh enabled TLS and WHOIS checks. When a registry supplies a retry deadline, the dashboard shows the next allowed time. The CLI’s `--force` keeps provider cache limits.
 
 After an RDAP HTTP 429, SiteWatcher retries after 15 minutes or the provider's `Retry-After`, whichever is longer, plus up to one minute of jitter. The log records the responding RDAP host and the earliest time for the next attempt.
 
