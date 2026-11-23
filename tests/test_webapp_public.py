@@ -91,7 +91,8 @@ def test_selected_only_aggregate_dto_guest_and_authenticated_owner(owner, client
         assert 'shared.example' in body and '100.0%' in body and '0.0%' in body
         assert 'Europe/Moscow' in body and 'Last checked' in body
         assert 'View chart data' not in body and '24h' in body and '30d' in body
-        assert '<h3>Checks</h3>' not in body and 'data-domain-details=' in body
+        assert 'data-domain-details=' in body and 'checks-placeholder' in body
+        assert 'class="chart-point"' not in body and 'private-message' not in body
         assert 'Powered by <a href="https://github.com/NikKurkov/sitewatcher">SiteWatcher</a>' in body
         for forbidden in ('hidden-sentinel', 'foreign.example', 'private-message', 'private-metrics',
                           'password', '-100888', 'owner_id', 'href="/settings', 'href="/workspace', '/domains/',
@@ -137,6 +138,9 @@ def test_public_fragment_and_native_fallback_respect_live_publication(owner, cli
     path, token, _ = publish(client)
     guest = Client()
     query = '?days=7&domain=shared.example'
+    listing = get(guest, path + '?days=7')
+    assert b'class="response-chart chart-placeholder"' in listing.content
+    assert b'class="chart-point"' not in listing.content
     fragment = get(guest, path + query + '&fragment=1')
     assert fragment.status_code == 200
     assert '<h3>Checks</h3>' in fragment.content.decode()

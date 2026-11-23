@@ -1,7 +1,7 @@
 {% extends 'sitewatcher/base.html' %}
 {% load i18n %}
 {% block title %}{% translate 'Overview · SiteWatcher' %}{% endblock %}
-{% block page_scripts %}<link rel="stylesheet" href="{% url 'asset' 'domain_list.css' %}"><link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'route_view.js' %}"></script><script defer src="{% url 'asset' 'activity.js' %}"></script><script defer src="{% url 'asset' 'domain_groups.js' %}"></script>{% if not read_only %}<script defer src="{% url 'asset' 'domain_order.js' %}"></script>{% endif %}{% endblock %}
+{% block page_scripts %}<link rel="stylesheet" href="{% url 'asset' 'domain_list.css' %}?v=chart-loading"><link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'route_view.js' %}"></script><script defer src="{% url 'asset' 'activity.js' %}"></script><script defer src="{% url 'asset' 'domain_groups.js' %}"></script>{% if not read_only %}<script defer src="{% url 'asset' 'domain_order.js' %}"></script>{% endif %}{% endblock %}
 {% block header_summary %}
     {% if total %}
         <section class="header-monitoring-summary {% if attention %}needs-attention{% elif summary.unknown == total or summary.paused == total %}is-neutral{% endif %}"
@@ -158,8 +158,7 @@
                             <td colspan="6">
                                 <div class="domain-detail-layout" data-domain-details="/domains/details?domain={{ row.name|urlencode }}&amp;days={{ report.days }}&amp;q={{ query|urlencode }}&amp;status={{ status|urlencode }}"
                                     data-loading="{% translate 'Loading checks and chart…' %}" data-failed="{% translate 'Could not load checks and chart.' %}">
-                                    <p class="muted" data-details-message role="status"></p>
-                                    <a href="/domains/history?domain={{ row.name|urlencode }}&amp;days={{ report.days }}">{% translate 'Full history' %}</a>
+                                    {% include "sitewatcher/partials/domain_details_placeholder.html" with domain_name=row.name has_latency=row.report.has_latency common_observed=row.checks_common_observed http_enabled=row.http_enabled checks=row.checks settings_error=row.error owner_detail=True %}
                                 </div>
                             </td>
                         </tr>

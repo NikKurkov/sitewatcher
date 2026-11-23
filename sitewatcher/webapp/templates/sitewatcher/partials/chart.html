@@ -32,18 +32,20 @@
             {% for tick in report.chart.y_ticks %}
                 <path class="chart-grid" d="M0 {{ tick.y|unlocalize }}H1000"/>
             {% endfor %}
-            {% for segment in report.chart.segments %}
-                <polyline class="chart-line" points="{{ segment }}" />
-            {% endfor %}
-            {% for point in report.chart.dots %}
-                <g class="chart-point"
-                    tabindex="{% if forloop.first %}0{% else %}-1{% endif %}"
-                    role="img"
-                    aria-label="{{ point.label }} · {% blocktranslate with latency=point.value|floatformat:0 %}{{ latency }} ms{% endblocktranslate %}"
-                >
-                    <circle class="chart-dot" cx="{{ point.x|unlocalize }}" cy="{{ point.y|unlocalize }}" r="2"/>
-                </g>
-            {% endfor %}
+            <g class="chart-series">
+                {% for segment in report.chart.segments %}
+                    <polyline class="chart-line" points="{{ segment }}" />
+                {% endfor %}
+                {% for point in report.chart.dots %}
+                    <g class="chart-point"
+                        tabindex="{% if forloop.first %}0{% else %}-1{% endif %}"
+                        role="img"
+                        aria-label="{{ point.label }} · {% blocktranslate with latency=point.value|floatformat:0 %}{{ latency }} ms{% endblocktranslate %}"
+                    >
+                        <circle class="chart-dot" cx="{{ point.x|unlocalize }}" cy="{{ point.y|unlocalize }}" r="2"/>
+                    </g>
+                {% endfor %}
+            </g>
         </svg>
         <div class="chart-tooltip" role="tooltip" hidden>
         </div>

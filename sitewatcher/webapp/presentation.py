@@ -173,6 +173,7 @@ def report_context(report, *, public=False):
 
 def summary_strip(report, *, public=False):
     """Prepare the visible HTTP strip without building an expanded chart."""
+    report['has_latency'] = report['totals']['latency_ms'] is not None
     occupied = set()
     for bucket in report['buckets']:
         index = bucket['index']

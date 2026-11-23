@@ -42,10 +42,19 @@ function loadDomainDetails(panel) {
       return response.text();
     })
     .then((html) => {
+      const historyLink = panel.querySelector('.full-history-link');
+      const restoreHistoryFocus = historyLink === document.activeElement;
       panel.innerHTML = html;
       panel.classList.remove('domain-detail-layout');
       panel.setAttribute('data-details-loaded', '');
       initializeCharts(panel);
+      if (restoreHistoryFocus) panel.querySelector('.full-history-link')?.focus({preventScroll: true});
+      if (!panel.closest('[hidden], details:not([open])')
+          && matchMedia('(prefers-reduced-motion: no-preference)').matches) {
+        panel.querySelector('.chart-series')?.animate([{opacity: 0}, {opacity: 1}], {
+          duration: 220, easing: 'ease-out',
+        });
+      }
     })
     .catch(() => { message.textContent = panel.dataset.failed; })
     .finally(() => {
