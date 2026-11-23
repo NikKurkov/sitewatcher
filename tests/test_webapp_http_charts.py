@@ -104,6 +104,10 @@ def test_http_history_shows_latency_confirmation_without_exposing_internal_state
 
 @pytest.mark.parametrize('page', ['overview', 'history', 'public'])
 @pytest.mark.parametrize('interval,edited_minutes,observations,segments,gaps', [
+    pytest.param(5, 1440, [(age / 60, 'scheduled') for age in (1448, 1086, 724, 362, 0)],
+                 1, 0, id='five-minute-cadence-with-worker-jitter'),
+    pytest.param(5, 1440, [(age, 'scheduled') for age in (46, 40, 34, 24, 18, 12, 6, 0)],
+                 2, 1, id='missed-five-minute-slot'),
     pytest.param(60, 1440, [(age, 'scheduled') for age in (240, 180, 120, 60, 0)], 1, 0,
                  id='regular-hourly'),
     pytest.param(60, 1440, [(age, 'scheduled') for age in (240, 180, 60, 0)], 2, 1,
@@ -112,10 +116,10 @@ def test_http_history_shows_latency_confirmation_without_exposing_internal_state
                  (70, 'scheduled'), (10, 'scheduled')], 1, 0, id='manual-resets-deadline'),
     pytest.param(60, 1440, [(240, 'scheduled'), (180, 'scheduled'), (120, 'failed'),
                  (60, 'scheduled'), (0, 'scheduled')], 1, 0, id='failed-result-was-saved'),
-    pytest.param(60, 1440, [(age, 'scheduled') for age in (242, 182, 122, 62)], 1, 1,
+    pytest.param(60, 1440, [(age, 'scheduled') for age in (300, 240, 180, 120)], 1, 1,
                  id='overdue-at-right-edge'),
-    pytest.param(60, 1440, [(age, 'scheduled') for age in (241, 181, 121, 61)], 1, 0,
-                 id='within-scheduler-tick'),
+    pytest.param(60, 1440, [(age, 'scheduled') for age in (299, 239, 179, 119)], 1, 0,
+                 id='short-of-missing-a-full-slot'),
     pytest.param(60, 2880, [(age, 'scheduled') for age in (1500, *range(1380, -1, -60))], 1, 1,
                  id='overdue-from-previous-window'),
     pytest.param(0, 1440, [(age, 'scheduled') for age in (240, 180, 60)], 1, 0,
@@ -123,7 +127,7 @@ def test_http_history_shows_latency_confirmation_without_exposing_internal_state
     pytest.param(60, 90, [(age, 'scheduled') for age in (240, 180, 60, 0)], 1, 0,
                  id='older-than-current-schedule'),
 ])
-def test_hourly_chart_marks_only_overdue_http_checks(
+def test_chart_marks_only_missed_http_checks(
     web_database, client, monkeypatch, page, interval, edited_minutes, observations, segments, gaps,
 ):
     from sitewatcher.webapp import analytics
