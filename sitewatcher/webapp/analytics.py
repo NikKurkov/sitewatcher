@@ -282,8 +282,12 @@ def http_gap_ranges(owner_id, report, interval_minutes, tick_minutes):
     if not interval_minutes or report['totals']['latency_ms'] is None:
         return []
     start, end = (datetime.fromisoformat(report[key]) for key in ('window_start', 'window_end'))
+    interval = interval_minutes * 60
+    # Runs are saved on completion. An ordinary tick plus a slow response can
+    # put adjacent results more than one tick apart beyond the nominal interval.
+    grace = max(interval, 2 * tick_minutes * 60)
     args = (int(owner_id), report['domain'], start.replace(tzinfo=None).isoformat(sep=' '),
-            end.replace(tzinfo=None).isoformat(sep=' '), interval_minutes * 60, tick_minutes * 60,
+            end.replace(tzinfo=None).isoformat(sep=' '), interval, grace,
             report['bucket_seconds'], int(start.timestamp()))
     # Every saved result resets the scheduler deadline, including manual runs
     # and errors. The preceding observation anchors overdue time at the left edge.
@@ -319,7 +323,7 @@ def http_gap_ranges(owner_id, report, interval_minutes, tick_minutes):
                 FROM pairs
             )
             SELECT MAX(0, due), current, MAX(bucket, previous_bucket + 1)
-            FROM deadlines WHERE current - due > ?6 AND current > 0 ORDER BY current
+            FROM deadlines WHERE current - due >= ?6 AND current > 0 ORDER BY current
         """, args)]
 
 
