@@ -46,15 +46,17 @@ docker compose run --rm web sitewatcher scan example.com --only http_basic,tls_c
 
 ## Run with Python
 
-Use Python 3.12–3.14 and SQLite 3.35 or newer with JSON1 support.
+Use Python 3.12–3.14 and SQLite 3.35 or newer with JSON1 support on Linux or macOS. On Windows, use Docker Compose.
 
 ```bash
 python3.12 -m venv .venv
 . .venv/bin/activate
-pip install -e .
+pip install .
 sitewatcher setup
 sitewatcher web
 ```
+
+If you downloaded the wheel from [GitHub Releases](https://github.com/NikKurkov/sitewatcher/releases/latest), install the downloaded `.whl` in place of the source directory in the pip command.
 
 In a second terminal, in the same folder:
 
@@ -93,7 +95,7 @@ On the edit page, choose HTTP or HTTPS on the left and enter the hostname and op
 | No data / unknown | There is not enough information to decide, for example because a provider did not respond. |
 | Paused | Scheduled checks are stopped. You can still run a manual check. |
 
-Hover over a warning or critical badge, or focus it with the keyboard, to see the checks and their times. Click the row, website name or its arrow to reveal current checks and the HTTP chart together. The graph spans the full width above the check results, which use two columns on larger screens and one on phones. Several domains can stay open for comparison. Full history is linked inside the disclosure; edit, check, pause, favorites and reorder remain available outside. Without JavaScript, the name links directly to full history. [Inline details](screenshots/overview-inline-details.png). Chart points show their value on hover or focus.
+Hover over a warning or critical badge, or focus it with the keyboard, to see the checks and their times. Click the row, website name or its arrow to reveal current checks and the HTTP chart together. The panel reserves space for the chart while it loads. The graph spans the full width above the check results, which use two columns on larger screens and one on phones. Several domains can stay open for comparison. Full history is linked inside the disclosure; edit, check, pause, favorites and reorder remain available outside. Without JavaScript, the name links directly to full history. [Inline details](screenshots/overview-inline-details.png). Chart points show their value on hover or focus. A shaded gap starts when an HTTP check was due and no result was saved within one scheduler tick. The chart uses the current interval from the last saved domain settings and skips overdue markers while monitoring is paused.
 
 History can be filtered by dates, check and result. Dates include both selected days in your workspace timezone. The results list shows up to 100 matching entries; these filters do not change the chart's selected period. The success percentage describes saved HTTP checks, not a continuous measurement of uptime.
 
@@ -232,6 +234,8 @@ SMTP credentials are kept in the database-adjacent `.smtp.json` file with mode06
 
 Chart averages are ordered15minutes / 1hour / 1day / 30days, with period/units in accessible tooltips and a dash for no observations. Monthly means use available successful measurements from the last30days independently of chart zoom.
 
+When a scheduled HTTP response takes at least three times the median of the last seven successful scheduled measurements for that URL and adds at least one second, SiteWatcher checks it three more times, 20 seconds apart. The chart and its averages use the median of the three successful follow-ups as one observation. The domain history shows the initial response and the follow-ups. An HTTP or connection failure during confirmation is reported immediately. An interrupted confirmation keeps the original latency. A series can run for up to five minutes.
+
 ## Cache policy and metadata refresh
 
 TLS and WHOIS facts are cached for 24 hours. Expiry severity is assessed locally, so a threshold transition does not require another network request. Use **Refresh metadata** beside TLS or WHOIS in domain details/history. Repeated clicks within one minute reuse the cache; active requests, failures and Retry-After retain their cooldown. General checks and `--force` keep provider cache limits.
@@ -310,7 +314,7 @@ git pull --ff-only
 docker compose up -d --build
 ```
 
-If you installed from ZIP, extract the new version and copy its contents into the same project folder, retaining local settings and data files. Keep the folder name: it determines the Compose project and data-volume selection. Then run `docker compose up -d --build`.
+If you installed from an archive, stop the existing project with `docker compose down`. Extract the new release into a clean directory and bring over your local settings. Run `docker compose up -d --build` under the same project name so Compose finds the existing volume. Keep the original directory name or set `COMPOSE_PROJECT_NAME` to the old name.
 
 Do not rerun account setup for an existing installation. Check login, an existing site's history and a new scheduled result after updating. Restore matching database/sidecars with all processes stopped if a rollback is needed; see [operations and recovery](operations.md).
 

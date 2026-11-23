@@ -5,10 +5,10 @@ import csv
 import io
 import json
 from urllib.parse import urlsplit
-from datetime import datetime
+from datetime import datetime, timezone
 
 from . import domain_groups, storage
-from .check_policy import interval_minutes
+from .check_policy import interval_minutes, latency_recheck_pending, metrics_from
 from .config import (
     AppConfig, ChecksModel, ConfigurationError, DomainOverride, resolve_settings,
     validate_domain_override,
@@ -375,10 +375,26 @@ def history_context(
 ) -> list[dict]:
     """Read recent history for one existing owned domain without private metric payloads."""
     domain = _domain(owner_id, domain)
-    return [
-        {**{key: row[key] for key in ('id', 'domain', 'status', 'message', 'created_at')},
-         'check_name': row['check']}
-        for row in storage.iter_history(owner_id, domain=domain, limit=max(0, min(100, limit)),
-                                        check=check, statuses={status} if status else None,
-                                        since=since, until=until)
-    ]
+    history = []
+    now = datetime.now(timezone.utc)
+    for row in storage.iter_history(owner_id, domain=domain, limit=max(0, min(100, limit)),
+                                    check=check, statuses={status} if status else None,
+                                    since=since, until=until):
+        item = {key: row[key] for key in ('id', 'domain', 'status', 'message', 'created_at')}
+        item['check_name'] = row['check']
+        if row['check'] == 'http_basic':
+            metrics = metrics_from(row)
+            detail = metrics.get('latency_recheck')
+            if isinstance(detail, dict) and type(detail.get('initial_ms')) in (int, float):
+                samples = detail.get('samples')
+                item['latency_recheck'] = {
+                    'initial_ms': detail['initial_ms'],
+                    'median_ms': detail.get('median_ms'),
+                    'pending': latency_recheck_pending(metrics, now),
+                    'samples': [
+                        {'latency_ms': sample.get('latency_ms'), 'http_code': sample.get('http_code')}
+                        for sample in samples[:3] if isinstance(sample, dict)
+                    ] if isinstance(samples, list) else [],
+                }
+        history.append(item)
+    return history

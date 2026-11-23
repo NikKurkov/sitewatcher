@@ -9,6 +9,8 @@ from django.utils.translation import gettext_lazy as _, ngettext
 from sitewatcher.web_actions import NUMERIC_FIELDS
 from sitewatcher.checks.malware_scan import VT_FAILURE_MESSAGES
 
+from .analytics import http_gap_ranges
+
 
 _CHECK_LABELS = {
     'http_basic': _('Website availability'), 'tls_cert': _('TLS certificate'),
@@ -93,24 +95,22 @@ def local_time(value, zone):
             'future': age < 0, 'just_now': 0 <= age < 60}
 
 
-def chart_context(points, metric):
-    """Position bucket starts within 120 equal intervals; gaps start a new segment."""
+def chart_context(points, metric, gaps=()):
+    """Position measured latencies and split the line where checks were missed."""
     maximum = max((point[metric] for point in points if point.get(metric) is not None),
                   default=0) or 1
     step = ceil(maximum / 4)
     maximum = step * 4
+    breaks = [bucket for _, _, bucket in gaps]
     segments, dots, current, previous = [], [], [], None
     for point in points:
         value, index = point.get(metric), point['index']
         if value is None:
-            if current:
-                segments.append(' '.join(current))
-            current, previous = [], None
             continue
-        if previous is not None and index != previous + 1:
+        x, y = index * 1000 / 120, 150 - (value / maximum) * 132
+        if previous is not None and any(previous < bucket <= index for bucket in breaks):
             segments.append(' '.join(current))
             current = []
-        x, y = index * 1000 / 120, 150 - (value / maximum) * 132
         current.append(f'{x:.2f},{y:.2f}')
         dots.append({'x': x, 'y': y, 'value': value, 'label': point.get('label', '')})
         previous = index
@@ -120,10 +120,27 @@ def chart_context(points, metric):
                 'position': (150 - level / 4 * 132) / 165 * 100,
                 'short_value': format(step * level, '.0e') if step * level >= 1e6 else None}
                for level in (4, 3, 2, 1, 0)]
-    return {'segments': segments, 'dots': dots, 'maximum': maximum, 'y_ticks': y_ticks}
+    return {'segments': segments, 'dots': dots, 'maximum': maximum, 'y_ticks': y_ticks,
+            'gaps': [{'x': start, 'width': end - start} for start, end, _ in gaps]}
 
 
-def report_context(report, *, public=False):
+def domain_report_context(report, cfg, owner_id, row, *, public=False):
+    ranges = http_gap_ranges(
+        owner_id, report, row.get('http_interval_minutes'), cfg.scheduler.interval_minutes,
+    )
+    width = report['bucket_seconds']
+    scale = 1000 / (120 * width)
+    gaps = []
+    for due, recovered, bucket in ranges:
+        # An average is drawn at the start of its bucket; keep the shading behind it.
+        bucket_start = bucket * width
+        if due < bucket_start < recovered < 120 * width:
+            recovered = bucket_start
+        gaps.append((due * scale, recovered * scale, bucket))
+    return report_context(report, gaps=gaps, public=public)
+
+
+def report_context(report, *, gaps=(), public=False):
     known = report['totals']['successful'] + report['totals']['failed']
     report['totals']['failure_percent'] = report['totals']['failed'] / known * 100 if known else None
     report['observed'] = local_time(report.get('latest_observed_at'), report['timezone'])
@@ -134,7 +151,7 @@ def report_context(report, *, public=False):
             stamp = local_time(bucket.get('start_at'), report['timezone'])
             if stamp:
                 bucket['label'] = stamp['display_label']
-    report['chart'] = chart_context(report['buckets'], 'latency_ms')
+    report['chart'] = chart_context(report['buckets'], 'latency_ms', gaps)
     if report['start'] and report['end']:
         start, end = report['start']['value'], report['end']['value']
         ticks = []
@@ -151,7 +168,6 @@ def report_context(report, *, public=False):
                            if bucket['successful'] else 'unknown')
     occupied = {bucket['index']: bucket for bucket in report['buckets']}
     report['history_buckets'] = []
-    gaps, gap_start = [], None
     for index in range(120):
         bucket = occupied.get(index)
         if bucket is None:
@@ -159,15 +175,27 @@ def report_context(report, *, public=False):
             stamp = local_time(value.isoformat(), report['timezone'])
             bucket = {'index': index, 'x': index * 10, 'state': 'no-data',
                       'label': stamp['display_label'] if public else stamp['label']}
-            if gap_start is None:
-                gap_start = index
-        elif gap_start is not None:
-            gaps.append({'x': gap_start * 1000 / 120, 'width': (index - gap_start) * 1000 / 120})
-            gap_start = None
         report['history_buckets'].append(bucket)
-    if gap_start is not None:
-        gaps.append({'x': gap_start * 1000 / 120, 'width': (120 - gap_start) * 1000 / 120})
-    report['chart']['gaps'] = gaps
+    return report
+
+
+def summary_strip(report, *, public=False):
+    """Prepare the visible HTTP strip without building an expanded chart."""
+    report['has_latency'] = report['totals']['latency_ms'] is not None
+    occupied = set()
+    for bucket in report['buckets']:
+        index = bucket['index']
+        occupied.add(index)
+        bucket['x'] = index * 10
+        bucket['state'] = ('failed' if bucket['failed'] else 'successful'
+                           if bucket['successful'] else 'unknown')
+        if public:
+            stamp = local_time(bucket['start_at'], report['timezone'])
+            if stamp:
+                bucket['label'] = stamp['display_label']
+    report['history_buckets'] = report['buckets']
+    report['empty_strip'] = ' '.join(f'M{index * 10} 0h7v20h-7Z'
+                                    for index in range(120) if index not in occupied)
     return report
 
 

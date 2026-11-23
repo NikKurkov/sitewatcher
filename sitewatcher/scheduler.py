@@ -11,8 +11,9 @@ from .dispatcher import Dispatcher
 from .checks.ip_blacklist import current_ipbl_result
 from .utils.results import current_rkn_result
 from .check_policy import (result_deadlines, expiry_assessment_due,
-                           ip_context_current, metrics_from)
+                           ip_context_current, latency_recheck_pending, metrics_from)
 from .checks.rkn_block_sqlite import current_registry_generation
+from .latency_rechecks import LatencyRechecks
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +51,8 @@ def due_checks(cfg: AppConfig, owner_id: int, domain: str, *, warmup: bool = Fal
         if row is None and name in ages:
             row = {'created_at': (now - timedelta(minutes=ages[name])).isoformat(),
                    'status': 'UNKNOWN', 'metrics_json': '{}'}
+        if name == 'http_basic' and latency_recheck_pending(metrics_from(row), now):
+            continue
         due = result_deadlines(cfg, name, domain_interval, row, now=now)[1]
         if name == 'malware':
             pending_until = storage.virustotal_pending_until(
@@ -65,7 +68,8 @@ def due_checks(cfg: AppConfig, owner_id: int, domain: str, *, warmup: bool = Fal
     return selected
 
 
-async def run_tick(cfg: AppConfig, *, warmup: bool, on_results, run_id: str | None = None) -> None:
+async def run_tick(cfg: AppConfig, *, warmup: bool, on_results, run_id: str | None = None,
+                   rechecks: LatencyRechecks | None = None) -> None:
     """Run due checks and await on_results(owner_id, domain, results, warmup=warmup).
 
     Results are persisted before delivery. A regular tick also calls on_results
@@ -82,7 +86,7 @@ async def run_tick(cfg: AppConfig, *, warmup: bool, on_results, run_id: str | No
         return
 
     domains_conc = int(getattr(cfg.scheduler, "domains_concurrency", 5) or 5)
-    sem = asyncio.Semaphore(max(1, domains_conc))
+    sem = rechecks.slots if rechecks else asyncio.Semaphore(max(1, domains_conc))
 
     total_domains = 0
     for owner_id in owners:
@@ -117,7 +121,15 @@ async def run_tick(cfg: AppConfig, *, warmup: bool, on_results, run_id: str | No
                         return
                     if selected:
                         results = await d.run_for(owner_id, domain, only_checks=selected, use_cache=False, run_id=run_id)
+                        prepared = None
+                        if rechecks:
+                            try:
+                                prepared = rechecks.prepare(owner_id, domain, results)
+                            except Exception:
+                                log.exception('Could not prepare HTTP latency confirmation')
                         storage.save_histories(owner_id, domain, results, create_missing=False, source="scheduled")
+                        if rechecks and prepared:
+                            rechecks.start(owner_id, domain, prepared, on_results)
                     elif not warmup:
                         # Retry undelivered state changes on the next tick, without extra probes.
                         results = []

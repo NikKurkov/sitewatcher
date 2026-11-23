@@ -10,6 +10,7 @@ from telegram.request import HTTPXRequest
 
 from .. import scheduler_lock, storage
 from ..config import AppConfig, get_bot_token_from_env
+from ..latency_rechecks import LatencyRechecks
 from ..telegram_proxy import load_proxy
 from .alerts import AlertDeduper
 from .router import register_handlers
@@ -84,6 +85,14 @@ def _run_polling(cfg: AppConfig, token: str) -> None:
     if cfg.scheduler.enabled:
         # ---- Maintenance: daily history cleanup ----
         from ..maintenance import cleanup_history, cleanup_time
+
+        rechecks = LatencyRechecks(cfg)
+        app.bot_data['latency_rechecks'] = rechecks
+
+        async def stop_rechecks(_app):
+            await rechecks.close()
+
+        app.post_stop = stop_rechecks
 
         async def _job_cleanup_history(context):
             await cleanup_history(cfg)

@@ -91,7 +91,8 @@ def test_selected_only_aggregate_dto_guest_and_authenticated_owner(owner, client
         assert 'shared.example' in body and '100.0%' in body and '0.0%' in body
         assert 'Europe/Moscow' in body and 'Last checked' in body
         assert 'View chart data' not in body and '24h' in body and '30d' in body
-        assert '<h3>Checks</h3>' in body
+        assert 'data-domain-details=' in body and 'checks-placeholder' in body
+        assert 'class="chart-point"' not in body and 'private-message' not in body
         assert 'Powered by <a href="https://github.com/NikKurkov/sitewatcher">SiteWatcher</a>' in body
         for forbidden in ('hidden-sentinel', 'foreign.example', 'private-message', 'private-metrics',
                           'password', '-100888', 'owner_id', 'href="/settings', 'href="/workspace', '/domains/',
@@ -131,6 +132,31 @@ def test_disable_rotation_and_selection_take_effect_despite_cached_reports(owner
     assert get(Client(), next_path).status_code == 404
     owner.refresh_from_db()
     assert not owner.public_enabled and owner.public_token_hash == ''
+
+
+def test_public_fragment_and_native_fallback_respect_live_publication(owner, client):
+    path, token, _ = publish(client)
+    guest = Client()
+    query = '?days=7&domain=shared.example'
+    listing = get(guest, path + '?days=7')
+    assert b'class="response-chart chart-placeholder"' in listing.content
+    assert b'class="chart-point"' not in listing.content
+    fragment = get(guest, path + query + '&fragment=1')
+    assert fragment.status_code == 200
+    assert '<h3>Checks</h3>' in fragment.content.decode()
+    assert fragment['Cache-Control'] == 'no-store'
+    assert fragment['Referrer-Policy'] == 'no-referrer'
+    assert token not in fragment.content.decode()
+    assert b'/domains/refresh' not in fragment.content
+    assert b'private-message' not in fragment.content
+    fallback = get(guest, path + query)
+    assert b'<!doctype html>' in fallback.content
+    assert b'<h3>Checks</h3>' in fallback.content
+    assert get(guest, path + '?domain=hidden-sentinel.example&fragment=1').status_code == 404
+    assert get(guest, path + '?fragment=1').status_code == 404
+    assert client.post('/settings/public', {'action': 'selection', 'domains': ''},
+                       HTTP_HOST='localhost').status_code == 200
+    assert get(guest, path + query + '&fragment=1').status_code == 404
 
 
 def test_public_selection_owner_auth_csrf_validation_and_readonly(owner, client, settings):
@@ -266,7 +292,7 @@ def test_public_shows_all_enabled_checks_without_private_diagnostics(owner, clie
     assert {check['name'] for check in checks} == set(enabled)
     assert all(set(check) == {'name', 'status', 'checked_at', 'stale', 'missing', 'attention'}
                for check in checks)
-    body = get(Client(), path).content.decode()
+    body = get(Client(), path + '?domain=shared.example&fragment=1').content.decode()
     assert 'TLS certificate' in body and 'Domain registration' in body
     assert 'Latest monitoring checks' in body
     assert 'private-check-message' not in body and 'private-metric' not in body
@@ -289,13 +315,13 @@ def test_public_no_data_unknowns_and_gap_axes_are_honest(owner, client):
     assert data['totals']['unknown'] == 1 and data['totals']['success_percent'] is None
     assert data['totals']['failure_percent'] is None
     assert 'unknown-private-sentinel' not in json.dumps(data)
-    # Public graphs use the shared absolute bucket axis and preserve missing intervals.
+    # Public graphs keep the absolute bucket axis and can connect across unneeded slots.
     from sitewatcher.webapp.presentation import report_context
     report = data['domains'][0]
     report['buckets'] = [{**report['buckets'][0], 'index': index, 'latency_ms': value}
                          for index, value in [(1, 100), (3, 200), (4, None), (5, 150)]]
     chart = report_context(report)['chart']
-    assert len(chart['segments']) == 3
+    assert len(chart['segments']) == 1
     assert chart['dots'][1]['x'] == pytest.approx(3 * 1000 / 120)
 
 
@@ -404,7 +430,7 @@ def test_public_freshness_allows_three_polling_intervals(owner, client, minutes,
     assert (row['current_state'] == 'no_recent_data') is stale
     assert bool(row['attention_count']) is stale
     assert row['checks'][0]['stale'] is stale
-    body = get(Client(), path).content.decode()
+    body = get(Client(), path + '?domain=shared.example&fragment=1').content.decode()
     assert ('Awaiting update' in body) is stale
 
 
@@ -554,17 +580,18 @@ def test_public_attention_is_safe_and_absent_passive_report_is_neutral(owner, cl
     assert row['attention_count'] == sum(check['attention'] for check in row['checks'])
     assert 'private-warning-sentinel' not in json.dumps(row)
     body = get(Client(), path).content.decode()
-    assert 'No report in VirusTotal' in body
+    fragment = get(Client(), path + '?domain=shared.example&fragment=1').content.decode()
+    assert 'No report in VirusTotal' in fragment
     assert 'Page data updated at' in body
     assert 'Site checked' in body and 'class="checked-relative"' in body
-    assert 'class="domain-check-list"' in body and 'class="check-group"' not in body
+    assert 'class="domain-check-list"' in fragment and 'class="check-group"' not in fragment
     assert 'refresh-option' not in body and 'auto-refresh-toggle' not in body
     assert 'data-disclosure-scope="public"' in body
     assert 'data-domain-key="shared.example"' in body
     assert 'data-domain-disclosure' in body
     assert 'HTTP availability' in body
     disclosure = body.split('data-domain-disclosure', 1)[1].split('data-domain-key=', 1)[0]
-    assert 'Latest monitoring checks' in disclosure
+    assert 'Latest monitoring checks' in fragment
     assert 'chart' in disclosure
     assert '<details class="public-component-chart" open' not in body
 
@@ -580,10 +607,10 @@ def test_pending_virustotal_analysis_is_neutral_and_exposes_no_job_metadata(owne
     assert check['pending'] is True and check['status'] == 'UNKNOWN'
     assert check['attention'] is False
     assert 'private-analysis-sentinel' not in json.dumps(data)
-    body = get(Client(), path).content.decode()
+    body = get(Client(), path + '?domain=shared.example&fragment=1').content.decode()
     assert 'Analysis pending' in body and 'VirusTotal is preparing a report' in body
     assert 'private-analysis-sentinel' not in body
-    assert 'Analysis pending' in get(client, '/').content.decode()
+    assert 'Analysis pending' in get(client, '/domains/details?domain=shared.example').content.decode()
 
 
 def test_public_chart_distinguishes_missing_failed_and_unknown_measurements(owner, client):
@@ -603,8 +630,7 @@ def test_public_chart_distinguishes_missing_failed_and_unknown_measurements(owne
     assert len(report['history_buckets']) == 120
     assert [b['state'] for b in report['history_buckets'][:5]] == [
         'no-data', 'successful', 'no-data', 'failed', 'unknown']
-    assert all(gap['width'] > 0 for gap in report['chart']['gaps'])
-    assert report['chart']['gaps'][0]['x'] == 0
+    assert report['chart']['gaps'] == []
 
 
 def test_public_unknown_failures_and_stale_success_still_need_attention(owner, client):

@@ -28,8 +28,11 @@ from .accounts import owner_required
 from .check_presentation import prepare_check_list
 from .models import Workspace
 from .forms import HistoryFiltersForm
-from .analytics import domain_report, overview_report
-from .presentation import domain_state, group_presentation, check_label, diagnostic_message, domain_form_context, local_time, report_context, status_label
+from .analytics import domain_report, summary_report
+from .presentation import (
+    check_label, diagnostic_message, domain_form_context, domain_report_context, domain_state,
+    group_presentation, local_time, status_label, summary_strip,
+)
 
 # ponytail: one process-local manual run; run a single web process, use a job queue to scale.
 _check_lock = Lock()
@@ -182,7 +185,8 @@ def _page(request, view, domain='', *, error='', values=None, status=200):
             item['message'] = diagnostic_message(item['message'])
             item['status_label'] = status_label(item['status'])
             item['observed'] = local_time(item['created_at'], request.workspace.timezone)
-        return _render(request, 'domain_detail', {'report': report_context(report), 'row': row,
+        report = domain_report_context(report, cfg, owner_id, row)
+        return _render(request, 'domain_detail', {'report': report, 'row': row,
                                                  'history': history, 'history_form': history_form,
                                                  'notice': request.GET.get('notice', ''),
                                                  'history_query': urlencode({
@@ -300,8 +304,8 @@ def dashboard(request):
             raise ValueError('Invalid filter')
         owner_id, zone = request.workspace.owner_id, request.workspace.timezone
         snapshot = build_snapshot(settings.SITEWATCHER_CONFIG, owner_id)
-        report = overview_report(owner_id, days=_period(request), timezone=zone)
-        reports = {item['domain']: report_context(item) for item in report['domains']}
+        report = summary_report(owner_id, days=_period(request), timezone=zone)
+        reports = {item['domain']: summary_strip(item) for item in report['domains']}
         rows = snapshot['domains']
         attention = sum(bool(row['error']) or (row['overall'] in {'CRIT', 'WARN'}
                                               and not row['paused']) for row in rows)
@@ -334,6 +338,40 @@ def dashboard(request):
         return HttpResponse(_('Invalid request'), status=400)
     except SnapshotError:
         return HttpResponse(_('Monitoring unavailable'), status=503)
+
+
+@owner_required(api=True)
+@require_safe
+def details(request):
+    owner_id, zone = request.workspace.owner_id, request.workspace.timezone
+    try:
+        query = _query(request)
+        name = _existing(owner_id, query.get('domain', ''))
+        days = _period(request)
+        status = query.get('status', 'all')
+        if status not in FILTERS:
+            raise ValueError('Invalid filter')
+        cfg = settings.SITEWATCHER_CONFIG
+        snapshot = build_snapshot(cfg, owner_id)
+        row = next((row for row in snapshot['domains'] if row['name'] == name), None)
+        if row is None:
+            raise Http404('Domain not found')
+        _row_context(row, zone)
+        report = domain_report_context(
+            domain_report(owner_id, name, days=days, timezone=zone), cfg, owner_id, row,
+        )
+    except ValueError:
+        return HttpResponse(_('Invalid request'), status=400)
+    except SnapshotError:
+        return HttpResponse(_('Monitoring unavailable'), status=503)
+    response = _render(request, 'partials/domain_details', {
+        'report': report, 'http_enabled': row['http_enabled'], 'checks': row['checks'],
+        'common_observed': row['checks_common_observed'], 'owner_detail': True,
+        'domain_name': name, 'settings_error': row['error'],
+        'query': query.get('q', ''), 'status': status,
+    })
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 @owner_required(api=True)

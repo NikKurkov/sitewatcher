@@ -1,14 +1,13 @@
 """Safe owner-scoped observation summaries, never continuous-time uptime.
 
 Reports aggregate HTTP rows in SQLite into at most 120 occupied UTC buckets. Empty buckets are
-absent: consumers MUST use start_at/bucket_seconds on the time axis and must not
-connect lines across missing bucket indices. A populated bucket with latency_ms
-None also breaks a latency line. No samples are interpolated.
+absent: consumers use start_at/bucket_seconds on the time axis. The latency chart
+checks for overdue runs separately and draws points only for measured latencies.
 
 A small process-local cache retains detached safe DTOs for at most 60 seconds,
 invalidated immediately by owner history append/delete or owned-domain changes.
-Historical in-place edits can remain cached until expiry. Authorization and share
-selection always happen in callers; this module caches no access decisions.
+Reports with a pending latency confirmation bypass the cache. Authorization and
+share selection always happen in callers.
 """
 from __future__ import annotations
 
@@ -23,6 +22,7 @@ from datetime import datetime, timedelta, timezone as dt_timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .. import storage
+from ..check_policy import MAX_LATENCY_RECHECK_WINDOW_S, latency_recheck_pending
 
 SOURCES = ('legacy', 'scheduled', 'manual')
 _CACHE: OrderedDict[tuple, tuple[float, int, dict]] = OrderedDict()
@@ -87,7 +87,9 @@ def _classification(raw: str | None) -> tuple[str, float | None]:
         return 'failed', None
     if code < 200:
         return 'unknown', None
-    latency = metrics.get('response_latency_ms', metrics.get('latency_ms_total'))
+    latency = None if latency_recheck_pending(metrics, _now()) else metrics.get(
+        'chart_response_latency_ms', metrics.get('response_latency_ms', metrics.get('latency_ms_total')),
+    )
     return 'successful', latency if _number(latency) else None
 
 
@@ -118,7 +120,8 @@ def _finish(counts: dict) -> dict:
     return counts
 
 
-def _aggregate(owner_id: int, domain: str | None, window: dict) -> dict:
+def _aggregate(owner_id: int, domain: str | None, window: dict, *,
+               summary=False, published: tuple[str, ...] | None = None) -> dict:
     storage._ensure_initialized()
     start = datetime.fromisoformat(window['window_start'].replace('Z', '+00:00'))
     end = datetime.fromisoformat(window['window_end'].replace('Z', '+00:00'))
@@ -132,6 +135,8 @@ def _aggregate(owner_id: int, domain: str | None, window: dict) -> dict:
             if domain not in names:
                 raise ValueError('Domain not found')
             names = [domain]
+        if published is not None:
+            names = sorted(set(names).intersection(published))
         reports = {name: {'domain': name, 'totals': _counts(), '_buckets': {},
                           'response_times': [{'minutes': minutes, 'sample_count': 0,
                                               'latency_ms': 0.0}
@@ -145,13 +150,18 @@ def _aggregate(owner_id: int, domain: str | None, window: dict) -> dict:
         if domain is not None:
             domain_filter = ' AND h.domain=?'
             args.append(domain)
+        elif published is not None:
+            domain_filter = (' AND h.domain IN (' + ','.join('?' for _ in names) + ')'
+                             if names else ' AND 0')
+            args.extend(names)
         # One indexed 30-day read supplies response summaries independently of the
         # chart period. Only grouped rows cross into Python; chart buckets stay
         # limited to the selected window and at most 120 per configured domain.
         cursor = conn.execute(
             _AGGREGATE_SQL.replace("{domain_filter}", domain_filter),
             [args[1], width, args[0],
-             (end - timedelta(days=30)).replace(tzinfo=None).isoformat(sep=' '), *args[2:]],
+             (start if summary else end - timedelta(days=30)).replace(
+                 tzinfo=None).isoformat(sep=' '), *args[2:]],
         )
         for row in cursor:
             index = row['bucket_index']
@@ -205,7 +215,8 @@ def _aggregate(owner_id: int, domain: str | None, window: dict) -> dict:
             'domains': list(reports.values())}
 
 
-def _cached_report(owner_id: int, domain: str | None, days: int, timezone: str) -> dict:
+def _cached_report(owner_id: int, domain: str | None, days: int, timezone: str, *,
+                   summary=False, published: tuple[str, ...] | None = None) -> dict:
     window = _window(days, timezone)
     storage._ensure_initialized()
     path = storage.DEFAULT_DB.resolve()
@@ -217,20 +228,30 @@ def _cached_report(owner_id: int, domain: str | None, days: int, timezone: str) 
         names = tuple(row[0] for row in conn.execute(
             'SELECT name FROM domains WHERE owner_id=? ORDER BY name', (int(owner_id),),
         ))
-    key = (str(path), path.stat().st_ino, int(owner_id), domain, days, timezone, revision, names)
+        confirming = conn.execute("""
+            SELECT EXISTS(SELECT 1 FROM history WHERE owner_id=?1 AND check_name='http_basic'
+              AND created_at>=datetime(?2,?3) AND CASE WHEN json_valid(metrics_json)
+              THEN json_extract(metrics_json,'$.latency_recheck.state')='pending'
+                AND julianday(json_extract(metrics_json,'$.latency_recheck.expires_at'))>julianday(?2)
+              END)
+        """, (int(owner_id), window['window_end'],
+              f'-{MAX_LATENCY_RECHECK_WINDOW_S + 5} seconds')).fetchone()[0]
+    key = (str(path), path.stat().st_ino, int(owner_id), domain, days, timezone,
+           revision, names, summary, published)
     now = monotonic()
     with _CACHE_LOCK:
         cached = _CACHE.get(key)
-        if cached and cached[0] > now:
+        if not confirming and cached and cached[0] > now:
             _CACHE.move_to_end(key)
             return deepcopy(cached[2])
         # ponytail: serialize cold builds for this single-owner installation; use
         # per-key locks only if measured multi-workspace contention warrants them.
-        result = _aggregate(owner_id, domain, window)
+        result = (_aggregate(owner_id, domain, window, summary=True, published=published)
+                  if summary else _aggregate(owner_id, domain, window))
         size = len(json.dumps(result, allow_nan=False).encode('utf-8'))
         for stale in [key for key, entry in _CACHE.items() if entry[0] <= now]:
             del _CACHE[stale]
-        if size <= 4 * 1024 * 1024:
+        if not confirming and size <= 4 * 1024 * 1024:
             _CACHE[key] = (now + 60, size, result)
             while len(_CACHE) > 8 or sum(entry[1] for entry in _CACHE.values()) > 4 * 1024 * 1024:
                 _CACHE.popitem(last=False)
@@ -250,6 +271,58 @@ def overview_report(owner_id: int, *, days: int, timezone: str) -> dict:
     return _cached_report(owner_id, None, days, timezone)
 
 
+def summary_report(owner_id: int, *, days: int, timezone: str,
+                   published: tuple[str, ...] | None = None) -> dict:
+    """Batch the visible history strips and totals using only the selected period."""
+    return _cached_report(owner_id, None, days, timezone, summary=True, published=published)
+
+
+def http_gap_ranges(owner_id, report, interval_minutes, tick_minutes):
+    """Return overdue ranges (elapsed seconds) and the bucket where the line resumes."""
+    if not interval_minutes or report['totals']['latency_ms'] is None:
+        return []
+    start, end = (datetime.fromisoformat(report[key]) for key in ('window_start', 'window_end'))
+    args = (int(owner_id), report['domain'], start.replace(tzinfo=None).isoformat(sep=' '),
+            end.replace(tzinfo=None).isoformat(sep=' '), interval_minutes * 60, tick_minutes * 60,
+            report['bucket_seconds'], int(start.timestamp()))
+    # Every saved result resets the scheduler deadline, including manual runs
+    # and errors. The preceding observation anchors overdue time at the left edge.
+    # Do not assume the current interval applied before the last domain settings edit.
+    with closing(storage._connect()) as conn:
+        return [tuple(row) for row in conn.execute("""
+            WITH prior AS (
+                SELECT created_at FROM history
+                WHERE owner_id=?1 AND domain=?2 AND check_name='http_basic' AND created_at<?3
+                ORDER BY created_at DESC LIMIT 1
+            ), observations AS (
+                SELECT created_at FROM prior
+                UNION ALL
+                SELECT created_at FROM history
+                WHERE owner_id=?1 AND domain=?2 AND check_name='http_basic'
+                    AND created_at>=?3 AND created_at<=?4
+                UNION ALL SELECT ?4
+            ), elapsed AS (
+                SELECT CAST(strftime('%s', created_at) AS INTEGER) - ?8 AS current,
+                       MAX(0, MIN(119, CAST((julianday(created_at)-julianday(?3))*86400/?7
+                           AS INTEGER))) AS bucket
+                FROM observations
+            ), pairs AS (
+                SELECT current, bucket, LAG(current) OVER timeline AS previous,
+                       LAG(bucket) OVER timeline AS previous_bucket
+                FROM elapsed
+                WINDOW timeline AS (ORDER BY current)
+            ), deadlines AS (
+                SELECT current, bucket, previous_bucket, MAX(previous, COALESCE((
+                    SELECT CAST(strftime('%s', updated_at) AS INTEGER) - ?8 FROM domain_overrides
+                    WHERE owner_id=?1 AND domain=?2
+                ), previous)) + ?5 AS due
+                FROM pairs
+            )
+            SELECT MAX(0, due), current, MAX(bucket, previous_bucket + 1)
+            FROM deadlines WHERE current - due > ?6 AND current > 0 ORDER BY current
+        """, args)]
+
+
 # JSON1 runs inside SQLite; only grouped scalar rows cross the Python boundary.
 # CASE protects every JSON call from malformed legacy payloads. JSON booleans are
 # deliberately excluded from HTTP codes and latencies. Scale before AVG so even
@@ -263,6 +336,14 @@ WITH raw AS (
     FROM history h JOIN domains d ON d.owner_id=h.owner_id AND d.name=h.domain
     WHERE h.owner_id=?3 AND h.created_at>=?4 AND h.created_at<=?5
       AND h.check_name='http_basic' {domain_filter}
+), latency_fields AS (
+    SELECT *, CASE
+      WHEN json_extract(payload,'$.latency_recheck.state')='pending'
+        AND julianday(json_extract(payload,'$.latency_recheck.expires_at'))>julianday(?5) THEN NULL
+      WHEN json_type(payload,'$.chart_response_latency_ms') IS NOT NULL THEN '$.chart_response_latency_ms'
+      WHEN json_type(payload,'$.response_latency_ms') IS NOT NULL THEN '$.response_latency_ms'
+      ELSE '$.latency_ms_total' END AS latency_path
+    FROM raw
 ), fields AS (
     SELECT *,
       json_extract(payload,'$.availability') AS availability,
@@ -276,13 +357,9 @@ WITH raw AS (
         ELSE json_type(payload,'$.code_initial') END AS code_type,
       json_extract(payload,'$.status_code') AS body_code,
       json_type(payload,'$.status_code') AS body_type,
-      CASE WHEN json_type(payload,'$.response_latency_ms') IS NOT NULL
-        THEN json_extract(payload,'$.response_latency_ms')
-        ELSE json_extract(payload,'$.latency_ms_total') END AS latency,
-      CASE WHEN json_type(payload,'$.response_latency_ms') IS NOT NULL
-        THEN json_type(payload,'$.response_latency_ms')
-        ELSE json_type(payload,'$.latency_ms_total') END AS latency_type
-    FROM raw
+      json_extract(payload,latency_path) AS latency,
+      json_type(payload,latency_path) AS latency_type
+    FROM latency_fields
 ), classified AS MATERIALIZED (
     SELECT domain,created_at,created_at>=?1 AS in_window,
       MAX(0,MIN(119,CAST((julianday(created_at)-julianday(?1))*86400/?2 AS INTEGER)))

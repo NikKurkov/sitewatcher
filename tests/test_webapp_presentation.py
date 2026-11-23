@@ -69,9 +69,10 @@ def test_overview_problem_first_and_real_measurement(owner, client):
     assert 'data-domain-summary' in main and 'data-domain-toggle' in main
     assert 'class="domain-detail-row" hidden' in main
     assert 'class="domain-detail-layout"' in main
-    assert 'Latest monitoring checks' in main and 'Website response time' in main
+    fragment = get(client, '/domains/details?domain=a-healthy.example').content.decode()
+    assert 'Latest monitoring checks' in fragment and 'Website response time' in fragment
     assert 'View chart data' not in main
-    assert '<h3>Checks</h3>' in main
+    assert '<h3>Checks</h3>' in fragment
 
 
 def test_empty_and_no_observation_states(owner, client):
@@ -123,12 +124,13 @@ def test_detail_percent_sources_timezone_and_bounded_chart(owner, client):
         assert get(client, '/domains/history?domain=one.example&days=' + invalid).status_code == 400
 
 
-def test_chart_gaps_break_paths_and_unknown_latency():
+def test_chart_breaks_at_overdue_checks_and_only_plots_measured_latencies():
     from sitewatcher.webapp.presentation import chart_context
     points = [{'index': i, 'latency_ms': value} for i, value in
               [(0, 100), (1, 110), (3, 120), (4, None), (5, 130), (6, 120)]]
-    chart = chart_context(points, 'latency_ms')
-    assert len(chart['segments']) == 3
+    chart = chart_context(points, 'latency_ms', [(15, 25, 3)])
+    assert len(chart['segments']) == 2
+    assert chart['gaps'] == [{'x': 15, 'width': 10}]
     assert len(chart['dots']) == 5
     assert chart['dots'][2]['x'] == pytest.approx(3 * 1000 / 120)
     assert chart_context([], 'latency_ms')['segments'] == []

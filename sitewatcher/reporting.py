@@ -9,7 +9,7 @@ import sqlite3
 
 from . import domain_groups, storage
 from .config import AppConfig, ChecksModel, resolve_settings
-from .check_policy import result_deadlines
+from .check_policy import interval_minutes, result_deadlines
 from .utils.results import (
     current_rkn_result, is_missing_malware_report, overall_from_statuses, status_text,
 )
@@ -47,6 +47,8 @@ def _domain_snapshot(cfg, name, raw_override, histories, now):
 
     row['site_url'] = settings.http_url
     row['paused'] = not cfg.scheduler.enabled or settings.interval_minutes == 0
+    if settings.checks.http_basic and not row['paused']:
+        row['http_interval_minutes'] = interval_minutes(cfg, 'http_basic', settings.interval_minutes)
     timestamps = []
     due_times = []
     statuses = []

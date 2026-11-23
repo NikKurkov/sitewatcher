@@ -104,13 +104,14 @@ def test_cli_refresh_only_selected_metadata(monkeypatch):
 
 
 def test_refresh_ui_owner_only(refresh_owner, client, settings):
-    html = client.get('/', HTTP_HOST='localhost').content.decode()
+    fragment = '/domains/details?domain=one.example'
+    html = client.get(fragment, HTTP_HOST='localhost').content.decode()
     assert '/domains/refresh' in html
     assert 'name="check" value="tls_cert"' in html
     history = client.get('/domains/history?domain=one.example', HTTP_HOST='localhost')
     assert b'/domains/refresh' in history.content
     settings.SITEWATCHER_READ_ONLY = True
-    assert b'/domains/refresh' not in client.get('/', HTTP_HOST='localhost').content
+    assert b'/domains/refresh' not in client.get(fragment, HTTP_HOST='localhost').content
     assert b'/domains/refresh' not in client.get('/domains/history?domain=one.example',
                                                HTTP_HOST='localhost').content
 

@@ -122,7 +122,8 @@ async def _run_checks_for_all_domains(
     async def on_results(owner_id: int, domain: str, results: list, *, warmup: bool) -> None:
         await process_results(context, owner_id, domain, results, warmup=warmup, run_id=run_id)
 
-    await scheduler.run_tick(cfg, warmup=warmup, on_results=on_results, run_id=run_id)
+    await scheduler.run_tick(cfg, warmup=warmup, on_results=on_results, run_id=run_id,
+                             rechecks=context.application.bot_data.get('latency_rechecks'))
 
 
 async def process_results(context, owner_id: int, domain: str, results: list, *,

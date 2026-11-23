@@ -1,0 +1,30 @@
+{% load i18n %}
+{% if http_enabled and has_latency %}
+<section class="domain-detail-chart">
+    <figure class="response-chart chart-placeholder">
+        <figcaption>
+            <span class="chart-caption-title">{% translate 'Website response time' %}</span>
+            <span class="chart-metrics" aria-hidden="true">
+                {% translate 'Average' %}:
+                {% for window in '1234' %}
+                <span class="chart-window-value"><span class="placeholder-bar"></span></span>
+                {% if not forloop.last %}<span class="chart-window-separator">/</span>{% endif %}
+                {% endfor %}
+            </span>
+        </figcaption>
+        <div class="chart-frame">
+            <div class="chart-y-axis" aria-hidden="true">
+                {% for tick in '12345' %}<span class="placeholder-bar"></span>{% endfor %}
+            </div>
+            <svg viewBox="-5 0 1010 165" preserveAspectRatio="none" aria-hidden="true">
+                <path class="chart-grid" d="M0 18H1000 M0 51H1000 M0 84H1000 M0 117H1000 M0 150H1000"/>
+            </svg>
+            <div class="chart-axis" aria-hidden="true">
+                {% for tick in '12345' %}<span class="placeholder-bar"></span>{% endfor %}
+            </div>
+            <p class="muted chart-loading-message" data-details-message role="status"></p>
+        </div>
+    </figure>
+</section>
+{% endif %}
+{% include "sitewatcher/partials/domain_details_checks.html" with placeholder=True %}

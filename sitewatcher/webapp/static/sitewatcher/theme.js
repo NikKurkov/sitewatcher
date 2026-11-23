@@ -27,7 +27,52 @@ document.addEventListener('click', async (event) => {
   }
 });
 
-// Native navigation preserves domain disclosures without replacing initialized DOM.
+const detailRequests = new WeakMap();
+function loadDomainDetails(panel) {
+  if (!panel || panel.hasAttribute('data-details-loaded')) return Promise.resolve();
+  if (detailRequests.has(panel)) return detailRequests.get(panel);
+  const message = panel.querySelector('[data-details-message]');
+  message.textContent = panel.dataset.loading;
+  panel.setAttribute('aria-busy', 'true');
+  const request = fetch(panel.dataset.domainDetails, {
+    redirect: 'error', signal: AbortSignal.timeout?.(20000),
+  })
+    .then((response) => {
+      if (!response.ok) throw new Error('Details unavailable');
+      return response.text();
+    })
+    .then((html) => {
+      const historyLink = panel.querySelector('.full-history-link');
+      const restoreHistoryFocus = historyLink === document.activeElement;
+      panel.innerHTML = html;
+      panel.classList.remove('domain-detail-layout');
+      panel.setAttribute('data-details-loaded', '');
+      initializeCharts(panel);
+      if (restoreHistoryFocus) panel.querySelector('.full-history-link')?.focus({preventScroll: true});
+      if (!panel.closest('[hidden], details:not([open])')
+          && matchMedia('(prefers-reduced-motion: no-preference)').matches) {
+        panel.querySelector('.chart-series')?.animate([{opacity: 0}, {opacity: 1}], {
+          duration: 220, easing: 'ease-out',
+        });
+      }
+    })
+    .catch(() => { message.textContent = panel.dataset.failed; })
+    .finally(() => {
+      panel.removeAttribute('aria-busy');
+      detailRequests.delete(panel);
+    });
+  detailRequests.set(panel, request);
+  return request;
+}
+
+// Native public disclosures work across all published groups.
+document.addEventListener('toggle', (event) => {
+  if (event.target.matches?.('[data-domain-disclosure][open]')) {
+    loadDomainDetails(event.target.querySelector('[data-domain-details]'));
+  }
+}, true);
+
+// Keep open domains through navigation and fetch their current details.
 const disclosureRoot = document.querySelector('[data-disclosure-scope]');
 let saveDisclosureState = () => {};
 if (disclosureRoot) {
@@ -53,6 +98,7 @@ if (disclosureRoot) {
     panel.hidden = !open;
     button.setAttribute('aria-expanded', String(open));
     nameFor(button)?.setAttribute('aria-expanded', String(open));
+    if (open) loadDomainDetails(panel.querySelector?.('[data-domain-details]'));
   };
   toggles.forEach((button) => {
     button.hidden = false;
@@ -98,7 +144,7 @@ if (disclosureRoot) {
       const button = domain.querySelector('[data-domain-toggle]');
       const details = domain.querySelector('[data-domain-disclosure]');
       if (button) setOpen(button, open);
-      if (details) details.open = open;
+      if (details && open) details.open = true;
       domain.querySelectorAll('details').forEach((nested, index) => {
         if (nested !== details && Array.isArray(saved.nested)) {
           nested.open = saved.nested.some((item) => item.key === domain.dataset.domainKey && item.index === index);
@@ -108,11 +154,17 @@ if (disclosureRoot) {
     const focus = saved.focus;
     if (focus) {
       const domain = domains.find((item) => item.dataset.domainKey === focus.key);
-      const target = focus.id ? document.getElementById(focus.id)
-        : domain?.querySelectorAll(focusable)[focus.index];
-      if (target && disclosureRoot.contains(target) && !target.closest('[hidden]')) {
-        target.focus({preventScroll: true});
-      }
+      const restoreFocus = () => {
+        const target = focus.id ? document.getElementById(focus.id)
+          : domain?.querySelectorAll(focusable)[focus.index];
+        if (target && disclosureRoot.contains(target) && !target.closest('[hidden]')) {
+          target.focus({preventScroll: true});
+        }
+      };
+      const detail = domain?.querySelector('[data-domain-details]');
+      if (detail && saved.open?.includes(domain.dataset.domainKey)) {
+        loadDomainDetails(detail).then(restoreFocus);
+      } else restoreFocus();
     }
     if (Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
       window.scrollTo(saved.x, saved.y);
@@ -255,6 +307,7 @@ if (refresh) {
     if (!document.hidden && !draft && !pendingDomainCheck
         && !document.querySelector('[data-live-activity]:not([hidden])')
         && !document.querySelector('.domains-table[aria-busy=true], .domains-table[data-dragging=true]')
+        && !document.querySelector('[data-domain-details][aria-busy=true]')
         && !document.querySelector('[data-domain-move-dialog][open], .domains-table[data-move-cooldown]')
         && !document.querySelector('.status-tooltip:not([hidden]), .chart-tooltip:not([hidden]), .chart-window-tooltip:popover-open')
         && !document.activeElement.matches('input,select,textarea,[contenteditable]')) {
@@ -265,7 +318,7 @@ if (refresh) {
 }
 
 // Keep tooltip text tied to the saved bucket, for pointer and keyboard navigation.
-document.querySelectorAll('.response-chart').forEach((chart) => {
+function initializeResponseChart(chart) {
   const tooltip = chart.querySelector('.chart-tooltip');
   if (!tooltip) return;
   const svg = chart.querySelector('svg');
@@ -332,7 +385,7 @@ document.querySelectorAll('.response-chart').forEach((chart) => {
     if (!chart.contains(event.target)) show(null);
   });
   window.addEventListener('resize', () => { if (active) show(active, true); });
-});
+}
 
 // Fixed positioning keeps status details outside the table's clipped scroll area.
 document.querySelectorAll('[data-status-preview]').forEach((preview) => {
@@ -374,7 +427,7 @@ document.querySelectorAll('[data-status-preview]').forEach((preview) => {
 });
 
 // Native popovers provide tap toggling, outside dismissal and Escape for averages.
-document.querySelectorAll('.chart-window-value').forEach((trigger) => {
+function initializeResponseWindow(trigger) {
   const tooltip = document.getElementById(trigger.getAttribute('popovertarget'));
   if (!tooltip?.showPopover) return;
   const hide = () => { if (tooltip.matches(':popover-open')) tooltip.hidePopover(); };
@@ -393,7 +446,13 @@ document.querySelectorAll('.chart-window-value').forEach((trigger) => {
   trigger.addEventListener('blur', hide);
   window.addEventListener('resize', hide);
   window.addEventListener('scroll', hide, {capture: true, passive: true});
-});
+}
+
+function initializeCharts(root) {
+  root.querySelectorAll('.response-chart').forEach(initializeResponseChart);
+  root.querySelectorAll('.chart-window-value').forEach(initializeResponseWindow);
+}
+initializeCharts(document);
 
 // Public page addresses are editable only in public mode.
 const statusPageForm = document.querySelector('.status-page-form');

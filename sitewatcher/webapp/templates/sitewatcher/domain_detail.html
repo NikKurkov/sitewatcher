@@ -173,7 +173,24 @@
                                     {{ item.status_label }}
                                 {% endif %}
                             </td>
-                            <td>{{ item.message }}</td>
+                            <td>
+                                {{ item.message }}
+                                {% with recheck=item.latency_recheck %}
+                                {% if recheck %}
+                                    <div class="muted">
+                                        {% blocktranslate with latency=recheck.initial_ms %}First response took {{ latency }} ms.{% endblocktranslate %}
+                                        {% if recheck.pending %}{% translate 'Confirming response time…' %}{% endif %}
+                                        {% if recheck.samples %}
+                                            {% translate 'Follow-up checks' %} ·
+                                            {% for sample in recheck.samples %}{% if not forloop.first %}, {% endif %}{% if sample.latency_ms != None %}{% blocktranslate with latency=sample.latency_ms %}{{ latency }} ms{% endblocktranslate %}{% elif sample.http_code %}HTTP {{ sample.http_code }}{% else %}{% translate 'No measurement' %}{% endif %}{% endfor %}
+                                        {% endif %}
+                                        {% if recheck.median_ms != None %}
+                                            · {% blocktranslate with latency=recheck.median_ms %}Confirmed response time {{ latency }} ms{% endblocktranslate %}
+                                        {% endif %}
+                                    </div>
+                                {% endif %}
+                                {% endwith %}
+                            </td>
                         </tr>
                     {% empty %}
                         <tr>

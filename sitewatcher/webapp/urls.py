@@ -66,6 +66,7 @@ urlpatterns = [
     path('api/status', domains.status, name='status'),
     path('api/activity', activity, name='activity'),
     path('domains/reorder', domains.reorder, name='reorder'),
+    path('domains/details', domains.details, name='domain_details'),
     path('domains/route', route, name='route'),
     path('login/', auth_views.OwnerLoginView.as_view(), name='login'),
     path('logout/', auth_views.OwnerLogoutView.as_view(), name='logout'),

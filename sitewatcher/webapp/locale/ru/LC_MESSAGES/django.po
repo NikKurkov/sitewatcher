@@ -406,6 +406,23 @@ msgstr "Проверить сейчас"
 msgid "Checking %(domain)s…"
 msgstr "Проверяем %(domain)s…"
 
+#, python-format
+msgid "First response took %(latency)s ms."
+msgstr "Первый ответ занял %(latency)s мс."
+
+msgid "Confirming response time…"
+msgstr "Перепроверяем время ответа…"
+
+msgid "Follow-up checks"
+msgstr "Повторные замеры"
+
+msgid "No measurement"
+msgstr "Нет замера"
+
+#, python-format
+msgid "Confirmed response time %(latency)s ms"
+msgstr "Подтверждённое время ответа %(latency)s мс"
+
 msgid "Resume monitoring"
 msgstr "Возобновить мониторинг"
 
@@ -1872,6 +1889,12 @@ msgstr "Успешные проверки"
 msgid "Full history"
 msgstr "Полная история"
 
+msgid "Loading checks and chart…"
+msgstr "Загружаем проверки и график…"
+
+msgid "Could not load checks and chart."
+msgstr "Не удалось загрузить проверки и график."
+
 #, python-format
 msgid "Show checks and chart for %(domain)s"
 msgstr "Показать проверки и график %(domain)s"
@@ -1998,6 +2021,12 @@ msgstr "Неизвестный результат"
 
 msgid "No measurements"
 msgstr "Нет измерений"
+
+msgid "Overdue check without a saved result"
+msgstr "Проверка просрочена, результата нет"
+
+msgid "Each point averages successful responses in its time bucket. Shaded gaps show overdue checks without a saved result."
+msgstr "Каждая точка показывает среднее время успешных ответов за интервал. Серым отмечена просрочка проверки, для которой нет сохранённого результата."
 
 #, python-format
 msgid "HTTP observations: %(successful)s successful, %(failed)s failed, %(unknown)s unknown. Muted marks mean no measurements."

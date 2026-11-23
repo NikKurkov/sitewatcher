@@ -206,7 +206,7 @@ console.log('Shared toolbar: live navigation remembers the panel without form re
 
 // Run navigation round trips against the actual shipped script and storage format.
 function disclosurePage(storage, {scope = 'owner-1', pathname = '/', activeInput = false,
-  dragging = false, missing = false, externalName = false} = {}) {
+  dragging = false, missing = false, externalName = false, publicOpen} = {}) {
   const handlers = {};
   const windowEvents = {};
   const rowEvents = {};
@@ -222,6 +222,7 @@ function disclosurePage(storage, {scope = 'owner-1', pathname = '/', activeInput
     click: () => buttonEvents.click(), focus: () => { document.activeElement = button; },
     closest: selector => selector === '[data-domain-key]' ? domain : null};
   const nested = {open: false};
+  const publicDetails = publicOpen === undefined ? null : {open: publicOpen};
   const nameEvents = {};
   const nameAttrs = {};
   const name = {target: externalName ? '_blank' : '', setAttribute: (key, value) => { nameAttrs[key] = value; },
@@ -229,8 +230,9 @@ function disclosurePage(storage, {scope = 'owner-1', pathname = '/', activeInput
     click: () => nameEvents.click({preventDefault() {}})};
   const domain = {dataset: {domainKey: '1'},
     querySelector: selector => selector === '[data-domain-toggle]' ? button
-      : selector === '.domain-name' ? name : null,
-    querySelectorAll: selector => selector === 'details' ? [nested] : [button]};
+      : selector === '.domain-name' ? name
+      : selector === '[data-domain-disclosure]' ? publicDetails : null,
+    querySelectorAll: selector => selector === 'details' ? (publicDetails ? [publicDetails] : [nested]) : [button]};
   const row = {addEventListener: (key, fn) => { rowEvents[key] = fn; }, querySelector: () => button};
   const root = {dataset: {disclosureScope: scope}, contains: target => target === button,
     querySelectorAll: selector => selector === '[data-domain-key]' ? (missing ? [] : [domain])
@@ -252,7 +254,7 @@ function disclosurePage(storage, {scope = 'owner-1', pathname = '/', activeInput
     sessionStorage: {getItem: key => storage.get(key) ?? null,
       setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key)},
     setInterval: fn => { interval = fn; }});
-  return {button, attrs, panel, nested, nameEvents, nameAttrs, rowEvents, handlers, windowEvents, document,
+  return {button, attrs, panel, nested, publicDetails, nameEvents, nameAttrs, rowEvents, handlers, windowEvents, document,
     tick: () => interval(), reloads: () => reloads, scroll: () => scroll};
 }
 const nameDisclosure = disclosurePage(new Map());
@@ -286,6 +288,8 @@ disclosure.rowEvents.click({target: {closest: () => null}});
 assert.equal(disclosure.attrs['aria-expanded'], 'false', 'Text and empty row areas toggle');
 disclosure.windowEvents.pagehide();
 assert.equal(disclosurePage(savedDisclosures).panel.hidden, true, 'Manual navigation captures closed state');
+assert.equal(disclosurePage(savedDisclosures, {publicOpen: true}).publicDetails.open, true,
+  'An explicit public details link stays open even after closing the row on the list page');
 for (const options of [{scope: 'owner-2'}, {pathname: '/public/other/'}, {missing: true}]) {
   assert.equal(disclosurePage(savedDisclosures, options).panel.hidden, true);
 }
