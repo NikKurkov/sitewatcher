@@ -26,12 +26,12 @@ Recent saved malware results for the published shop URL say that VirusTotal has 
 
 ## Screenshots
 
-- [Desktop, dark](screenshots/public-status-readability-desktop.png)
-- [Mobile, dark](screenshots/public-status-readability-mobile.png)
-- [Mobile, light](screenshots/public-status-readability-mobile-light.png)
+- [Desktop, dark](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/public-status-readability-desktop.png)
+- [Mobile, dark](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/public-status-readability-mobile.png)
+- [Mobile, light](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/public-status-readability-mobile-light.png)
 
 Later on 2026-11-05, the owner requested automatic submission of missing URL reports. This supersedes the passive-only behavior described above; see [automatic-submission verification](verification-virustotal-auto-submit-2026-11-05.md).
 
-A subsequent owner review restored the Checks section to the supplied compact reference: a flat two-column list (one column on phones), no category headings or visible diagnostic paragraphs, 13 px labels and a compact common timestamp. Diagnostic notes and individual timestamps remain in native hover hints; real overdue results retain their indicator. The explanatory paragraph below the response-time graph was also removed; pointer, touch and keyboard inspection continue to work. Full suite after the compact-list restoration: 989 passed. Firefox and headless Chromium confirmed the compact desktop/mobile layout. Screenshots: [desktop](screenshots/compact-checks-desktop.png), [mobile](screenshots/compact-checks-mobile.png).
+A subsequent owner review restored the Checks section to the supplied compact reference: a flat two-column list (one column on phones), no category headings or visible diagnostic paragraphs, 13 px labels and a compact common timestamp. Diagnostic notes and individual timestamps remain in native hover hints; real overdue results retain their indicator. The explanatory paragraph below the response-time graph was also removed; pointer, touch and keyboard inspection continue to work. Full suite after the compact-list restoration: 989 passed. Firefox and headless Chromium confirmed the compact desktop/mobile layout. Screenshots: [desktop](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/compact-checks-desktop.png), [mobile](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/compact-checks-mobile.png).
 
 The three recent response-time means were then condensed into one inline summary: “Среднее: 15 мин: … мс, 1 час: … мс, 1 день: … мс”. It wraps naturally on narrow screens. All 100 public-page and presentation tests passed after removing the chart instruction and changing this summary.

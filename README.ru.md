@@ -14,11 +14,11 @@
 <table>
   <tr>
     <td width="50%"><a href="docs/screenshots/readme-signals-dark-ru.png"><img src="docs/screenshots/readme-signals-dark-ru.png" alt="Карта выполнения проверок — демонстрационные данные"></a></td>
-    <td width="50%"><a href="docs/screenshots/readme-history-dark-ru.png"><img src="docs/screenshots/readme-history-dark-ru.png" alt="История и время ответа сайта — демонстрационные данные"></a></td>
+    <td width="50%"><a href="docs/screenshots/readme-history-dark-ru.png"><img src="docs/screenshots/readme-history-dark-ru.png" alt="Раскрытый домен с графиком времени ответа и проверками — демонстрационные данные"></a></td>
   </tr>
   <tr>
     <td align="center">Центр сигналов</td>
-    <td align="center">История и время ответа</td>
+    <td align="center">Время ответа и проверки</td>
   </tr>
 </table>
 
@@ -41,7 +41,7 @@
 Установите Git и Docker с Compose, затем выполните:
 
 ```bash
-git clone https://github.com/NikKurkov/sitewatcher.git
+git clone --depth 1 https://github.com/NikKurkov/sitewatcher.git
 cd sitewatcher
 docker compose run --rm --build setup
 docker compose up -d

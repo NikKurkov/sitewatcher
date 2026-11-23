@@ -36,8 +36,8 @@ and public pages share the behavior.
   headers, five visible shop rows, no uncaught exceptions. Light/dark screenshots
   also captured at 1366px. The synthetic workspace contains no production data.
 
-Screenshots: screenshots/groups-dark-desktop.png, groups-light-desktop.png,
-groups-dark-mobile.png and groups-light-mobile.png.
+Screenshots: [groups-dark-desktop.png](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/groups-dark-desktop.png), [groups-light-desktop.png](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/groups-light-desktop.png),
+[groups-dark-mobile.png](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/groups-dark-mobile.png) and [groups-light-mobile.png](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/groups-light-mobile.png).
 
 Runtime/migration/rollback evidence is recorded below.
 
@@ -105,4 +105,4 @@ not raise a group critical badge. Recovery clears the badge on the next render.
 Five regression cases cover CRIT/WARN/UNKNOWN/OK, pausing, recovery and filtering.
 Synthetic Chromium checks at 1366/390px confirmed the badge remains visible while
 collapsed, with no horizontal overflow. Screenshots:
-`docs/screenshots/groups-critical-desktop.png` and `groups-critical-mobile.png`.
+[groups-critical-desktop.png](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/groups-critical-desktop.png) and [groups-critical-mobile.png](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/groups-critical-mobile.png).
