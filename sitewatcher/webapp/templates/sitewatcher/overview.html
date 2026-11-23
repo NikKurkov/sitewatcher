@@ -28,6 +28,7 @@
         {% include 'sitewatcher/partials/activity.html' %}
         <section class="panel domain-list" data-disclosure-scope="owner-{{ request.workspace.pk }}" aria-label="{% translate 'Domains' %}">
             <p class="sr-only" data-order-status role="status"></p>
+            {% if not read_only %}<p class="sr-only" data-domain-check-status role="status"></p>{% endif %}
             <table class="domains-table" data-domain-groups data-group-storage-key="sitewatcher-groups-{{ request.workspace.pk }}" data-group-filtered="{{ group_filtered|yesno:'true,false' }}"{% if not read_only %} data-domain-order
                 data-saved="{% translate 'Domain order saved' %}"
                 data-failed="{% translate 'Could not confirm the new order. Reload the page and try again.' %}"
@@ -122,7 +123,8 @@
                                             title="{% translate 'Edit domain' %}"
                                             aria-label="{% blocktranslate with domain=row.name %}Edit {{ domain }}{% endblocktranslate %}"
                                         ><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m16 3 5 5-12 12-6 1 1-6Z M14 5l5 5"/></svg></a>
-                                        <form method="post" action="/domains/check">
+                                        <form method="post" action="/domains/check"
+                                            data-domain-check="{% blocktranslate with domain=row.name %}Checking {{ domain }}…{% endblocktranslate %}">
                                             {% csrf_token %}
                                             <input type="hidden" name="domain" value="{{ row.name }}">
                                             <input type="hidden" name="q" value="{{ query }}">

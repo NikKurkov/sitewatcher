@@ -222,6 +222,19 @@ def test_new_domain_interval_is_filled_from_configured_schedule(owner, client, s
     assert 'JSON list' not in body
 
 
+@pytest.mark.parametrize(('interval', 'text'), [
+    (5, 'Scheduled port checks run every 60 minutes.'),
+    (90, 'Scheduled port checks run every 90 minutes.'),
+    (0, 'Scheduled port checks are paused.'),
+])
+def test_edit_shows_effective_port_check_interval(owner, client, interval, text):
+    storage.add_domain(41, 'one.example')
+    storage.set_domain_override(41, 'one.example', {
+        'checks': {'ports': True}, 'interval_minutes': interval,
+    })
+    assert text in get(client, '/domains/edit?domain=one.example').content.decode()
+
+
 def test_rkn_controls_and_history_distinguish_domain_critical_from_ip_warning(owner, client,
                                                                             settings):
     from sitewatcher.config import AppConfig, ChecksModel
@@ -477,6 +490,18 @@ def test_overview_actions_are_accessible_header_icons_without_intro(owner, clien
     header = get(client, '/').content.decode().split('</header>', 1)[0]
     assert 'href="/domains/new"' not in header and 'action="/domains/check"' not in header
     assert 'data-auto-refresh' in header and 'aria-label="Refresh now"' in header
+
+
+def test_overview_row_check_has_domain_specific_pending_feedback(owner, client, settings):
+    storage.add_domain(41, 'one.example')
+    storage.add_domain(41, 'two.example')
+    body = get(client, '/').content.decode()
+    assert body.count('data-domain-check-status role="status"') == 1
+    assert 'data-domain-check="Checking one.example…"' in body
+    assert 'data-domain-check="Checking two.example…"' in body
+
+    settings.SITEWATCHER_READ_ONLY = True
+    assert 'data-domain-check' not in get(client, '/').content.decode()
 
 
 def test_settings_navigation_is_a_header_icon_and_marks_current_page(owner, client):

@@ -26,12 +26,14 @@ scheduler:
   per_domain_concurrency: 4
   domain_timeout_s: 120
 
-# Domain intervals apply to operational probes. Metadata/reputation checks use
-# at least 24h; explicit single-domain TLS/WHOIS refresh is separate.
+# Domain intervals apply to operational probes. Ports use the longer of the
+# domain interval and the port schedule. Metadata/reputation checks normally
+# run daily, with earlier retries as needed.
 schedules:
   http_basic: { interval_minutes: 5, cache_ttl_minutes: 2 }
   tls_cert: { interval_minutes: 1440, cache_ttl_minutes: 1440 }
   ping: { interval_minutes: 5, cache_ttl_minutes: 0 }
+  ports: { interval_minutes: 60, cache_ttl_minutes: 0 }
   whois: { interval_minutes: 1440, cache_ttl_minutes: 1440 }
   rkn_domain: { interval_minutes: 1440, cache_ttl_minutes: 1440 }
   rkn_ip: { interval_minutes: 1440, cache_ttl_minutes: 1440 }

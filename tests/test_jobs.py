@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -34,6 +35,28 @@ def test_disabled_global_scheduler(monkeypatch):
     cfg = AppConfig()
     cfg.scheduler.enabled = False
     assert due_checks(cfg, 1, "example.com") == []
+
+
+@pytest.mark.parametrize(('domain_interval', 'age', 'due'), [
+    (0, 60, False), (5, 5, False), (5, 60, True), (90, 60, False), (90, 90, True),
+])
+def test_port_schedule_respects_check_and_domain_intervals(monkeypatch, domain_interval, age, due):
+    cfg = AppConfig()
+    cfg.defaults.checks.ports = True
+    monkeypatch.setattr(storage, 'last_check_ages', lambda *_: {'ports': age})
+    monkeypatch.setattr(storage, 'get_domain_override',
+                        lambda *_: {'interval_minutes': domain_interval})
+    assert ('ports' in due_checks(cfg, 1, 'example.com')) is due
+
+
+def test_scheduler_revisits_legacy_tls_verification_failure_after_fifteen_minutes(monkeypatch):
+    now = datetime.now(timezone.utc)
+    checked = now - timedelta(minutes=20)
+    saved = {'status': 'CRIT', 'created_at': checked.isoformat(), 'metrics_json': {
+        'verify_code': 20, 'next_refresh_at': (checked + timedelta(days=1)).isoformat(),
+    }}
+    monkeypatch.setattr(storage, 'latest_check_results', lambda *_: {'tls_cert': saved})
+    assert 'tls_cert' in due_checks(AppConfig(), 1, 'example.com')
 
 
 def test_warmup_sets_baseline_and_next_tick_skips_recent_result(tmp_path, monkeypatch):

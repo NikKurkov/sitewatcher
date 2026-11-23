@@ -32,6 +32,8 @@ def interval_minutes(cfg, check_name, domain_interval=None):
     scheduled = int(getattr(cfg.schedules, check_name).interval_minutes)
     if check_name in DAILY_CHECKS:
         return max(1440, scheduled)
+    if check_name == 'ports':
+        return max(scheduled, int(domain_interval or 0))
     return int(domain_interval) if domain_interval is not None else scheduled
 
 

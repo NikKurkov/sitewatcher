@@ -124,7 +124,11 @@
                     {% if field_errors.ports %}
                         <p class="field-error" id="ports-error">{{ field_errors.ports }}</p>
                     {% endif %}
-                    <p class="field-help" id="ports-help">{% translate 'Separate ports or ranges with commas, for example 1-1024, 2205. Valid ports: 1–65535. Blank uses the default; - clears the list.' %}</p>
+                    <p class="field-help" id="ports-help">
+                        {% translate 'Separate ports or ranges with commas, for example 1-1024, 2205. Valid ports: 1–65535. Blank uses the default; - clears the list.' %}
+                        {% if ports_interval %}{% blocktranslate count minutes=ports_interval %}Scheduled port checks run every {{ minutes }} minute.{% plural %}Scheduled port checks run every {{ minutes }} minutes.{% endblocktranslate %}
+                        {% elif ports_interval == 0 %}{% translate 'Scheduled port checks are paused.' %}{% endif %}
+                    </p>
                 </div>
                 <h3>{% translate 'Proxy' %}</h3>
                 <p class="field-help">{% if proxy_present %}{% translate 'A proxy is configured.' %}{% else %}{% translate 'No proxy configured.' %}{% endif %} {% translate 'Credentials are never displayed.' %}</p>

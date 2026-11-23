@@ -39,6 +39,19 @@
 .domains-table > tbody[data-domain-key] > tr[data-domain-summary] > td,
 .domains-table > tbody[data-domain-key] > tr[data-domain-summary] > th { padding-block: 12px; }
 .domains-table > colgroup > .col-actions { width: 204px; }
+[data-domain-check][aria-busy=true] > .icon-button {
+  cursor: progress;
+  color: var(--focus);
+  background: var(--green-soft);
+  border-color: color-mix(in srgb, var(--focus) 35%, var(--line));
+}
+@media (prefers-reduced-motion: no-preference) {
+  [data-domain-check][aria-busy=true] > .icon-button svg {
+    transform-origin: center;
+    animation: domain-check-spin 950ms linear infinite;
+  }
+}
+@keyframes domain-check-spin { to { transform: rotate(360deg); } }
 .domains-table .row-domain-actions { flex-wrap: nowrap; }
 .domains-table .row-domain-actions > * { flex-shrink: 0; }
 .header-periods .periods { width: max-content; margin-left: auto; }

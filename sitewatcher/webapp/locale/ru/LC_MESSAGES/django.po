@@ -246,6 +246,16 @@ msgstr "Блокировка РКН (устаревшая проверка)"
 msgid "TCP ports"
 msgstr "TCP-порты"
 
+#, python-format
+msgid "Scheduled port checks run every %(minutes)s minute."
+msgid_plural "Scheduled port checks run every %(minutes)s minutes."
+msgstr[0] "Проверка портов выполняется каждые %(minutes)s мин."
+msgstr[1] "Проверка портов выполняется каждые %(minutes)s мин."
+msgstr[2] "Проверка портов выполняется каждые %(minutes)s мин."
+
+msgid "Scheduled port checks are paused."
+msgstr "Плановая проверка портов приостановлена."
+
 msgid "Domain registration"
 msgstr "Регистрация домена"
 
@@ -391,6 +401,10 @@ msgstr "Изменить домен"
 
 msgid "Check now"
 msgstr "Проверить сейчас"
+
+#, python-format
+msgid "Checking %(domain)s…"
+msgstr "Проверяем %(domain)s…"
 
 msgid "Resume monitoring"
 msgstr "Возобновить мониторинг"
