@@ -63,6 +63,10 @@ class LatencyRechecks:
         target = result.metrics.get('http_target') or result.metrics.get('origin_url')
         if raw is None or raw < 1000 or not target:
             return None
+        override = storage.get_domain_override(owner_id, domain)
+        settings = resolve_settings(self.cfg, domain, override)
+        if not settings.checks.http_basic or settings.interval_minutes == 0 or settings.http_url != target:
+            return None
         baseline = []
         with closing(storage.iter_scheduled_http(owner_id, domain)) as rows:
             for row in rows:
@@ -79,7 +83,6 @@ class LatencyRechecks:
         ordinary = median(baseline)
         if raw < 3 * ordinary or raw - ordinary < 1000:
             return None
-        settings = resolve_settings(self.cfg, domain, storage.get_domain_override(owner_id, domain))
         probe_budget = max(RECHECK_INTERVAL_S, settings.http_timeout_s,
                            self.cfg.scheduler.domain_timeout_s or 0)
         window = min(MAX_LATENCY_RECHECK_WINDOW_S, 3 * (RECHECK_INTERVAL_S + probe_budget) + 5)
@@ -88,31 +91,27 @@ class LatencyRechecks:
             'state': 'pending',
             'expires_at': (datetime.now(timezone.utc) + timedelta(seconds=window)).isoformat(),
             'initial_ms': raw,
-            'baseline_ms': ordinary,
             'samples': [],
         }
         result.metrics['latency_recheck'] = detail
-        return target, detail
+        return detail, storage.domain_override_revision(override)
 
-    def start(self, owner_id, domain, prepared, on_results, *, warmup):
+    def start(self, owner_id, domain, prepared, on_results):
         key = (owner_id, domain)
-        target, detail = prepared
-        task = asyncio.create_task(self._run(owner_id, domain, target, detail, on_results, warmup))
+        detail, revision = prepared
+        task = asyncio.create_task(self._run(owner_id, domain, detail, revision, on_results))
         self.tasks[key] = task
         task.add_done_callback(lambda _: self.tasks.pop(key, None))
 
-    def _current(self, owner_id, domain, target, token):
-        if not storage.domain_exists(owner_id, domain):
-            return False
-        settings = resolve_settings(self.cfg, domain, storage.get_domain_override(owner_id, domain))
-        if (settings.interval_minutes == 0 or not settings.checks.http_basic
-                or settings.http_url != target):
+    def _current(self, owner_id, domain, revision, token):
+        override = storage.get_domain_override(owner_id, domain)
+        if storage.domain_override_revision(override) != revision:
             return False
         metrics = metrics_from(storage.last_history_for_check(owner_id, domain, 'http_basic'))
         return (latency_recheck_pending(metrics, datetime.now(timezone.utc))
                 and metrics['latency_recheck']['token'] == token)
 
-    async def _run(self, owner_id, domain, target, original, on_results, warmup):
+    async def _run(self, owner_id, domain, original, revision, on_results):
         detail = {**original, 'samples': []}
         next_probe = monotonic() + RECHECK_INTERVAL_S
         expires = datetime.fromisoformat(detail['expires_at'])
@@ -125,35 +124,41 @@ class LatencyRechecks:
                     if delay > 0:
                         await sleep(delay)
                     async with self.slots:
-                        if not self._current(owner_id, domain, target, detail['token']):
+                        if not self._current(owner_id, domain, revision, detail['token']):
                             return
                         next_probe = monotonic() + RECHECK_INTERVAL_S
                         results = await dispatcher.run_for(
                             owner_id, domain, only_checks=['http_basic'], use_cache=False,
                         )
-                    if not results or not self._current(owner_id, domain, target, detail['token']):
+                    if not results:
                         return
                     result = results[0]
                     value = http_latency(result.metrics)
                     code = result.metrics.get('final_code', result.metrics.get('status_code'))
-                    detail['samples'].append({'latency_ms': value, 'status': result.status.value,
-                                              'http_code': code})
+                    detail['samples'].append({'latency_ms': value, 'http_code': code})
                     unavailable = result.metrics.get('availability') == 'unavailable'
                     if result.status is Status.UNKNOWN or unavailable:
                         result.metrics['availability'] = 'unavailable' if unavailable else 'unknown'
-                        result.metrics.setdefault('http_target', target)
-                        detail['state'] = 'failed'
-                        if storage.update_latency_recheck(owner_id, domain, detail, failure=result):
+                        final = {**detail, 'state': 'failed'}
+                        if storage.update_latency_recheck(
+                            owner_id, domain, final, expected_revision=revision, failure=result,
+                        ):
+                            detail = final
                             failed = result
                         break
-                    if value is None or not storage.update_latency_recheck(owner_id, domain, detail):
+                    if value is None or not storage.update_latency_recheck(
+                        owner_id, domain, detail, expected_revision=revision,
+                    ):
                         return
                 else:
-                    detail['state'] = 'confirmed'
-                    detail['median_ms'] = median(sample['latency_ms'] for sample in detail['samples'])
-                    storage.update_latency_recheck(owner_id, domain, detail)
+                    value = median(sample['latency_ms'] for sample in detail['samples'])
+                    final = {**detail, 'state': 'confirmed', 'median_ms': value}
+                    if storage.update_latency_recheck(
+                        owner_id, domain, final, expected_revision=revision,
+                    ):
+                        detail = final
             if failed is not None:
-                await on_results(owner_id, domain, [failed], warmup=warmup)
+                await on_results(owner_id, domain, [failed], warmup=False)
         except Exception as error:
             log.warning('HTTP latency confirmation interrupted (%s)', type(error).__name__)
         finally:

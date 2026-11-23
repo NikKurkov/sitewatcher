@@ -281,11 +281,10 @@ def http_gap_ranges(owner_id, report, interval_minutes, tick_minutes):
     """Return overdue ranges (elapsed seconds) and the bucket where the line resumes."""
     if not interval_minutes or report['totals']['latency_ms'] is None:
         return []
-    start, end = (datetime.fromisoformat(report[key]).replace(tzinfo=None)
-                  for key in ('window_start', 'window_end'))
-    interval = interval_minutes * 60
-    args = (int(owner_id), report['domain'], start.isoformat(sep=' '), end.isoformat(sep=' '),
-            interval, tick_minutes * 60, report['bucket_seconds'])
+    start, end = (datetime.fromisoformat(report[key]) for key in ('window_start', 'window_end'))
+    args = (int(owner_id), report['domain'], start.replace(tzinfo=None).isoformat(sep=' '),
+            end.replace(tzinfo=None).isoformat(sep=' '), interval_minutes * 60, tick_minutes * 60,
+            report['bucket_seconds'], int(start.timestamp()))
     # Every saved result resets the scheduler deadline, including manual runs
     # and errors. The preceding observation anchors overdue time at the left edge.
     # Do not assume the current interval applied before the last domain settings edit.
@@ -303,7 +302,7 @@ def http_gap_ranges(owner_id, report, interval_minutes, tick_minutes):
                     AND created_at>=?3 AND created_at<=?4
                 UNION ALL SELECT ?4
             ), elapsed AS (
-                SELECT unixepoch(created_at) - unixepoch(?3) AS current,
+                SELECT CAST(strftime('%s', created_at) AS INTEGER) - ?8 AS current,
                        MAX(0, MIN(119, CAST((julianday(created_at)-julianday(?3))*86400/?7
                            AS INTEGER))) AS bucket
                 FROM observations
@@ -314,7 +313,7 @@ def http_gap_ranges(owner_id, report, interval_minutes, tick_minutes):
                 WINDOW timeline AS (ORDER BY current)
             ), deadlines AS (
                 SELECT current, bucket, previous_bucket, MAX(previous, COALESCE((
-                    SELECT unixepoch(updated_at) - unixepoch(?3) FROM domain_overrides
+                    SELECT CAST(strftime('%s', updated_at) AS INTEGER) - ?8 FROM domain_overrides
                     WHERE owner_id=?1 AND domain=?2
                 ), previous)) + ?5 AS due
                 FROM pairs

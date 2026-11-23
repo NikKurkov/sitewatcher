@@ -138,8 +138,7 @@ def test_baseline_looks_past_recent_errors_and_respects_slow_probe_timeout():
     cfg = AppConfig()
     cfg.defaults.http_timeout_s = 40
     before = datetime.now(timezone.utc)
-    _, detail = latency_rechecks.LatencyRechecks(cfg).prepare(OWNER, DOMAIN, [http(4000)])
-    assert detail['baseline_ms'] == 1000
+    detail, _ = latency_rechecks.LatencyRechecks(cfg).prepare(OWNER, DOMAIN, [http(4000)])
     assert datetime.fromisoformat(detail['expires_at']) > before + timedelta(seconds=180)
 
 
@@ -182,7 +181,7 @@ def test_failed_follow_up_is_reported_immediately_and_stops_the_series(
         async with latency_rechecks.LatencyRechecks(AppConfig()) as service:
             prepared = save_spike(service)
             row_id = latest_http()['id']
-            service.start(OWNER, DOMAIN, prepared, on_results, warmup=False)
+            service.start(OWNER, DOMAIN, prepared, on_results)
             await asyncio.gather(*service.tasks.values())
             row = latest_http()
             details = json.loads(row['metrics_json'])['latency_recheck']
@@ -196,7 +195,7 @@ def test_failed_follow_up_is_reported_immediately_and_stops_the_series(
             assert report()['sample_count'] == 8
             assert report()[classification] == 1
             assert report()['latency_sample_count'] == 7
-            on_results.assert_awaited_once()
+            on_results.assert_awaited_once_with(OWNER, DOMAIN, [outcome], warmup=False)
 
     asyncio.run(run())
     assert probes.await_count == 2
@@ -215,7 +214,7 @@ def test_shutdown_does_not_overwrite_a_newer_observation(monkeypatch, superseded
     async def run():
         async with latency_rechecks.LatencyRechecks(AppConfig()) as service:
             prepared = save_spike(service)
-            service.start(OWNER, DOMAIN, prepared, AsyncMock(), warmup=False)
+            service.start(OWNER, DOMAIN, prepared, AsyncMock())
             await sleeping.wait()
             assert report()['latency_sample_count'] == 7
             if superseded:
@@ -226,7 +225,7 @@ def test_shutdown_does_not_overwrite_a_newer_observation(monkeypatch, superseded
             assert 'latency_recheck' not in metrics
         else:
             assert metrics['latency_recheck']['state'] == 'interrupted'
-        assert report()['latency_sample_count'] == 8
+        assert report()['latency_sample_count'] == (9 if superseded else 8)
 
     asyncio.run(run())
 
@@ -241,3 +240,49 @@ def test_an_expired_pending_result_falls_back_to_the_original_measurement(monkey
     monkeypatch.setattr(analytics, '_now', lambda: later)
     assert report()['latency_sample_count'] == 8
     assert report()['latency_ms'] == pytest.approx(1875)
+
+
+def test_follow_up_writes_only_for_the_settings_used_to_start_it():
+    service = latency_rechecks.LatencyRechecks(AppConfig())
+    detail, revision = save_spike(service)
+    storage.set_domain_override(OWNER, DOMAIN, {'http_url': f'{TARGET}other'})
+    outcome = http(None, status=Status.CRIT, code=503, available=False)
+    assert not storage.update_latency_recheck(
+        OWNER, DOMAIN, {**detail, 'state': 'failed'}, expected_revision=revision, failure=outcome,
+    )
+    assert latest_http()['status'] == 'OK'
+    assert report()['successful'] == 8
+
+
+def test_scheduled_results_survive_latency_preparation_failure(monkeypatch):
+    from sqlite3 import OperationalError
+
+    storage.add_domain(OWNER, DOMAIN)
+    result = http(8000)
+
+    class Dispatcher:
+        def __init__(self, _):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+        async def run_for(self, *_args, **_kwargs):
+            return [result]
+
+    cfg = AppConfig()
+    service = latency_rechecks.LatencyRechecks(cfg)
+
+    def prepare(*_):
+        raise OperationalError('simulated baseline read failure')
+
+    monkeypatch.setattr(scheduler, 'Dispatcher', Dispatcher)
+    monkeypatch.setattr(service, 'prepare', prepare)
+    on_results = AsyncMock()
+    asyncio.run(scheduler.run_tick(cfg, warmup=False, on_results=on_results, rechecks=service))
+    assert latest_http()['source'] == 'scheduled'
+    assert report()['latency_ms'] == pytest.approx(8000)
+    on_results.assert_awaited_once_with(OWNER, DOMAIN, [result], warmup=False)

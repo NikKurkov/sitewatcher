@@ -121,10 +121,15 @@ async def run_tick(cfg: AppConfig, *, warmup: bool, on_results, run_id: str | No
                         return
                     if selected:
                         results = await d.run_for(owner_id, domain, only_checks=selected, use_cache=False, run_id=run_id)
-                        prepared = rechecks.prepare(owner_id, domain, results) if rechecks else None
+                        prepared = None
+                        if rechecks:
+                            try:
+                                prepared = rechecks.prepare(owner_id, domain, results)
+                            except Exception:
+                                log.exception('Could not prepare HTTP latency confirmation')
                         storage.save_histories(owner_id, domain, results, create_missing=False, source="scheduled")
                         if rechecks and prepared:
-                            rechecks.start(owner_id, domain, prepared, on_results, warmup=warmup)
+                            rechecks.start(owner_id, domain, prepared, on_results)
                     elif not warmup:
                         # Retry undelivered state changes on the next tick, without extra probes.
                         results = []

@@ -481,21 +481,34 @@ def iter_scheduled_http(owner_id: int, domain: str):
         )
 
 
-def update_latency_recheck(owner_id: int, domain: str, detail: dict, *, failure=None) -> bool:
-    """Update the original HTTP row only while its confirmation owns the latest result."""
-    from .check_policy import metrics_from
+def update_latency_recheck(
+    owner_id: int, domain: str, detail: dict, *, expected_revision: str | None = None, failure=None,
+) -> bool:
+    """Publish results only while current; interrupted confirmations can retire older rows."""
+    from .check_policy import latency_recheck_pending, metrics_from
     from .critical_incidents import record
 
     with _write_connection() as conn:
-        row = conn.execute(
-            "SELECT id,status,message,source,metrics_json FROM history WHERE owner_id=? "
-            "AND domain=? AND check_name='http_basic' ORDER BY id DESC LIMIT 1",
-            (owner_id, domain),
-        ).fetchone()
+        if expected_revision is not None and domain_override_revision(
+            _read_domain_override(conn, owner_id, domain)
+        ) != expected_revision:
+            return False
+        query = ("SELECT id,status,message,source,metrics_json FROM history WHERE owner_id=? "
+                 "AND domain=? AND check_name='http_basic'")
+        params = (owner_id, domain)
+        if detail['state'] == 'interrupted' and failure is None:
+            query += (" AND CASE WHEN json_valid(metrics_json) THEN "
+                      "json_extract(metrics_json,'$.latency_recheck.token') END=?")
+            params += (detail['token'],)
+        row = conn.execute(query + " ORDER BY id DESC LIMIT 1", params).fetchone()
         metrics = metrics_from(row)
         pending = metrics.get('latency_recheck')
         if (not row or row['source'] != 'scheduled' or not isinstance(pending, dict)
                 or pending.get('state') != 'pending' or pending.get('token') != detail['token']):
+            return False
+        if detail['state'] != 'interrupted' and not latency_recheck_pending(
+            metrics, datetime.now(timezone.utc)
+        ):
             return False
         status, message = row['status'], row['message']
         if failure is not None:

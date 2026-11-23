@@ -144,7 +144,7 @@ if (disclosureRoot) {
       const button = domain.querySelector('[data-domain-toggle]');
       const details = domain.querySelector('[data-domain-disclosure]');
       if (button) setOpen(button, open);
-      if (details) details.open = open;
+      if (details && open) details.open = true;
       domain.querySelectorAll('details').forEach((nested, index) => {
         if (nested !== details && Array.isArray(saved.nested)) {
           nested.open = saved.nested.some((item) => item.key === domain.dataset.domainKey && item.index === index);
