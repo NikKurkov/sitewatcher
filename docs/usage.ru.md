@@ -53,15 +53,17 @@ docker compose --profile telegram up -d
 
 ## Запуск из Python
 
-Поддерживаются Python 3.12–3.14 и SQLite 3.35+ с JSON1.
+Для запуска в Linux или macOS нужны Python 3.12–3.14 и SQLite 3.35+ с JSON1. В Windows используйте Docker Compose.
 
 ```bash
 python3.12 -m venv .venv
 . .venv/bin/activate
-pip install -e .
+pip install .
 sitewatcher setup
 sitewatcher web
 ```
+
+Если скачали wheel из [GitHub Releases](https://github.com/NikKurkov/sitewatcher/releases/latest), передайте путь к файлу `.whl` команде pip вместо точки.
 
 Во втором терминале из того же каталога:
 
@@ -327,7 +329,7 @@ git pull --ff-only
 docker compose up -d --build
 ```
 
-Если скачивали ZIP, распакуйте свежую версию и скопируйте её содержимое в ту же папку проекта, сохранив локальные настройки и файлы данных. Не меняйте имя папки: от него зависит выбор Docker-тома. Затем выполните `docker compose up -d --build`.
+Если устанавливали из архива, остановите текущий проект командой `docker compose down`. Распакуйте свежую версию в чистый каталог и перенесите локальные настройки. Запустите `docker compose up -d --build` с прежним именем проекта, чтобы Compose подключил существующий том. Используйте прежнее имя каталога или задайте его в `COMPOSE_PROJECT_NAME`.
 
 Для существующей установки не нужно повторять `setup`. После обновления проверьте вход, историю одного сайта и появление новой плановой проверки. Если выбран локальный `compose.override.yaml`, Compose продолжит использовать его.
 

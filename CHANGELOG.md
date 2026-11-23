@@ -1,51 +1,49 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
-- Show private status-page links for opening/copying in owner settings; derive new
-  tokens using the server secret without storing raw bearer tokens. Legacy links
-  remain valid and can be reissued once to become recoverable.
+### Added
 
-- Add an optional 30-day remembered sign-in; ordinary sessions remain 12 hours.
+- Organize sites into collapsible groups and move them between groups from the overview.
+  Status pages can show selected sites and groups, including sites added to those groups later.
+- Create multiple public or private status pages with their own titles and editable public addresses.
+  Open and copy newly issued private links in settings. Existing links survive the upgrade and can
+  be reissued if you need to copy them from settings.
+- Pick email, Telegram, or both for each site. Email has its own delivery status and retries.
+- Follow checks in the Signal room, see network routes in the workspace, and keep unresolved
+  critical checks visible until the check confirms recovery. The public view shows activity for
+  the selected sites with a limited set of fields.
+- Rename a monitored site or set a specific HTTP or HTTPS path. Keep its settings and history.
+- Optionally stay signed in for 30 days. The default sign-in lasts 12 hours.
 
-- Add multiple Status pages with independent titles, public/private access, editable
-  public addresses and compact domain selections. Preserve existing published links
-  during migration, isolate owners and protect against stale configuration changes.
-- Simplify public check details and response summaries; keep automatic refresh on,
-  show periods in accessible average tooltips and highlight failed history buckets red.
-- Submit missing VirusTotal URL reports for analysis, with persistent per-owner
-  submission cooldown and neutral pending results.
-- Honour the configured eight-character password minimum in owner setup guidance.
+### Changed
 
-- Use a plain globe with a coordinate grid for the Signal room toggle.
+- Load checks and charts when you expand a site on the overview or a status page. Reserve space
+  for the chart during loading. Show a gap after a scheduled HTTP check is overdue and no result
+  has been saved. Include 30-day averages and keep confirmation attempts visible in full history.
+  [Chart loading](docs/screenshots/response-chart-loading.png) ·
+  [Missed HTTP check](docs/screenshots/response-chart-missed-check.png)
+- Recheck sharp increases in scheduled HTTP response times. Successful confirmation contributes
+  one median measurement to the chart and averages. HTTP and connection failures still appear
+  immediately.
+- Cache TLS and WHOIS metadata for 24 hours with targeted refresh controls. Preserve the last
+  known registration expiry when RDAP cannot supply a usable date, and respect provider retry delays.
+- Submit missing VirusTotal reports for analysis and keep a daily cooldown across restarts. Pending
+  submissions appear as unknown. Configure a dedicated proxy for VirusTotal in the workspace.
+- Start the Django app directly from the CLI and reuse the Docker dependency layer for source changes.
 
-- Compact signal-room events into single rows with full labels on hover and
-  internal horizontal scrolling on phones.
+### Fixed
 
-- Highlight critical signal-room events with a red background and pulse active
-  critical domain cards; respect pause and reduced-motion preferences.
+- Measure the full HTTP redirect chain, inspect keywords on the successful final response, and
+  limit defacement checks to HTML. Try TCP ping when ICMP gets no answer.
+- Confirm new DNS address sets before reporting a change. Keep an eligible previous registry index
+  available during an RKN refresh and validate DNS blocklist sources before using their verdicts.
+- Keep port checks on their configured schedule and show manual checks in progress.
+- Honor individual status filters in detailed Telegram reports and serialize SQLite initialization
+  when web and monitoring processes start together.
 
-- Place the signal-room event console on the map beside the monitoring hub and
-  domain cards. Show time, check, domain, result and duration as readable fields;
-  preserve follow/pause/replay and use a stacked layout on narrow screens.
-
-- Align signal-room speed selection with adjacent controls on desktop and mobile.
-
-- Include all check types for selected domains in the public signal room, while
-  keeping diagnostic messages, metrics and private domains out of the public feed.
-
-- Clarify expanded domain details in the workspace and public status page: compact
-  response-time captions, labelled chart axes, shared check timestamps, neutral stale
-  result indicators and lighter successful statuses.
-- Persist WHOIS refresh attempts alongside cached results. Reuse the daily cache after
-  provider failures, respect longer `Retry-After` delays and prevent concurrent or
-  restarted workers from repeatedly querying RDAP during the cooldown.
-- Remove unused management markup, internal compatibility wrappers, obsolete planning
-  documents and unreferenced images. Share response metrics and use standard ordered
-  deduplication without changing monitoring settings or supported configuration keys.
-- Start the Django application directly from the CLI and cache Docker dependencies
-  separately from application source.
-- Respect individual status filters in detailed Telegram status reports.
+Back up persistent data and the web secret before upgrading. Startup applies database migrations.
+See [operations and rollback](docs/operations.md).
 
 ## 0.3.0 — 2026-11-03
 

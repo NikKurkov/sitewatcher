@@ -46,15 +46,17 @@ docker compose run --rm web sitewatcher scan example.com --only http_basic,tls_c
 
 ## Run with Python
 
-Use Python 3.12–3.14 and SQLite 3.35 or newer with JSON1 support.
+Use Python 3.12–3.14 and SQLite 3.35 or newer with JSON1 support on Linux or macOS. On Windows, use Docker Compose.
 
 ```bash
 python3.12 -m venv .venv
 . .venv/bin/activate
-pip install -e .
+pip install .
 sitewatcher setup
 sitewatcher web
 ```
+
+If you downloaded the wheel from [GitHub Releases](https://github.com/NikKurkov/sitewatcher/releases/latest), install the downloaded `.whl` in place of the source directory in the pip command.
 
 In a second terminal, in the same folder:
 
@@ -312,7 +314,7 @@ git pull --ff-only
 docker compose up -d --build
 ```
 
-If you installed from ZIP, extract the new version and copy its contents into the same project folder, retaining local settings and data files. Keep the folder name: it determines the Compose project and data-volume selection. Then run `docker compose up -d --build`.
+If you installed from an archive, stop the existing project with `docker compose down`. Extract the new release into a clean directory and bring over your local settings. Run `docker compose up -d --build` under the same project name so Compose finds the existing volume. Keep the original directory name or set `COMPOSE_PROJECT_NAME` to the old name.
 
 Do not rerun account setup for an existing installation. Check login, an existing site's history and a new scheduled result after updating. Restore matching database/sidecars with all processes stopped if a rollback is needed; see [operations and recovery](operations.md).
 

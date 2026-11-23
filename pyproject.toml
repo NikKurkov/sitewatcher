@@ -1,6 +1,8 @@
 [project]
 name = "sitewatcher"
-version = "0.3.0"
+version = "0.4.0"
+license = "MIT"
+license-files = ["LICENSE"]
 description = "Private website monitoring workspace with optional Telegram alerts"
 authors = [{ name = "Nikolay Kurkov", email = "nikkurkov@gmail.com" }]
 requires-python = ">=3.12"
@@ -64,5 +66,5 @@ DJANGO_SETTINGS_MODULE = "sitewatcher.webapp.settings"
 testpaths = ["tests"]
 
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
