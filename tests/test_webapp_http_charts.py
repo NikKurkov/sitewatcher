@@ -69,3 +69,27 @@ def test_domain_chart_requires_enabled_http_and_response_time_points(
     assert ('class="domain-detail-chart"' in body) is (visible and page != 'history')
     assert 'Latest monitoring checks' in body
     assert 'TLS certificate' in body
+
+
+def test_http_history_shows_latency_confirmation_without_exposing_internal_state(
+    web_database, client,
+):
+    from sitewatcher.webapp.models import Workspace
+
+    user = get_user_model().objects.create_user(username='confirmation-owner')
+    Workspace.objects.create(user=user, owner_id=628, language='ru')
+    storage.save_history(628, 'chart.example', 'http_basic', 'CRIT', 'HTTP 200', {
+        'availability': 'available', 'final_code': 200, 'response_latency_ms': 8607,
+        'chart_response_latency_ms': 1100,
+        'latency_recheck': {'state': 'confirmed', 'initial_ms': 8607, 'median_ms': 1100,
+                            'token': 'confirmation-token-for-test',
+                            'samples': [{'latency_ms': ms} for ms in (900, 1100, 5000)]},
+    }, source='scheduled')
+    client.force_login(user)
+    response = client.get('/domains/history?domain=chart.example', HTTP_HOST='localhost')
+    assert response.status_code == 200
+    body = response.content.decode()
+    assert 'Первый ответ занял 8607 мс.' in body
+    assert '900 мс, 1100 мс, 5000 мс' in body
+    assert 'Подтверждённое время ответа 1100 мс' in body
+    assert 'confirmation-token-for-test' not in body

@@ -17,6 +17,7 @@ from . import maintenance, network_routes, scheduler, scheduler_lock, storage
 from .bot import jobs
 from .bot.alerts import AlertDeduper
 from .config import AppConfig
+from .latency_rechecks import LatencyRechecks
 from .telegram_connection import load_bot_token
 from .telegram_proxy import load_proxy
 
@@ -26,7 +27,11 @@ log = logging.getLogger(__name__)
 async def run_worker(cfg: AppConfig) -> None:
     """Own scheduling until cancellation; web processes never enter this loop."""
     with scheduler_lock.acquire(storage.DEFAULT_DB):
-        async with network_routes.runner(cfg), AsyncExitStack() as clients:
+        async with (
+            network_routes.runner(cfg),
+            AsyncExitStack() as clients,
+            LatencyRechecks(cfg) as rechecks,
+        ):
             context = SimpleNamespace(bot=None, application=SimpleNamespace(bot_data={
                 'cfg': cfg, 'alert_deduper': AlertDeduper(cfg.alerts.effective_cooldown),
             }))
@@ -73,7 +78,8 @@ async def run_worker(cfg: AppConfig) -> None:
                     await jobs.process_results(context, owner_id, domain, results,
                                                warmup=warmup, run_id=run_id)
 
-                await scheduler.run_tick(cfg, warmup=warmup, on_results=on_results, run_id=run_id)
+                await scheduler.run_tick(cfg, warmup=warmup, on_results=on_results,
+                                         run_id=run_id, rechecks=rechecks)
 
             jitter = random.randint(0, cfg.scheduler.jitter_seconds)
             if cfg.scheduler.enabled and jitter:

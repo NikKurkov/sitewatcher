@@ -5,6 +5,7 @@ import json
 DAILY_CHECKS = frozenset({'tls_cert', 'whois', 'malware', 'ip_blacklist', 'rkn_domain', 'rkn_ip'})
 REFRESHABLE_CHECKS = frozenset({'tls_cert', 'whois'})
 TLS_FAILURE_RETRY_S = 900
+MAX_LATENCY_RECHECK_WINDOW_S = 300
 
 
 def timestamp(value):
@@ -24,6 +25,14 @@ def metrics_from(row):
         return value if isinstance(value, dict) else {}
     except (ValueError, TypeError, KeyError, IndexError):
         return {}
+
+
+def latency_recheck_pending(metrics, now):
+    recheck = metrics.get('latency_recheck')
+    if not isinstance(recheck, dict) or recheck.get('state') != 'pending':
+        return False
+    expires = timestamp(recheck.get('expires_at'))
+    return expires is not None and expires > now
 
 
 def interval_minutes(cfg, check_name, domain_interval=None):

@@ -406,6 +406,23 @@ msgstr "Проверить сейчас"
 msgid "Checking %(domain)s…"
 msgstr "Проверяем %(domain)s…"
 
+#, python-format
+msgid "First response took %(latency)s ms."
+msgstr "Первый ответ занял %(latency)s мс."
+
+msgid "Confirming response time…"
+msgstr "Перепроверяем время ответа…"
+
+msgid "Follow-up checks"
+msgstr "Повторные замеры"
+
+msgid "No measurement"
+msgstr "Нет замера"
+
+#, python-format
+msgid "Confirmed response time %(latency)s ms"
+msgstr "Подтверждённое время ответа %(latency)s мс"
+
 msgid "Resume monitoring"
 msgstr "Возобновить мониторинг"
 

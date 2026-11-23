@@ -471,6 +471,46 @@ def last_history_for_check(owner_id: int, domain: str, check_name: str) -> Optio
         return row
 
 
+def iter_scheduled_http(owner_id: int, domain: str):
+    _ensure_initialized()
+    with closing(_connect()) as conn:
+        yield from conn.execute(
+            "SELECT metrics_json FROM history WHERE owner_id=? AND domain=? "
+            "AND check_name='http_basic' AND source='scheduled' ORDER BY id DESC",
+            (owner_id, domain),
+        )
+
+
+def update_latency_recheck(owner_id: int, domain: str, detail: dict, *, failure=None) -> bool:
+    """Update the original HTTP row only while its confirmation owns the latest result."""
+    from .check_policy import metrics_from
+    from .critical_incidents import record
+
+    with _write_connection() as conn:
+        row = conn.execute(
+            "SELECT id,status,message,source,metrics_json FROM history WHERE owner_id=? "
+            "AND domain=? AND check_name='http_basic' ORDER BY id DESC LIMIT 1",
+            (owner_id, domain),
+        ).fetchone()
+        metrics = metrics_from(row)
+        pending = metrics.get('latency_recheck')
+        if (not row or row['source'] != 'scheduled' or not isinstance(pending, dict)
+                or pending.get('state') != 'pending' or pending.get('token') != detail['token']):
+            return False
+        status, message = row['status'], row['message']
+        if failure is not None:
+            status, message = failure.status.value, failure.message
+            metrics.update(failure.metrics)
+        metrics['latency_recheck'] = detail
+        if detail['state'] == 'confirmed':
+            metrics['chart_response_latency_ms'] = detail['median_ms']
+        conn.execute('UPDATE history SET status=?,message=?,metrics_json=? WHERE id=?',
+                     (status, message, json.dumps(metrics), row['id']))
+        if failure is not None:
+            record(conn, owner_id, domain, 'http_basic', status)
+        return True
+
+
 def minutes_since_last(owner_id: int, domain: str, check_name: str) -> Optional[int]:
     row = last_history_for_check(owner_id, domain, check_name)
     if not row:

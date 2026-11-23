@@ -232,6 +232,8 @@ SMTP credentials are kept in the database-adjacent `.smtp.json` file with mode06
 
 Chart averages are ordered15minutes / 1hour / 1day / 30days, with period/units in accessible tooltips and a dash for no observations. Monthly means use available successful measurements from the last30days independently of chart zoom.
 
+When a scheduled HTTP response takes at least three times the median of the last seven successful scheduled measurements for that URL and adds at least one second, SiteWatcher checks it three more times, 20 seconds apart. The chart and its averages use the median of the three successful follow-ups as one observation. The domain history shows the initial response and the follow-ups. An HTTP or connection failure during confirmation is reported immediately. An interrupted confirmation keeps the original latency. A series can run for up to five minutes.
+
 ## Cache policy and metadata refresh
 
 TLS and WHOIS facts are cached for 24 hours. Expiry severity is assessed locally, so a threshold transition does not require another network request. Use **Refresh metadata** beside TLS or WHOIS in domain details/history. Repeated clicks within one minute reuse the cache; active requests, failures and Retry-After retain their cooldown. General checks and `--force` keep provider cache limits.

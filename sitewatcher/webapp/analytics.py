@@ -7,8 +7,8 @@ None also breaks a latency line. No samples are interpolated.
 
 A small process-local cache retains detached safe DTOs for at most 60 seconds,
 invalidated immediately by owner history append/delete or owned-domain changes.
-Historical in-place edits can remain cached until expiry. Authorization and share
-selection always happen in callers; this module caches no access decisions.
+Reports with a pending latency confirmation bypass the cache. Authorization and
+share selection always happen in callers.
 """
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from datetime import datetime, timedelta, timezone as dt_timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .. import storage
+from ..check_policy import MAX_LATENCY_RECHECK_WINDOW_S, latency_recheck_pending
 
 SOURCES = ('legacy', 'scheduled', 'manual')
 _CACHE: OrderedDict[tuple, tuple[float, int, dict]] = OrderedDict()
@@ -87,7 +88,9 @@ def _classification(raw: str | None) -> tuple[str, float | None]:
         return 'failed', None
     if code < 200:
         return 'unknown', None
-    latency = metrics.get('response_latency_ms', metrics.get('latency_ms_total'))
+    latency = None if latency_recheck_pending(metrics, _now()) else metrics.get(
+        'chart_response_latency_ms', metrics.get('response_latency_ms', metrics.get('latency_ms_total')),
+    )
     return 'successful', latency if _number(latency) else None
 
 
@@ -217,11 +220,19 @@ def _cached_report(owner_id: int, domain: str | None, days: int, timezone: str) 
         names = tuple(row[0] for row in conn.execute(
             'SELECT name FROM domains WHERE owner_id=? ORDER BY name', (int(owner_id),),
         ))
+        confirming = conn.execute("""
+            SELECT EXISTS(SELECT 1 FROM history WHERE owner_id=?1 AND check_name='http_basic'
+              AND created_at>=datetime(?2,?3) AND CASE WHEN json_valid(metrics_json)
+              THEN json_extract(metrics_json,'$.latency_recheck.state')='pending'
+                AND julianday(json_extract(metrics_json,'$.latency_recheck.expires_at'))>julianday(?2)
+              END)
+        """, (int(owner_id), window['window_end'],
+              f'-{MAX_LATENCY_RECHECK_WINDOW_S + 5} seconds')).fetchone()[0]
     key = (str(path), path.stat().st_ino, int(owner_id), domain, days, timezone, revision, names)
     now = monotonic()
     with _CACHE_LOCK:
         cached = _CACHE.get(key)
-        if cached and cached[0] > now:
+        if not confirming and cached and cached[0] > now:
             _CACHE.move_to_end(key)
             return deepcopy(cached[2])
         # ponytail: serialize cold builds for this single-owner installation; use
@@ -230,7 +241,7 @@ def _cached_report(owner_id: int, domain: str | None, days: int, timezone: str) 
         size = len(json.dumps(result, allow_nan=False).encode('utf-8'))
         for stale in [key for key, entry in _CACHE.items() if entry[0] <= now]:
             del _CACHE[stale]
-        if size <= 4 * 1024 * 1024:
+        if not confirming and size <= 4 * 1024 * 1024:
             _CACHE[key] = (now + 60, size, result)
             while len(_CACHE) > 8 or sum(entry[1] for entry in _CACHE.values()) > 4 * 1024 * 1024:
                 _CACHE.popitem(last=False)
@@ -263,6 +274,14 @@ WITH raw AS (
     FROM history h JOIN domains d ON d.owner_id=h.owner_id AND d.name=h.domain
     WHERE h.owner_id=?3 AND h.created_at>=?4 AND h.created_at<=?5
       AND h.check_name='http_basic' {domain_filter}
+), latency_fields AS (
+    SELECT *, CASE
+      WHEN json_extract(payload,'$.latency_recheck.state')='pending'
+        AND julianday(json_extract(payload,'$.latency_recheck.expires_at'))>julianday(?5) THEN NULL
+      WHEN json_type(payload,'$.chart_response_latency_ms') IS NOT NULL THEN '$.chart_response_latency_ms'
+      WHEN json_type(payload,'$.response_latency_ms') IS NOT NULL THEN '$.response_latency_ms'
+      ELSE '$.latency_ms_total' END AS latency_path
+    FROM raw
 ), fields AS (
     SELECT *,
       json_extract(payload,'$.availability') AS availability,
@@ -276,13 +295,9 @@ WITH raw AS (
         ELSE json_type(payload,'$.code_initial') END AS code_type,
       json_extract(payload,'$.status_code') AS body_code,
       json_type(payload,'$.status_code') AS body_type,
-      CASE WHEN json_type(payload,'$.response_latency_ms') IS NOT NULL
-        THEN json_extract(payload,'$.response_latency_ms')
-        ELSE json_extract(payload,'$.latency_ms_total') END AS latency,
-      CASE WHEN json_type(payload,'$.response_latency_ms') IS NOT NULL
-        THEN json_type(payload,'$.response_latency_ms')
-        ELSE json_type(payload,'$.latency_ms_total') END AS latency_type
-    FROM raw
+      json_extract(payload,latency_path) AS latency,
+      json_type(payload,latency_path) AS latency_type
+    FROM latency_fields
 ), classified AS MATERIALIZED (
     SELECT domain,created_at,created_at>=?1 AS in_window,
       MAX(0,MIN(119,CAST((julianday(created_at)-julianday(?1))*86400/?2 AS INTEGER)))
