@@ -124,25 +124,18 @@ class KeywordsCheck(BaseCheck):
             )
 
         code = r.status_code
-        content = r.text or ""
-        body_lower = content.lower()
-
-        # Evaluate presence
         total = len(self._kw_list)
-        missing: List[str] = [self._kw_list[i] for i, k in enumerate(self._kw_lower) if k not in body_lower]
-        missing_cnt = len(missing)
         metrics = {
             "url": str(r.url),
             "status_code": code,
             "bytes": len(r.content or b""),
             "keywords_total": total,
-            "keywords_missing": missing_cnt,
             "final_url": str(r.url),
             "redirects": redirects,
             "latency_ms": elapsed_ms,
         }
 
-        if code >= 400:
+        if not r.is_success:
             log.warning(
                 "keywords.http_error",
                 extra={
@@ -158,8 +151,14 @@ class KeywordsCheck(BaseCheck):
                 self.name,
                 Status.CRIT,
                 f"HTTP {code}",
-                {**metrics, "missing": missing},
+                metrics,
             )
+
+        body_lower = r.text.lower()
+        missing = [keyword for keyword, lower in zip(self._kw_list, self._kw_lower, strict=True)
+                   if lower not in body_lower]
+        missing_cnt = len(missing)
+        metrics["keywords_missing"] = missing_cnt
 
         if missing_cnt:
             log.info(

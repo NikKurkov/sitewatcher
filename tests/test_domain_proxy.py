@@ -32,7 +32,9 @@ def client_factory(monkeypatch):
         kwargs.pop('proxy', None)
         kwargs.pop('mounts', None)
         client = original(transport=httpx.MockTransport(
-            lambda request: httpx.Response(200, text='welcome to this site'),
+            lambda request: httpx.Response(
+                200, text='<p>welcome to this site</p>', headers={'Content-Type': 'text/html'},
+            ),
         ), **kwargs)
         made.append((options, client))
         return client

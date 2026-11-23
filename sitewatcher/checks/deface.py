@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import List, Optional
 
@@ -13,6 +14,9 @@ from ..utils.http_body import BodyReadError, DEFAULT_MAX_RESPONSE_BYTES
 
 # Module-level logger for structured events
 log = logging.getLogger(__name__)
+HTML_DOCUMENT_START = re.compile(
+    r"^[\s\ufeff]*<(?:!doctype\s+html|html|head|body)(?=[\s>/])", re.IGNORECASE,
+)
 
 
 class DefaceCheck(BaseCheck):
@@ -114,11 +118,34 @@ class DefaceCheck(BaseCheck):
                     },
                 )
 
-                # Search markers in body (case-insensitive)
-                body_lower = (r.text or "").lower()
+                metrics = {
+                    "url": str(r.url),
+                    "status_code": code,
+                    "redirects": redirects,
+                    "latency_ms": elapsed_ms,
+                    "markers_checked": 0,
+                }
+                if not r.is_success:
+                    return CheckOutcome(
+                        self.name, Status.UNKNOWN, f"unable to inspect main page: HTTP {code}",
+                        metrics,
+                    )
+
+                content_type = r.headers.get("content-type", "").partition(";")[0].strip().lower()
+                is_html = (
+                    content_type in {"text/html", "application/xhtml+xml"}
+                    if content_type else HTML_DOCUMENT_START.match(r.text) is not None
+                )
+                if not is_html or not r.text.strip():
+                    return CheckOutcome(
+                        self.name, Status.UNKNOWN, "unable to inspect main page: expected HTML",
+                        metrics,
+                    )
+
+                metrics["markers_checked"] = len(self.markers)
+                body_lower = r.text.lower()
                 for phrase in self.markers:
                     if phrase in body_lower:
-                        # Report CRIT with the matched phrase highlighted.
                         log.warning(
                             "deface.matched",
                             extra={
@@ -134,35 +161,11 @@ class DefaceCheck(BaseCheck):
                             self.name,
                             Status.CRIT,
                             f"'{phrase}' found on main page",
-                            {
-                                "url": str(r.url),
-                                "matched": phrase,
-                                "status_code": code,
-                                "redirects": redirects,
-                                "latency_ms": elapsed_ms,
-                                "markers_checked": len(self.markers),
-                            },
+                            {**metrics, "matched": phrase},
                         )
 
-                if not 200 <= code < 300:
-                    return CheckOutcome(
-                        self.name, Status.UNKNOWN, f"unable to inspect main page: HTTP {code}",
-                        {"url": str(r.url), "status_code": code, "redirects": redirects,
-                         "latency_ms": elapsed_ms, "markers_checked": len(self.markers)},
-                    )
-
-                # No markers found in a successful response.
                 return CheckOutcome(
-                    self.name,
-                    Status.OK,
-                    "no defacement markers found",
-                    {
-                        "url": str(r.url),
-                        "status_code": code,
-                        "redirects": redirects,
-                        "latency_ms": elapsed_ms,
-                        "markers_checked": len(self.markers),
-                    },
+                    self.name, Status.OK, "no defacement markers found", metrics,
                 )
 
             except BodyReadError as e:
@@ -201,7 +204,5 @@ class DefaceCheck(BaseCheck):
             "hacked by",
             "defaced by",
             "you have been hacked",
-            "security breach",
-            "owned by",
             "pwned by",
         ]

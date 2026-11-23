@@ -69,21 +69,34 @@ def test_tls_iso_expiry_is_normalized_to_utc(monkeypatch, expiration):
     assert result.metrics['expires_at'] == '2026-11-21T12:00:00+00:00'
 
 
-@pytest.mark.parametrize(('alive', 'expected'), [(True, Status.OK), (False, Status.CRIT)])
-def test_ping_icmp_response_is_authoritative(monkeypatch, alive, expected):
+def test_ping_successful_icmp_skips_tcp(monkeypatch):
     monkeypatch.setattr(ping, 'HAVE_ICMP', True)
     monkeypatch.setattr(ping, 'icmp_async_ping', AsyncMock(return_value=SimpleNamespace(
-        is_alive=alive, avg_rtt=12.345,
+        is_alive=True, avg_rtt=12.345,
     )))
     check = ping.PingCheck('example.test')
     async def unexpected(**kwargs):
         pytest.fail('a completed ICMP probe must not trigger a TCP fallback')
     monkeypatch.setattr(check, '_tcp_ping', unexpected)
     result = asyncio.run(check.run())
-    assert result.status is expected
+    assert result.status is Status.OK
     assert result.metrics['method'] == 'icmp'
-    if alive:
-        assert result.metrics['avg_rtt_ms'] == 12.35
+    assert result.metrics['avg_rtt_ms'] == 12.35
+
+
+@pytest.mark.parametrize(('rtt', 'expected'), [(8, Status.OK), (-1, Status.CRIT)])
+def test_ping_tries_tcp_after_no_icmp_reply(monkeypatch, rtt, expected):
+    monkeypatch.setattr(ping, 'HAVE_ICMP', True)
+    monkeypatch.setattr(ping, 'icmp_async_ping', AsyncMock(return_value=SimpleNamespace(
+        is_alive=False,
+    )))
+    check = ping.PingCheck('example.test')
+    fallback = AsyncMock(return_value=rtt)
+    monkeypatch.setattr(check, '_tcp_ping', fallback)
+    result = asyncio.run(check.run())
+    fallback.assert_awaited_once()
+    assert result.status is expected
+    assert result.metrics['method'] == 'tcp'
 
 
 @pytest.mark.parametrize('icmp_available', [True, False])

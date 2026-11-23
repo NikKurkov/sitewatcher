@@ -94,11 +94,10 @@ class PingCheck(BaseCheck):
                         f"icmp avg {avg:.0f} ms",
                         {"method": "icmp", "avg_rtt_ms": round(avg, 2)},
                     )
-                log.warning(
-                    "ping.done",
-                    extra={"event": "ping.done", "domain": self.domain, "method": "icmp", "status": "CRIT", "reason": "no_reply"},
+                log.info(
+                    "ping.icmp.no_reply",
+                    extra={"event": "ping.icmp.no_reply", "domain": self.domain, "fallback": True},
                 )
-                return CheckOutcome(self.name, Status.CRIT, "icmp no reply", {"method": "icmp"})
             except Exception as e:
                 # Fall back to TCP below.
                 log.info(

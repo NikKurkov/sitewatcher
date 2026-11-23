@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -97,5 +98,69 @@ def test_standalone_http_context_closes_after_completion(monkeypatch, outcome):
         assert len(contexts) == 1
         assert contexts[0]._closed
         assert not contexts[0]._tasks
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(('total_seconds', 'status'), [(1.25, Status.WARN), (4.0, Status.CRIT)])
+def test_http_redirect_status_uses_total_latency(monkeypatch, total_seconds, status):
+    elapsed = iter([0.0, 0.125, total_seconds])
+    monkeypatch.setattr('sitewatcher.check_context.time',
+                        SimpleNamespace(perf_counter=lambda: next(elapsed)))
+
+    async def run():
+        def respond(request):
+            if request.url.path == '/':
+                return httpx.Response(302, headers={'Location': '/landing'})
+            return httpx.Response(200)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            result = await HttpBasicCheck('example.test', client).run()
+        assert result.status is status
+        assert result.metrics['availability'] == 'available'
+        assert result.metrics['latency_ms_initial'] == 125
+        assert result.metrics['response_latency_ms'] == total_seconds * 1000
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('followed_redirect', [False, True])
+def test_http_terminal_redirect_without_location_is_unavailable(followed_redirect):
+    async def run():
+        def respond(request):
+            if followed_redirect and request.url.path == '/':
+                return httpx.Response(301, headers={'Location': '/landing'})
+            return httpx.Response(302)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            result = await HttpBasicCheck('example.test', client).run()
+        assert result.status is Status.CRIT
+        assert result.metrics['availability'] == 'unavailable'
+        assert result.metrics['final_code'] == 302
+        assert 'response_latency_ms' not in result.metrics
+        assert '302' in result.message
+        assert 'Location' in result.message
+
+    asyncio.run(run())
+
+
+def test_http_failed_redirect_keeps_total_latency(monkeypatch):
+    elapsed = iter([0.0, 0.125, 4.0])
+    monkeypatch.setattr('sitewatcher.check_context.time',
+                        SimpleNamespace(perf_counter=lambda: next(elapsed)))
+
+    async def run():
+        def respond(request):
+            if request.url.path == '/':
+                return httpx.Response(302, headers={'Location': '/landing'})
+            raise httpx.TooManyRedirects('loop', request=request)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            result = await HttpBasicCheck('example.test', client).run()
+        assert result.status is Status.CRIT
+        assert result.metrics['availability'] == 'unavailable'
+        assert result.metrics['latency_ms_initial'] == 125
+        assert result.metrics['latency_ms_total'] == 4000
+        assert result.metrics['redirect_error'] == 'TooManyRedirects'
 
     asyncio.run(run())
