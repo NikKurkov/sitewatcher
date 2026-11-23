@@ -63,8 +63,6 @@ sitewatcher setup
 sitewatcher web
 ```
 
-Если скачали wheel из [GitHub Releases](https://github.com/NikKurkov/sitewatcher/releases/latest), передайте путь к файлу `.whl` команде pip вместо точки.
-
 Во втором терминале из того же каталога:
 
 ```bash
