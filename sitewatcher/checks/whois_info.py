@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import random
 import sqlite3
 import time
 from pathlib import Path
@@ -15,6 +16,7 @@ import httpx
 import tldextract
 
 from .base import BaseCheck, CheckOutcome, Status
+from ..check_policy import timestamp
 from ..config import WhoisConfig
 from ..utils.http_retry import get_with_retries
 from .. import storage
@@ -23,6 +25,8 @@ from .. import storage
 _extract_domain = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
 
 WHOIS_PORT = 43  # single source of truth for raw WHOIS
+RDAP_RATE_LIMITED = "RDAP rate-limited"
+RDAP_EXPIRY_UNAVAILABLE = "no expiry in rdap"
 
 
 # ----------------------------- RDAP parsing utils -----------------------------
@@ -45,8 +49,13 @@ def registrable_domain(hostname: str) -> str:
 
 def _get_event_date(obj: Dict[str, Any], action: str) -> Optional[datetime]:
     """Return timezone-aware datetime for RDAP 'events' by action."""
-    for ev in obj.get("events", []) or []:
-        if (ev.get("eventAction") or "").lower() == action.lower() and "eventDate" in ev:
+    events = obj.get("events")
+    if not isinstance(events, list):
+        return None
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        if str(ev.get("eventAction", "")).lower() == action.lower() and "eventDate" in ev:
             try:
                 # Normalize trailing Z to +00:00 then parse to aware datetime
                 return datetime.fromisoformat(str(ev["eventDate"]).replace("Z", "+00:00")).astimezone(
@@ -165,17 +174,36 @@ class WhoisInfoCheck(BaseCheck):
         rx_metrics: Dict[str, Any] = {}
         try:
             snap, fetched_at, rx_metrics = await self._fetch_snapshot(self.domain)
+            if not snap.get("expires_at") and (
+                "rdap_latency_ms" in rx_metrics or "rdap_status_code" in rx_metrics
+                or (prev and timestamp(json.loads(prev.snapshot_json).get("expires_at")))
+            ):
+                next_retry = self._finish_attempt(Status.UNKNOWN, RDAP_EXPIRY_UNAVAILABLE, fetched_at)
+                return self._failed_outcome(
+                    prev, RDAP_EXPIRY_UNAVAILABLE, now.isoformat(),
+                    next_retry.isoformat(), rx_metrics,
+                )
             self._db_upsert(snap, fetched_at)
             self._finish_attempt(Status.UNKNOWN, "WHOIS refresh completed", now)
         except Exception as exc:
             message = f"WHOIS refresh failed: {exc.__class__.__name__}"
             retry_after = None
+            retry_from = now
             if isinstance(exc, httpx.HTTPStatusError):
                 code = exc.response.status_code
                 rx_metrics["status_code"] = code
-                message = "RDAP rate-limited" if code == 429 else f"RDAP HTTP {code}"
+                message = f"RDAP HTTP {code}"
                 retry_after = exc.response.headers.get("Retry-After")
-            next_retry = self._finish_attempt(Status.UNKNOWN, message, now, retry_after)
+                if code == 429:
+                    message = RDAP_RATE_LIMITED
+                    rx_metrics["rdap_host"] = exc.response.url.host
+                    retry_from = datetime.now(timezone.utc)
+            next_retry = self._finish_attempt(Status.UNKNOWN, message, retry_from, retry_after)
+            if message == RDAP_RATE_LIMITED:
+                self.log.warning(
+                    "RDAP rate-limited by %s, next attempt at %s",
+                    rx_metrics["rdap_host"], next_retry.isoformat(),
+                )
             return self._failed_outcome(
                 prev, message, now.isoformat(), next_retry.isoformat(), rx_metrics,
             )
@@ -337,8 +365,14 @@ class WhoisInfoCheck(BaseCheck):
         if fallback and not snap.get("expires_at"):
             host = "whois.tcinet.ru"
             start = time.perf_counter()
-            text = await self._whois_query(host, reg_domain)
-            snap = self._parse_tcinet_ru(text, host)
+            try:
+                text = await self._whois_query(host, reg_domain)
+            except OSError as exc:
+                if "rdap_latency_ms" not in metrics:
+                    raise
+                metrics["whois_error"] = type(exc).__name__
+            else:
+                snap = self._parse_tcinet_ru(text, host)
             metrics.update({
                 "whois_latency_ms": int((time.perf_counter() - start) * 1000),
                 "whois_host": host,
@@ -461,14 +495,10 @@ class WhoisInfoCheck(BaseCheck):
     def _expiry_status(self, expires_at_iso: Optional[str]) -> Tuple[Status, str, Optional[int]]:
         """Classify domain expiry proximity into Status + human message."""
         if not expires_at_iso:
-            return Status.UNKNOWN, "no expiry in rdap", None
-        try:
-            exp = datetime.fromisoformat(expires_at_iso)
-        except Exception:
-            try:
-                exp = datetime.fromisoformat(expires_at_iso + "+00:00")
-            except Exception:
-                return Status.UNKNOWN, "bad expiry format", None
+            return Status.UNKNOWN, RDAP_EXPIRY_UNAVAILABLE, None
+        exp = timestamp(expires_at_iso)
+        if exp is None:
+            return Status.UNKNOWN, "bad expiry format", None
 
         now = datetime.now(timezone.utc)
         days_left = int((exp - now).total_seconds() // 86400)
@@ -536,10 +566,11 @@ class WhoisInfoCheck(BaseCheck):
                     pass
             # A completed success has a TTL, while failed/pending attempts have
             # a hard retry deadline that explicit refresh must also respect.
+            short_retry = row is not None and row[2] in (RDAP_RATE_LIMITED, RDAP_EXPIRY_UNAVAILABLE)
             if row and row[2] != "WHOIS refresh completed":
                 if datetime.fromisoformat(row[0]) > now:
                     diagnostics = {}
-                    if row[2] == "RDAP rate-limited":
+                    if row[2] == RDAP_RATE_LIMITED:
                         diagnostics["status_code"] = 429
                     elif row[2].startswith("RDAP HTTP "):
                         code = row[2].removeprefix("RDAP HTTP ")
@@ -548,7 +579,7 @@ class WhoisInfoCheck(BaseCheck):
                     return self._failed_outcome(
                         prev, row[2], row[3], row[0], diagnostics, cached=True,
                     )
-            if prev:
+            if prev and not short_retry:
                 refresh_at = self._refresh_deadline(prev.fetched_at)
                 if self.force_refresh:
                     refresh_at = prev.fetched_at + timedelta(seconds=60)
@@ -573,7 +604,9 @@ class WhoisInfoCheck(BaseCheck):
     def _finish_attempt(
         self, status: Status, message: str, now: datetime, retry_after: Optional[str] = None,
     ) -> datetime:
-        deadline = self._refresh_deadline(now)
+        rate_limited = message == RDAP_RATE_LIMITED
+        short_retry = rate_limited or message == RDAP_EXPIRY_UNAVAILABLE
+        deadline = now + timedelta(minutes=15) if short_retry else self._refresh_deadline(now)
         if retry_after:
             try:
                 if retry_after.strip().isdigit():
@@ -585,6 +618,9 @@ class WhoisInfoCheck(BaseCheck):
                 deadline = max(deadline, candidate)
             except (ValueError, TypeError, OverflowError):
                 pass
+        if rate_limited:
+            jitter = timedelta(seconds=random.randint(1, 60))
+            deadline += min(jitter, datetime.max.replace(tzinfo=deadline.tzinfo) - deadline)
         with contextlib.closing(self._connect()) as conn, conn:
             conn.execute(
                 "UPDATE whois_attempts SET next_retry_at=?, status=?, message=? WHERE domain=?",

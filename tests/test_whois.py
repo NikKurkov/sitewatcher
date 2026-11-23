@@ -45,6 +45,64 @@ def test_failed_refresh_is_persistent_and_daily(tmp_path, failure):
     asyncio.run(run())
 
 
+@pytest.mark.parametrize(('retry_after', 'minimum'), [
+    (None, 900),
+    ('invalid', 900),
+    ('60', 900),
+    ('3600', 3600),
+    ('Tue, 01 Jan 2030 02:00:00 GMT', 7200),
+])
+def test_rdap_429_retries_before_snapshot_expires(
+    tmp_path, monkeypatch, caplog, retry_after, minimum,
+):
+    import sitewatcher.checks.whois_info as whois_module
+
+    start = datetime(2030, 1, 1, tzinfo=timezone.utc)
+
+    class Clock(datetime):
+        current = start
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.current
+
+    monkeypatch.setattr(whois_module, 'datetime', Clock)
+    attempts = []
+    rdap = {'events': [{'eventAction': 'expiration', 'eventDate': '2099-01-01T00:00:00Z'}]}
+
+    def respond(request):
+        if request.url.host == 'rdap.org':
+            return httpx.Response(302, headers={'Location': 'https://registry.example/domain'})
+        attempts.append(request)
+        if len(attempts) == 1:
+            headers = {'Retry-After': retry_after} if retry_after else {}
+            return httpx.Response(429, headers=headers)
+        return httpx.Response(200, json=rdap)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            cfg = WhoisConfig(db_path=str(tmp_path / 'cache.db'))
+            forced = WhoisInfoCheck('example.com', client, cfg, force_refresh=True)
+            forced._db_upsert(whois_module._extract_snapshot(rdap), start - timedelta(hours=1))
+            failed = await forced.run()
+            deadline = datetime.fromisoformat(failed.metrics['next_retry_at'])
+            assert start + timedelta(seconds=minimum) < deadline
+            assert deadline <= start + timedelta(seconds=minimum + 60)
+            assert failed.metrics['rdap_host'] == 'registry.example'
+            assert 'registry.example' in caplog.text
+            assert deadline.isoformat() in caplog.text
+            Clock.current = deadline - timedelta(seconds=1)
+            assert (await forced.run()).cached
+            assert len(attempts) == 1
+            Clock.current = deadline
+            recovered = await WhoisInfoCheck('www.example.com', client, cfg).run()
+            assert recovered.status == Status.OK
+            assert not recovered.cached
+            assert len(attempts) == 2
+            assert recovered.metrics['next_refresh_at'] == (deadline + timedelta(days=1)).isoformat()
+    asyncio.run(run())
+
+
 def test_success_cached_and_failed_refresh_retains_old_snapshot(tmp_path):
     calls = []
 
@@ -329,3 +387,133 @@ def test_failed_cached_snapshot_reassesses_critical_expiry_without_network(tmp_p
     assert first.metrics['observed_at'] == second.metrics['observed_at'] == fetched.isoformat()
     assert first.metrics['attempted_at'] == second.metrics['attempted_at'] == start.isoformat()
     assert first.metrics['next_retry_at'] == second.metrics['next_retry_at']
+
+
+@pytest.mark.parametrize('events', [
+    [],
+    [{'eventAction': 'expiration', 'eventDate': 'invalid'}],
+    [None],
+    {'eventAction': 'expiration', 'eventDate': '2031-01-01T00:00:00Z'},
+])
+def test_incomplete_rdap_expiry_keeps_confirmed_snapshot_and_retries(tmp_path, monkeypatch, events):
+    import sitewatcher.checks.whois_info as whois_module
+
+    start = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    expiry = start + timedelta(days=8, minutes=5)
+
+    class Clock(datetime):
+        current = start
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.current
+
+    monkeypatch.setattr(whois_module, 'datetime', Clock)
+    responses = iter([
+        [{'eventAction': 'expiration', 'eventDate': expiry.isoformat()}],
+        events,
+        [{'eventAction': 'expiration', 'eventDate': '2031-01-01T00:00:00Z'}],
+    ])
+
+    def respond(request):
+        return httpx.Response(200, json={'events': next(responses)})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            cfg = WhoisConfig(db_path=str(tmp_path / 'cache.db'))
+            check = WhoisInfoCheck('example.com', client, cfg)
+            assert (await check.run()).status is Status.WARN
+
+            Clock.current = start + timedelta(minutes=2)
+            force = WhoisInfoCheck('www.example.com', client, cfg, force_refresh=True)
+            stale = await force.run()
+            retry = start + timedelta(minutes=17)
+            assert stale.status is Status.WARN
+            assert stale.metrics['cache_state'] == 'stale'
+            assert stale.metrics['observed_at'] == start.isoformat()
+            assert stale.metrics['expires_at'] == expiry.isoformat()
+            assert stale.metrics['next_retry_at'] == retry.isoformat()
+            assert check._db_get().fetched_at == start
+
+            Clock.current = start + timedelta(minutes=10)
+            cached = await check.run()
+            assert cached.cached and cached.status is Status.CRIT
+            assert cached.metrics['expires_at'] == expiry.isoformat()
+            assert cached.metrics['next_retry_at'] == retry.isoformat()
+
+            Clock.current = retry
+            recovered = await check.run()
+            assert recovered.status is Status.OK
+            assert recovered.metrics['cache_state'] == 'fresh'
+            assert recovered.metrics['expires_at'] == '2031-01-01T00:00:00+00:00'
+
+    asyncio.run(run())
+
+
+def test_first_incomplete_rdap_expiry_is_unavailable(tmp_path):
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={}),
+        )) as client:
+            cfg = WhoisConfig(db_path=str(tmp_path / 'cache.db'))
+            check = WhoisInfoCheck('example.com', client, cfg)
+            result = await check.run()
+            assert result.status is Status.UNKNOWN
+            assert result.metrics['cache_state'] == 'unavailable'
+            delay = datetime.fromisoformat(result.metrics['next_retry_at']) - datetime.fromisoformat(
+                result.metrics['attempted_at'],
+            )
+            assert timedelta(minutes=15) <= delay < timedelta(minutes=16)
+            assert check._db_get() is None
+
+    asyncio.run(run())
+
+
+def test_incomplete_rdap_retries_soon_when_whois_fallback_fails(tmp_path, monkeypatch):
+    async def unavailable(*args):
+        raise OSError('WHOIS unavailable')
+
+    monkeypatch.setattr(WhoisInfoCheck, '_whois_query', unavailable)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={'events': []}),
+        )) as client:
+            cfg = WhoisConfig(db_path=str(tmp_path / 'cache.db'))
+            result = await WhoisInfoCheck('example.ru', client, cfg).run()
+            assert result.status is Status.UNKNOWN
+            assert result.metrics['cache_state'] == 'unavailable'
+            assert result.metrics['whois_host'] == 'whois.tcinet.ru'
+            delay = datetime.fromisoformat(result.metrics['next_retry_at']) - datetime.fromisoformat(
+                result.metrics['attempted_at'],
+            )
+            assert timedelta(minutes=15) <= delay < timedelta(minutes=16)
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('explicit_whois', [False, True])
+def test_incomplete_whois_reply_preserves_confirmed_expiry(tmp_path, monkeypatch, explicit_whois):
+    async def incomplete(*args):
+        return 'domain: EXAMPLE.RU\n'
+
+    monkeypatch.setattr(WhoisInfoCheck, '_whois_query', incomplete)
+    expiry = '2000-01-01T00:00:00+00:00'
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(404),
+        )) as client:
+            cfg = WhoisConfig(db_path=str(tmp_path / 'cache.db'), tld_overrides={
+                'ru': {'method': 'whois', 'host': 'whois.tcinet.ru'},
+            } if explicit_whois else {})
+            check = WhoisInfoCheck('example.ru', client, cfg)
+            old = datetime.now(timezone.utc) - timedelta(days=2)
+            check._db_upsert({'expires_at': expiry}, old)
+            result = await check.run()
+            assert result.status is Status.CRIT
+            assert result.metrics['expires_at'] == expiry
+            assert result.metrics['cache_state'] == 'stale'
+            assert check._db_get().fetched_at == old
+
+    asyncio.run(run())

@@ -5,12 +5,12 @@ import logging
 import json
 import ssl
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 
 from .base import BaseCheck, CheckOutcome, Status
 from .. import probe_cache, storage
-from ..check_policy import timestamp
+from ..check_policy import TLS_FAILURE_RETRY_S, timestamp
 
 # Module-level logger for structured events
 log = logging.getLogger(__name__)
@@ -158,37 +158,68 @@ class TlsCertCheck(BaseCheck):
             if legacy:
                 try:
                     metrics = json.loads(legacy['metrics_json'])
-                    fetched = timestamp(metrics.get('fetched_at')) or timestamp(legacy['created_at'])
+                    verification_failed = 'verify_code' in metrics
+                    fetched = timestamp(legacy['created_at'])
+                    if not verification_failed:
+                        fetched = timestamp(metrics.get('fetched_at')) or fetched
                     if (fetched and int(metrics.get('port', 443)) == self.port
                             and metrics.get('original_domain', self.domain) == self.domain):
+                        value = {'status': legacy['status'], 'message': legacy['message'],
+                                 'metrics': metrics}
+                        if verification_failed:
+                            value['error'] = 'verification'
+                        retry_soon = verification_failed or legacy['status'] == 'UNKNOWN'
+                        ttl_s = TLS_FAILURE_RETRY_S if retry_soon else 86400
                         await asyncio.to_thread(probe_cache.seed, 'tls-cert', self.cache_key,
-                            {'status': legacy['status'], 'message': legacy['message'], 'metrics': metrics},
-                            fetched_at=fetched, ttl_s=900 if legacy['status'] == 'UNKNOWN' else 86400)
+                            value, fetched_at=fetched, ttl_s=ttl_s)
                         previous = await asyncio.to_thread(probe_cache.read, 'tls-cert', self.cache_key)
                 except (ValueError, TypeError, AttributeError):
                     pass
 
+        force = self.force_refresh
+        if previous and 'verify_code' in previous.value['metrics'] and not previous.value.get('error'):
+            # Existing cached verification failures used the success lifetime.
+            force = previous.fetched_at + timedelta(seconds=TLS_FAILURE_RETRY_S) <= datetime.now(
+                timezone.utc,
+            )
+
         async def fetch():
             result = await self._run_uncached()
-            value = {'status': result.status.value, 'message': result.message, 'metrics': result.metrics}
-            if result.status is Status.UNKNOWN:
+            value = {'status': result.status.value, 'message': result.message,
+                     'metrics': result.metrics}
+            if 'verify_code' in result.metrics:
+                value['error'] = 'verification'
+                if previous and timestamp(previous.value['metrics'].get('expires_at')):
+                    metrics = previous.value['metrics']
+                    observed_at = (metrics.get('observed_at') or metrics.get('fetched_at')
+                                   or previous.fetched_at.isoformat())
+                    value['metrics'] = {**metrics, **result.metrics, 'source_stale': True,
+                                        'observed_at': observed_at}
+                    previous_expiry = previous.value['message'].split(';', 1)[0]
+                    value['message'] = f'{previous_expiry}; {result.message}'
+            elif result.status is Status.UNKNOWN:
                 value['error'] = 'unavailable'
                 if previous and previous.value.get('status') in {'CRIT', 'WARN'}:
+                    unavailable = '; TLS refresh unavailable'
                     value = {**previous.value, 'error': 'unavailable',
-                             'message': previous.value['message'] + '; TLS refresh unavailable',
+                             'message': previous.value['message'].removesuffix(unavailable) + unavailable,
                              'metrics': {**previous.value['metrics'], 'source_stale': True,
                                  'observed_at': previous.value['metrics'].get('observed_at',
                                      previous.fetched_at.isoformat())}}
             return value
 
         observation = await probe_cache.get_or_fetch('tls-cert', self.cache_key, fetch,
-            ttl_s=lambda value: 900 if value.get('error') or value['status'] == 'UNKNOWN' else 86400,
-            force=self.force_refresh)
+            ttl_s=lambda value: TLS_FAILURE_RETRY_S if value.get('error') else 86400, force=force)
         value = observation.value
+        next_refresh = observation.expires_at
+        if 'verify_code' in value['metrics'] and not value.get('error'):
+            next_refresh = min(
+                next_refresh, observation.fetched_at + timedelta(seconds=TLS_FAILURE_RETRY_S),
+            )
         metrics = {**value['metrics'], 'observed_at': (
                    value['metrics'].get('observed_at') if value.get('error')
                    else None) or observation.fetched_at.isoformat(),
-                   'next_refresh_at': observation.expires_at.isoformat(),
+                   'next_refresh_at': next_refresh.isoformat(),
                    'cache_hit': observation.cached}
         result = CheckOutcome(self.name, value['status'], value['message'], metrics,
                               cached=observation.cached)
@@ -243,7 +274,7 @@ class TlsCertCheck(BaseCheck):
         except ssl.SSLCertVerificationError as e:
             return CheckOutcome(
                 self.name, Status.CRIT, f"certificate verification failed: {e}",
-                {"verify_code": getattr(e, "verify_code", None)},
+                {"verify_code": getattr(e, "verify_code", None), "port": self.port},
             )
         except ssl.SSLError as e:
             # SSL-level failures (handshake issues, protocol mismatch, etc.)
