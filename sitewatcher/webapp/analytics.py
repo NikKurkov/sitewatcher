@@ -121,7 +121,8 @@ def _finish(counts: dict) -> dict:
     return counts
 
 
-def _aggregate(owner_id: int, domain: str | None, window: dict) -> dict:
+def _aggregate(owner_id: int, domain: str | None, window: dict, *,
+               summary=False, published: tuple[str, ...] | None = None) -> dict:
     storage._ensure_initialized()
     start = datetime.fromisoformat(window['window_start'].replace('Z', '+00:00'))
     end = datetime.fromisoformat(window['window_end'].replace('Z', '+00:00'))
@@ -135,6 +136,8 @@ def _aggregate(owner_id: int, domain: str | None, window: dict) -> dict:
             if domain not in names:
                 raise ValueError('Domain not found')
             names = [domain]
+        if published is not None:
+            names = sorted(set(names).intersection(published))
         reports = {name: {'domain': name, 'totals': _counts(), '_buckets': {},
                           'response_times': [{'minutes': minutes, 'sample_count': 0,
                                               'latency_ms': 0.0}
@@ -148,13 +151,18 @@ def _aggregate(owner_id: int, domain: str | None, window: dict) -> dict:
         if domain is not None:
             domain_filter = ' AND h.domain=?'
             args.append(domain)
+        elif published is not None:
+            domain_filter = (' AND h.domain IN (' + ','.join('?' for _ in names) + ')'
+                             if names else ' AND 0')
+            args.extend(names)
         # One indexed 30-day read supplies response summaries independently of the
         # chart period. Only grouped rows cross into Python; chart buckets stay
         # limited to the selected window and at most 120 per configured domain.
         cursor = conn.execute(
             _AGGREGATE_SQL.replace("{domain_filter}", domain_filter),
             [args[1], width, args[0],
-             (end - timedelta(days=30)).replace(tzinfo=None).isoformat(sep=' '), *args[2:]],
+             (start if summary else end - timedelta(days=30)).replace(
+                 tzinfo=None).isoformat(sep=' '), *args[2:]],
         )
         for row in cursor:
             index = row['bucket_index']
@@ -208,7 +216,8 @@ def _aggregate(owner_id: int, domain: str | None, window: dict) -> dict:
             'domains': list(reports.values())}
 
 
-def _cached_report(owner_id: int, domain: str | None, days: int, timezone: str) -> dict:
+def _cached_report(owner_id: int, domain: str | None, days: int, timezone: str, *,
+                   summary=False, published: tuple[str, ...] | None = None) -> dict:
     window = _window(days, timezone)
     storage._ensure_initialized()
     path = storage.DEFAULT_DB.resolve()
@@ -228,7 +237,8 @@ def _cached_report(owner_id: int, domain: str | None, days: int, timezone: str) 
               END)
         """, (int(owner_id), window['window_end'],
               f'-{MAX_LATENCY_RECHECK_WINDOW_S + 5} seconds')).fetchone()[0]
-    key = (str(path), path.stat().st_ino, int(owner_id), domain, days, timezone, revision, names)
+    key = (str(path), path.stat().st_ino, int(owner_id), domain, days, timezone,
+           revision, names, summary, published)
     now = monotonic()
     with _CACHE_LOCK:
         cached = _CACHE.get(key)
@@ -237,7 +247,8 @@ def _cached_report(owner_id: int, domain: str | None, days: int, timezone: str) 
             return deepcopy(cached[2])
         # ponytail: serialize cold builds for this single-owner installation; use
         # per-key locks only if measured multi-workspace contention warrants them.
-        result = _aggregate(owner_id, domain, window)
+        result = (_aggregate(owner_id, domain, window, summary=True, published=published)
+                  if summary else _aggregate(owner_id, domain, window))
         size = len(json.dumps(result, allow_nan=False).encode('utf-8'))
         for stale in [key for key, entry in _CACHE.items() if entry[0] <= now]:
             del _CACHE[stale]
@@ -259,6 +270,12 @@ def domain_report(owner_id: int, domain: str, *, days: int, timezone: str) -> di
 def overview_report(owner_id: int, *, days: int, timezone: str) -> dict:
     """Return portfolio totals, <=120 combined buckets, and per-domain reports."""
     return _cached_report(owner_id, None, days, timezone)
+
+
+def summary_report(owner_id: int, *, days: int, timezone: str,
+                   published: tuple[str, ...] | None = None) -> dict:
+    """Batch the visible history strips and totals using only the selected period."""
+    return _cached_report(owner_id, None, days, timezone, summary=True, published=published)
 
 
 # JSON1 runs inside SQLite; only grouped scalar rows cross the Python boundary.

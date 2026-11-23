@@ -1889,6 +1889,12 @@ msgstr "Успешные проверки"
 msgid "Full history"
 msgstr "Полная история"
 
+msgid "Loading checks and chart…"
+msgstr "Загружаем проверки и график…"
+
+msgid "Could not load checks and chart."
+msgstr "Не удалось загрузить проверки и график."
+
 #, python-format
 msgid "Show checks and chart for %(domain)s"
 msgstr "Показать проверки и график %(domain)s"

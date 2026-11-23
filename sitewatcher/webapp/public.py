@@ -4,6 +4,7 @@ import logging
 import secrets
 import re
 from datetime import datetime, timezone
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.utils import translation
@@ -22,7 +23,7 @@ from . import analytics
 from .accounts import owner_required
 from .check_presentation import prepare_check_list
 from .models import StatusPage, Workspace
-from .presentation import check_label, local_time, report_context, status_label
+from .presentation import check_label, local_time, report_context, status_label, summary_strip
 from .activity import present_events
 
 
@@ -72,15 +73,26 @@ def _published_sections(page, snapshot, reports):
     return sections
 
 
-def public_report(workspace, *, days, snapshot=None):
+def public_report(workspace, *, days, snapshot=None, summary=False, domain=None):
     """Project safe domain DTOs; never use the whole-owner overview totals/cache."""
     if snapshot is None:
         snapshot = build_snapshot(settings.SITEWATCHER_CONFIG, workspace.owner_id)
     current = {row['name']: row for row in snapshot['domains']}
+    published = _published_names(workspace, snapshot)
+    if domain is not None:
+        if domain not in published:
+            raise ValueError('Domain not published')
+        published = [domain]
+    if summary:
+        raw_reports = analytics.summary_report(
+            workspace.owner_id, days=days, timezone=workspace.timezone, published=tuple(published),
+        )['domains']
+    else:
+        raw_reports = (analytics.domain_report(workspace.owner_id, name, days=days,
+                                                timezone=workspace.timezone) for name in published)
     reports = []
-    for name in _published_names(workspace, snapshot):
-        raw = analytics.domain_report(workspace.owner_id, name, days=days,
-                                      timezone=workspace.timezone)
+    for raw in raw_reports:
+        name = raw['domain']
         report = {key: raw[key] for key in ('domain', 'days', 'timezone', 'window_start',
                    'window_end', 'bucket_seconds', 'latest_observed_at')}
         report['latest_availability'] = (raw['latest_availability'] if raw['latest_availability']
@@ -170,7 +182,12 @@ def status(request, token=None, *, data=False, activity=False, public_slug=None)
 def _status_page(request, workspace, *, data):
     query = request.GET
     try:
-        if set(query) - {'days', 'mode'} or any(len(v) != 1 for _, v in query.lists()):
+        keys = {'days', 'mode'} if data else {'days', 'mode', 'domain', 'fragment'}
+        if set(query) - keys or any(len(v) != 1 for _, v in query.lists()):
+            raise ValueError
+        domain = query.get('domain')
+        fragment = 'fragment' in query
+        if fragment and (query['fragment'] != '1' or not domain or 'mode' in query):
             raise ValueError
         days = int(query.get('days', '1'))
         if days not in {1, 7, 30}:
@@ -178,18 +195,28 @@ def _status_page(request, workspace, *, data):
         if 'mode' in query:
             if data or query['mode'] not in {'light', 'dark'}:
                 raise ValueError
-            response = HttpResponse(status=303, headers={'Location': '?days=' + str(days)})
+            location = '?days=' + str(days)
+            if domain:
+                location += '&' + urlencode({'domain': domain})
+            response = HttpResponse(status=303, headers={'Location': location})
             response.set_cookie('sitewatcher_theme', query['mode'], max_age=31536000,
                                 samesite='Strict', secure=settings.SESSION_COOKIE_SECURE)
             return response
     except ValueError:
         return HttpResponse(_('Not found'), status=404)
     snapshot = build_snapshot(settings.SITEWATCHER_CONFIG, workspace.owner_id)
-    report = public_report(workspace, days=days, snapshot=snapshot)
+    try:
+        report = public_report(workspace, days=days, snapshot=snapshot,
+                               summary=not data and domain is None, domain=domain)
+    except ValueError:
+        return HttpResponse(_('Not found'), status=404)
     if data:
         return JsonResponse(report)
     for item in report['domains']:
-        report_context(item, public=True)
+        if domain is None:
+            summary_strip(item, public=True)
+        else:
+            report_context(item, public=True)
         item['http_enabled'] = any(check['name'] == 'http_basic' for check in item['checks'])
         for check in item['checks']:
             check['label'] = check_label(check['name'])
@@ -210,6 +237,14 @@ def _status_page(request, workspace, *, data):
             'available': ('ok', _('Available')), 'unavailable': ('crit', _('Unavailable')),
             'no_recent_data': ('unknown', _('No recent data')), 'paused': ('paused', _('Paused')),
         }[item['current_state']]
+    if fragment:
+        item = report['domains'][0]
+        return render(request, 'sitewatcher/partials/domain_details.html', {
+            'public_view': True, 'report': item, 'http_enabled': item['http_enabled'],
+            'checks': item['checks'], 'common_observed': item['checks_common_observed'],
+        })
+    if domain is not None:
+        report['domain'] = domain
     available = sum(item['current_state'] == 'available' for item in report['domains'])
     unavailable = sum(item['current_state'] == 'unavailable' for item in report['domains'])
     last = max((item['last_checked_at'] for item in report['domains']
@@ -218,6 +253,7 @@ def _status_page(request, workspace, *, data):
         'public_view': True, 'public_timezone': workspace.timezone, 'report': report,
         'published_sections': _published_sections(workspace, snapshot, report['domains']),
         'status_page_title': workspace.title,
+        'open_domain': domain,
         'public_activity_url': (workspace.public_path + '/activity'
                                 if getattr(request, 'public_alias', False) else 'activity'),
         'attention': sum(bool(item['attention_count']) for item in report['domains']),

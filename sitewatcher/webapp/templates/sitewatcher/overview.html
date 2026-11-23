@@ -118,6 +118,7 @@
                             </td>
                             <td class="row-action">
                                 <div class="domain-actions row-domain-actions">
+                                    <noscript><a class="button" href="/domains/history?domain={{ row.name|urlencode }}&amp;days={{ report.days }}">{% translate 'Full history' %}</a></noscript>
                                     {% if not read_only %}
                                         <a class="button icon-button" href="/domains/edit?domain={{ row.name|urlencode }}"
                                             title="{% translate 'Edit domain' %}"
@@ -155,7 +156,11 @@
                         </tr>
                         <tr id="domain-details-{{ group.id }}-{{ forloop.counter }}" class="domain-detail-row" hidden>
                             <td colspan="6">
-                                {% include 'sitewatcher/partials/domain_details.html' with report=row.report http_enabled=row.http_enabled checks=row.checks common_observed=row.checks_common_observed owner_detail=True domain_name=row.name settings_error=row.error %}
+                                <div class="domain-detail-layout" data-domain-details="/domains/details?domain={{ row.name|urlencode }}&amp;days={{ report.days }}&amp;q={{ query|urlencode }}&amp;status={{ status|urlencode }}"
+                                    data-loading="{% translate 'Loading checks and chart…' %}" data-failed="{% translate 'Could not load checks and chart.' %}">
+                                    <p class="muted" data-details-message role="status"></p>
+                                    <a href="/domains/history?domain={{ row.name|urlencode }}&amp;days={{ report.days }}">{% translate 'Full history' %}</a>
+                                </div>
                             </td>
                         </tr>
                     </tbody>

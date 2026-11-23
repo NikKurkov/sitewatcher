@@ -69,9 +69,10 @@ def test_overview_problem_first_and_real_measurement(owner, client):
     assert 'data-domain-summary' in main and 'data-domain-toggle' in main
     assert 'class="domain-detail-row" hidden' in main
     assert 'class="domain-detail-layout"' in main
-    assert 'Latest monitoring checks' in main and 'Website response time' in main
+    fragment = get(client, '/domains/details?domain=a-healthy.example').content.decode()
+    assert 'Latest monitoring checks' in fragment and 'Website response time' in fragment
     assert 'View chart data' not in main
-    assert '<h3>Checks</h3>' in main
+    assert '<h3>Checks</h3>' in fragment
 
 
 def test_empty_and_no_observation_states(owner, client):

@@ -64,6 +64,13 @@ def test_domain_chart_requires_enabled_http_and_response_time_points(
     response = client.get(path + 'days=' + str(days), HTTP_HOST='localhost')
     assert response.status_code == 200
     body = response.content.decode()
+    if page != 'history':
+        assert 'class="response-chart"' not in body
+        fragment = ('/domains/details?domain=chart.example&' if page == 'overview'
+                    else path + 'domain=chart.example&fragment=1&')
+        response = client.get(fragment + 'days=' + str(days), HTTP_HOST='localhost')
+        assert response.status_code == 200
+        body = response.content.decode()
     assert ('class="response-chart"' in body) is visible
     assert ('class="panel chart-panel"' in body) is (visible and page == 'history')
     assert ('class="domain-detail-chart"' in body) is (visible and page != 'history')

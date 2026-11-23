@@ -171,6 +171,25 @@ def report_context(report, *, public=False):
     return report
 
 
+def summary_strip(report, *, public=False):
+    """Prepare the visible HTTP strip without building an expanded chart."""
+    occupied = set()
+    for bucket in report['buckets']:
+        index = bucket['index']
+        occupied.add(index)
+        bucket['x'] = index * 10
+        bucket['state'] = ('failed' if bucket['failed'] else 'successful'
+                           if bucket['successful'] else 'unknown')
+        if public:
+            stamp = local_time(bucket['start_at'], report['timezone'])
+            if stamp:
+                bucket['label'] = stamp['display_label']
+    report['history_buckets'] = report['buckets']
+    report['empty_strip'] = ' '.join(f'M{index * 10} 0h7v20h-7Z'
+                                    for index in range(120) if index not in occupied)
+    return report
+
+
 def domain_form_context(context, error):
     values = context['values']
     messages = {
