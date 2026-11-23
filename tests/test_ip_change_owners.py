@@ -20,7 +20,12 @@ def dns_config(tmp_path, request):
 
 def seed(config, ips=('192.0.2.1',), fetched=None):
     check = IpChangeCheck('example.com', cfg=config)
-    check._maybe_upsert(list(ips), [], fetched or datetime.now(timezone.utc), None, True)
+    with closing(check._connect()) as conn, conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO dns_state(domain,snapshot_json,fetched_at) VALUES(?,?,?)",
+            (check.domain, json.dumps({'ips_v4': list(ips), 'ips_v6': []}),
+             (fetched or datetime.now(timezone.utc)).isoformat()),
+        )
     return check
 
 
@@ -44,9 +49,10 @@ def test_owners_and_ephemeral_scan_detect_changes_independently(dns_config, monk
         for owner in (0, 1, 2):  # An ad hoc scan must not consume either owner's legacy baseline.
             check = IpChangeCheck('example.com', cfg=dns_config, owner_id=owner)
             results.append((await check.run()).status)
-        assert results == [Status.WARN, Status.WARN, Status.WARN]
+        assert results == [Status.OK, Status.OK, Status.OK]
         for owner in (0, 1, 2):
             check = IpChangeCheck('example.com', cfg=dns_config, owner_id=owner)
+            assert (await check.run()).status is Status.WARN
             assert (await check.run()).status is Status.OK
             assert json.loads(stored(check, 'owner_dns_state', owner)[0])['ips_v4'] == ['192.0.2.2']
 
@@ -65,6 +71,7 @@ def test_unchanged_legacy_bootstrap_is_materialized_without_extending_ttl(dns_co
     # Later legacy activity must not alter the materialized owner baseline.
     seed(dns_config, ips=('192.0.2.2',))
     monkeypatch.setattr(IpChangeCheck, '_resolve_ips', AsyncMock(return_value=(['192.0.2.2'], [])))
+    assert asyncio.run(check.run()).status is Status.OK
     assert asyncio.run(check.run()).status is Status.WARN
 
 
@@ -103,6 +110,7 @@ def test_failed_scoped_write_does_not_consume_change(dns_config, monkeypatch):
     assert check._db_get() == before
     with closing(sqlite3.connect(check._db_path)) as conn:
         conn.execute('DROP TRIGGER reject_dns')
+    assert asyncio.run(check.run()).status is Status.OK
     assert asyncio.run(check.run()).status is Status.WARN
 
 
@@ -123,8 +131,9 @@ def test_legacy_standalone_checker_preserves_existing_cache_contract(dns_config,
     seed(dns_config)
     monkeypatch.setattr(IpChangeCheck, '_resolve_ips', AsyncMock(return_value=(['192.0.2.2'], [])))
     first = IpChangeCheck('example.com', cfg=dns_config)
-    assert asyncio.run(first.run()).status is Status.WARN
+    assert asyncio.run(first.run()).status is Status.OK
     following = IpChangeCheck('example.com', cfg=dns_config)
+    assert asyncio.run(following.run()).status is Status.WARN
     assert asyncio.run(following.run()).status is Status.OK
     assert json.loads(stored(following, 'dns_state')[0])['ips_v4'] == ['192.0.2.2']
 
@@ -141,6 +150,8 @@ def test_dispatcher_passes_monitor_owner_and_separate_ephemeral_scope(dns_config
         async with Dispatcher(cfg) as dispatcher:
             for owner in (0, 1, 2):
                 result = await dispatcher.run_for(owner, 'example.com', ephemeral=(owner == 0))
+                assert result[0].status is Status.OK
+                result = await dispatcher.run_for(owner, 'example.com', ephemeral=(owner == 0))
                 assert result[0].status is Status.WARN
 
     asyncio.run(scenario())
@@ -150,3 +161,63 @@ def test_dispatcher_passes_monitor_owner_and_separate_ephemeral_scope(dns_config
 def test_invalid_owner_scope_is_rejected(owner):
     with pytest.raises(ValueError, match='owner_id'):
         IpChangeCheck('example.com', cfg=IpChangeConfig(), owner_id=owner)
+
+
+def test_rotating_sets_keep_current_facts_and_persistent_new_set_warns(dns_config, monkeypatch):
+    seed(dns_config)
+    sets = [['192.0.2.1', f'192.0.2.{n}'] for n in range(2, 6)]
+    new = ['192.0.2.9']
+    answers = sets + sets * 2 + [new, new, new]
+    statuses = [Status.OK] * (len(answers) - 2) + [Status.WARN, Status.OK]
+    resolver = AsyncMock(side_effect=[(address_set, []) for address_set in answers])
+    monkeypatch.setattr(IpChangeCheck, '_resolve_ips', resolver)
+    for addresses, status in zip(answers, statuses, strict=True):
+        check = IpChangeCheck('example.com', cfg=dns_config, owner_id=1)
+        result = asyncio.run(check.run())
+        assert result.metrics['ips_v4'] == addresses
+        assert result.status is status
+        assert json.loads(stored(check, 'owner_dns_state', 1)[0])['ips_v4'] == addresses
+    other = IpChangeCheck('example.com', cfg=dns_config, owner_id=2)
+    resolver.side_effect = [(sets[0], []), (sets[0], [])]
+    assert asyncio.run(other.run()).status is Status.OK
+    assert asyncio.run(other.run()).status is Status.WARN
+
+
+def test_owner_bootstrap_copies_legacy_ip_facts_without_standalone_confirmation(
+        dns_config, monkeypatch):
+    legacy = seed(dns_config)
+    new_answer = AsyncMock(return_value=(['192.0.2.2'], []))
+    monkeypatch.setattr(IpChangeCheck, '_resolve_ips', new_answer)
+    assert asyncio.run(legacy.run()).status is Status.OK
+    legacy_before = stored(legacy, 'dns_state')
+    assert json.loads(legacy_before[0])['pending_change']
+
+    scoped = IpChangeCheck('example.com', cfg=dns_config, owner_id=1)
+    assert asyncio.run(scoped.run()).status is Status.OK
+    assert stored(legacy, 'dns_state') == legacy_before
+    assert asyncio.run(legacy.run()).status is Status.WARN
+
+
+def test_concurrent_observations_put_one_warning_in_owner_history(dns_config, monkeypatch):
+    seed(dns_config)
+
+    async def scenario():
+        ready = asyncio.Event()
+        started = 0
+
+        async def resolve_ips(self):
+            nonlocal started
+            started += 1
+            if started == 2:
+                ready.set()
+            await ready.wait()
+            return ['192.0.2.2'], []
+
+        monkeypatch.setattr(IpChangeCheck, '_resolve_ips', resolve_ips)
+        results = await asyncio.gather(*[
+            IpChangeCheck('example.com', cfg=dns_config, owner_id=1).run() for _ in range(2)
+        ])
+        assert {result.status for result in results} == {Status.OK, Status.WARN}
+        assert all(result.metrics['ips_v4'] == ['192.0.2.2'] for result in results)
+
+    asyncio.run(scenario())

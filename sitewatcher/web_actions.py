@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 from datetime import datetime
 
 from . import domain_groups, storage
+from .check_policy import interval_minutes
 from .config import (
     AppConfig, ChecksModel, ConfigurationError, DomainOverride, resolve_settings,
     validate_domain_override,
@@ -144,9 +145,16 @@ def settings_context(cfg: AppConfig, owner_id: int, domain: str | None = None) -
             values['domain'] = address.netloc + (address.path if address.path != '/' or address.query else '')
             if address.query:
                 values['domain'] += '?' + address.query
+        ports_interval = None
+        if name and effective.checks.ports:
+            ports_interval = (
+                interval_minutes(cfg, 'ports', effective.interval_minutes)
+                if cfg.scheduler.enabled else 0
+            )
         return {
             'domain': name, 'values': values, 'check_names': list(ChecksModel.model_fields),
             'proxy_present': bool(effective.proxy),
+            'ports_interval': ports_interval,
             'defaults': {**{key: getattr(defaults, key) for key in NUMERIC_FIELDS},
                          'checks': defaults.checks.model_dump(), 'interval_minutes': (
                 defaults.interval_minutes if defaults.interval_minutes is not None

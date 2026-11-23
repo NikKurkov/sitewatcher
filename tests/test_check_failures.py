@@ -11,6 +11,7 @@ from sitewatcher.checks.base import Status
 from sitewatcher.checks.deface import DefaceCheck
 from sitewatcher.checks.http_basic import HttpBasicCheck
 from sitewatcher.checks.ip_blacklist import IpBlacklistCheck
+from sitewatcher.checks.keywords import KeywordsCheck
 from sitewatcher.checks.ports import PortsCheck
 from sitewatcher.config import PortSpec
 
@@ -20,7 +21,7 @@ def no_retry_delays(monkeypatch):
     monkeypatch.setattr(asyncio, 'sleep', AsyncMock())
 
 
-@pytest.mark.parametrize(('final_code', 'status'), [(200, Status.WARN), (503, Status.CRIT)])
+@pytest.mark.parametrize(('final_code', 'status'), [(200, Status.OK), (503, Status.CRIT)])
 def test_http_redirect_classifies_final_failure(final_code, status):
     async def scenario():
         def handler(request):
@@ -50,17 +51,63 @@ def test_http_redirect_connection_failure_is_critical():
 @pytest.mark.parametrize(('code', 'body', 'status'), [
     (503, 'maintenance', Status.UNKNOWN),
     (403, 'blocked', Status.UNKNOWN),
-    (503, 'hacked by somebody', Status.CRIT),
+    (503, 'hacked by somebody', Status.UNKNOWN),
+    (302, 'hacked by somebody', Status.UNKNOWN),
     (200, 'normal page', Status.OK),
+    (200, 'hacked by somebody', Status.CRIT),
+    (200, 'The site is owned by a nonprofit.', Status.OK),
+    (200, 'Learn how to report a security breach.', Status.OK),
 ])
-def test_deface_requires_successful_page_for_clean_result(code, body, status):
+def test_deface_inspects_only_successful_pages_for_specific_markers(code, body, status):
     async def scenario():
         async with httpx.AsyncClient(transport=httpx.MockTransport(
-            lambda request: httpx.Response(code, text=body),
+            lambda request: httpx.Response(code, text=body, headers={'Content-Type': 'text/html'}),
         )) as client:
             result = await DefaceCheck('example.test', client=client).run()
             assert result.status is status
             assert result.metrics['status_code'] == code
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(('content_type', 'body', 'status'), [
+    ('application/json', b'{"message":"owned by somebody"}', Status.UNKNOWN),
+    ('text/plain', b'owned by somebody', Status.UNKNOWN),
+    ('text/HTML; charset=utf-8', b'<p>owned by somebody</p>', Status.CRIT),
+    ('text/html', b' \n', Status.UNKNOWN),
+    ('application/xhtml+xml', b'<html><body>owned by somebody</body></html>', Status.CRIT),
+    (None, b'  <!doctype html><p>owned by somebody</p>', Status.CRIT),
+    (None, b'owned by somebody', Status.UNKNOWN),
+])
+def test_deface_only_scans_html_and_honors_custom_markers(content_type, body, status):
+    headers = {'Content-Type': content_type} if content_type else {}
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, headers=headers, content=body),
+        )) as client:
+            result = await DefaceCheck('example.test', client=client, markers=['Owned By']).run()
+            assert result.status is status
+            if status is Status.CRIT:
+                assert result.metrics['matched'] == 'owned by'
+            else:
+                assert 'matched' not in result.metrics
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('code', [302, 404])
+def test_keywords_do_not_evaluate_an_unsuccessful_page(code):
+    async def scenario():
+        def handler(request):
+            if request.url.path == '/':
+                return httpx.Response(302, headers={'Location': '/landing'})
+            return httpx.Response(code, text='welcome')
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            result = await KeywordsCheck('example.test', client=client, keywords=['welcome']).run()
+            assert result.status is Status.CRIT
+            assert result.metrics['status_code'] == code
+            assert result.metrics['redirects'] == 1
+            assert 'keywords_missing' not in result.metrics
+            assert 'found_count' not in result.metrics
     asyncio.run(scenario())
 
 
@@ -85,15 +132,16 @@ def test_dnsbl_confirmed_negative_is_clean(monkeypatch, error):
     assert result.metrics['errors_count'] == 0
 
 
-@pytest.mark.parametrize(('errors', 'status'), [
-    ([dns.exception.Timeout], Status.UNKNOWN),
-    ([dns.resolver.NXDOMAIN, dns.exception.Timeout], Status.OK),
+@pytest.mark.parametrize('errors', [
+    [dns.exception.Timeout],
+    [dns.resolver.NXDOMAIN, dns.exception.Timeout],
 ])
-def test_dnsbl_failed_queries_preserve_successful_source_results(monkeypatch, errors, status):
+def test_dnsbl_failed_queries_preserve_successful_source_results(monkeypatch, errors):
     check = dnsbl(monkeypatch, zones=['bl%d.example' % n for n in range(len(errors))],
                   query_effect=errors)
     result = asyncio.run(check.run())
-    assert result.status is status
+    assert result.status is Status.UNKNOWN
+    assert result.metrics['zones_completed'] == len(errors) - 1
     assert result.metrics['errors_count'] == 1
 
 

@@ -17,7 +17,7 @@ from weakref import WeakValueDictionary
 import httpx
 
 from .base import BaseCheck, CheckOutcome, Status
-from .rkn_refresh_state import RefreshLeaseLost, RefreshState
+from .rkn_refresh_state import LEASE_SECONDS, RefreshLeaseLost, RefreshState
 from .. import storage
 from ..config import RknConfig
 from ..utils.domains import DOMAIN_RE, normalize_domain
@@ -152,12 +152,11 @@ class RknBlockCheck(BaseCheck):
             self.log.warning('RKN check unavailable (%s)', type(error).__name__)
             return CheckOutcome(self.name, Status.UNKNOWN,
                                 'RKN data unavailable or stale; no clean result confirmed',
-                                self._observation_metrics())
+                                self._observation_metrics(self.refresh_state.deadline()))
 
-    def _observation_metrics(self):
+    def _observation_metrics(self, deadline: float | None):
         metrics = {'registry_version': _PARSER_VERSION,
                    'observed_at': datetime.now(timezone.utc).isoformat()}
-        deadline = self.refresh_state.deadline()
         if deadline:
             metrics['next_refresh_at'] = datetime.fromtimestamp(deadline, timezone.utc).isoformat()
         return metrics
@@ -416,6 +415,8 @@ class RknBlockCheck(BaseCheck):
 
     def _query(self, *, domain: str | None = None, ips: list[str] | None = None,
                validate: bool = False):
+        # Read the lease first so publication cannot clear it after we open the old index.
+        lease, retry = self.refresh_state.deadlines()
         # The result and provenance must come from the same SQLite snapshot.
         with closing(sqlite3.connect(self.db_path.as_uri() + '?mode=ro', uri=True)) as con:
             con.execute('BEGIN')
@@ -428,12 +429,26 @@ class RknBlockCheck(BaseCheck):
                     if _timestamp(meta[key]) > datetime.now(timezone.utc) + timedelta(minutes=5):
                         raise ValueError('RKN registry timestamp is in the future')
             metrics = {key: meta[key] for key in ('source', 'source_updated_at', 'fetched_at')}
-            metrics.update(self._observation_metrics())
+            metrics.update(self._observation_metrics(max(lease, retry)))
             metrics['registry_generation'] = _generation(meta)
-            metrics['source_stale'] = not self._meta_is_fresh(meta)
-            metrics.setdefault('next_refresh_at', (
-                _timestamp(meta['fetched_at']) + timedelta(hours=self.cfg.cache_ttl_hours)
-            ).isoformat())
+            now = datetime.now(timezone.utc)
+            refresh_due = _timestamp(meta['fetched_at']) + timedelta(hours=self.cfg.cache_ttl_hours)
+            source_expires = (_timestamp(meta['source_updated_at'])
+                              + timedelta(hours=self.cfg.max_source_age_hours))
+            stale = not self._meta_is_fresh(meta)
+            # Give the scheduler time to acquire its claim on the normal daily handoff.
+            claiming = not retry and now < refresh_due + timedelta(seconds=LEASE_SECONDS)
+            active = lease > now.timestamp()
+            if stale and refresh_due <= now < source_expires and (active or claiming):
+                stale = False
+                if active:
+                    # A failed publication can release a ten-minute lease at any time.
+                    metrics['next_refresh_at'] = min(
+                        now + timedelta(minutes=1), source_expires,
+                        datetime.fromtimestamp(lease, timezone.utc),
+                    ).isoformat()
+            metrics['source_stale'] = stale
+            metrics.setdefault('next_refresh_at', refresh_due.isoformat())
             if meta.get('source_revision'):
                 metrics['source_revision'] = meta['source_revision']
             metrics['db_path'] = str(self.db_path)
@@ -472,7 +487,7 @@ class RknIpCheck(RknBlockCheck):
         ips = await self._resolve_ipv4(domain)
         if not ips:
             return CheckOutcome(self.name, Status.UNKNOWN, 'No IPv4 addresses resolved',
-                                self._observation_metrics())
+                                self._observation_metrics(self.refresh_state.deadline()))
         hits, metrics = await asyncio.to_thread(self._query, ips=ips, validate=True)
         stale_clean = not hits and metrics.get('source_stale')
         return CheckOutcome(

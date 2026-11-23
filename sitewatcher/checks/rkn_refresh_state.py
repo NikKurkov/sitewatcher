@@ -67,11 +67,14 @@ class RefreshState:
                         'WHERE id=1 AND token=?', (failures, retry, token))
 
     def deadline(self) -> float | None:
+        return max(self.deadlines()) or None
+
+    def deadlines(self) -> tuple[float, float]:
         if not self.path.exists():
-            return None
+            return 0, 0
         try:
             with closing(sqlite3.connect(self.path.as_uri() + '?mode=ro', uri=True)) as con:
                 row = con.execute('SELECT lease,retry_at FROM refresh WHERE id=1').fetchone()
-                return max(row) or None if row else None
+                return row or (0, 0)
         except sqlite3.Error:
-            return None
+            return 0, 0

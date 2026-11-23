@@ -109,23 +109,30 @@ assert.equal(p.timers.size, 0);
 assert.equal(JSON.parse(p.storage.get(focusKey)).id, 'q', 'native Enter also remembers focus');
 console.log('Automatic filters: debounce, external form controls, Enter, IME, focus and disclosure restoration passed.');
 
-function refreshPage(stored, {sceneOpen = false, tooltipOpen = false, hidden = false, moveOpen = false, cooldown = false} = {}) {
+function refreshPage(stored, {sceneOpen = false, tooltipOpen = false, hidden = false, moveOpen = false,
+  cooldown = false, domainChecks = false} = {}) {
   const values = new Map([['refresh', stored]]);
+  const handlers = {};
+  const windowEvents = {};
+  const status = {textContent: ''};
   let interval;
   let reloads = 0;
   vm.runInNewContext(script, {
-    document: {hidden, activeElement: {matches: () => false}, addEventListener() {},
+    document: {hidden, activeElement: {matches: () => false},
+      addEventListener: (name, listener) => { handlers[name] = listener; },
       querySelector: selector => selector === '[data-auto-refresh]' ? {}
+        : selector === '[data-domain-check-status]' && domainChecks ? status
         : selector === '[data-live-activity]:not([hidden])' && sceneOpen ? {}
         : selector.includes('.chart-tooltip') && tooltipOpen ? {}
         : selector.includes('data-domain-move-dialog') && moveOpen ? {}
         : selector.includes('data-move-cooldown') && cooldown ? {} : null,
       querySelectorAll: () => []},
+    window: {addEventListener: (name, listener) => { windowEvents[name] = listener; }},
     sessionStorage: {getItem: key => values.get(key) ?? null},
     location: {pathname: '/', reload: () => { reloads++; }},
     setInterval: (fn, delay) => { assert.equal(delay, 60000); interval = fn; },
   });
-  return {tick: () => interval(), reloads: () => reloads};
+  return {tick: () => interval(), reloads: () => reloads, handlers, windowEvents, status};
 }
 
 for (const stored of ['off', 'on', null]) {
@@ -139,6 +146,41 @@ for (const options of [{sceneOpen: true}, {tooltipOpen: true}, {hidden: true}, {
   assert.equal(refresh.reloads(), 0, 'Active reading and hidden pages defer refresh');
 }
 console.log('Always-on refresh ignores old toggles and protects active reading.');
+
+{
+  const page = refreshPage('on', {domainChecks: true});
+  const form = domain => {
+    const attributes = element => ({
+      setAttribute: (key, value) => { element[key] = value; },
+      removeAttribute: key => { delete element[key]; },
+    });
+    const button = {};
+    Object.assign(button, attributes(button));
+    const element = {button, matches: () => true, hasAttribute: () => true,
+      dataset: {domainCheck: `Checking ${domain}…`}, querySelector: () => button};
+    return Object.assign(element, attributes(element));
+  };
+  const first = form('one.example');
+  const second = form('two.example');
+  page.handlers.submit({target: first, preventDefault: () => assert.fail('Use native POST')});
+  assert.equal(first['aria-busy'], 'true');
+  assert.equal(first.button['aria-disabled'], 'true');
+  assert.equal(page.status.textContent, 'Checking one.example…');
+  for (const target of [first, second]) {
+    let cancelled = false;
+    page.handlers.submit({target, preventDefault: () => { cancelled = true; }});
+    assert.equal(cancelled, true);
+  }
+  assert.equal(second['aria-busy'], undefined);
+  page.tick();
+  assert.equal(page.reloads(), 0);
+  page.windowEvents.pageshow();
+  assert.equal(first['aria-busy'], undefined);
+  assert.equal(first.button['aria-disabled'], undefined);
+  assert.equal(page.status.textContent, '');
+  page.tick();
+  assert.equal(page.reloads(), 1);
+}
 
 // Settings and edit pages reveal navigation only: no live fetch or refresh timer.
 for (const storageFails of [false, true]) {

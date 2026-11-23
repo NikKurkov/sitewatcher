@@ -5,6 +5,7 @@ import json
 import logging
 import socket
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -16,6 +17,7 @@ from .. import storage
 
 # Module-level logger for structured events
 log = logging.getLogger(__name__)
+_RECENT_ADDRESS_SETS = 8
 
 
 @dataclass(frozen=True)
@@ -59,29 +61,8 @@ class IpChangeCheck(BaseCheck):
     # ------------------------------------------------------------------ public
 
     async def run(self) -> CheckOutcome:
-        """Resolve current IPs, compare to stored snapshot, and classify."""
+        """Resolve current IPs and confirm a novel set on consecutive observations."""
         prev = self._db_get()
-        now = datetime.now(timezone.utc)
-
-        # Decide whether to refresh the stored snapshot due to TTL
-        must_refresh = True
-        if prev:
-            age_h = (now - prev.fetched_at).total_seconds() / 3600.0
-            must_refresh = age_h >= float(self.cfg.refresh_hours)
-
-        log.debug(
-            "ipchange.start",
-            extra={
-                "event": "ipchange.start",
-                "domain": self.domain,
-                "include_ipv6": bool(self.cfg.include_ipv6),
-                "refresh_hours": float(self.cfg.refresh_hours),
-                "has_prev": bool(prev),
-                "must_refresh": must_refresh,
-            },
-        )
-
-        # Always resolve fresh IPs; cheap and reliable vs. DNS cache.
         try:
             ips_v4, ips_v6 = await self._resolve_ips()
         except OSError as error:
@@ -94,104 +75,83 @@ class IpChangeCheck(BaseCheck):
                 self.name, Status.UNKNOWN, f"DNS lookup failed: {error.__class__.__name__}",
                 {"error": error.__class__.__name__, "baseline_preserved": prev is not None},
             )
-        log.info(
-            "ipchange.resolved",
-            extra={
-                "event": "ipchange.resolved",
-                "domain": self.domain,
-                "ips_v4_count": len(ips_v4),
-                "ips_v6_count": len(ips_v6),
-            },
-        )
 
-        # If no records at all — treat as CRIT and persist the snapshot.
-        if not ips_v4 and (not self.cfg.include_ipv6 or not ips_v6):
+        with closing(self._connect()) as conn, conn:
+            # Manual and scheduled probes can finish DNS concurrently.
+            conn.execute("BEGIN IMMEDIATE")
+            prev = self._db_read(conn)
+            now = datetime.now(timezone.utc)
+            return self._record_resolution(conn, ips_v4, ips_v6, now, prev)
+
+    def _record_resolution(
+        self, conn: sqlite3.Connection, ips_v4: list[str], ips_v6: list[str],
+        now: datetime, prev: _Row | None,
+    ) -> CheckOutcome:
+        include_ipv6 = self.cfg.include_ipv6
+        old = self._load_snapshot(prev.snapshot_json) if prev else {}
+        must_refresh = (prev is None or
+                        (now - prev.fetched_at).total_seconds() >= self.cfg.refresh_hours * 3600)
+        if not ips_v4 and not (include_ipv6 and ips_v6):
             log.warning("ipchange.no_records", extra={"event": "ipchange.no_records", "domain": self.domain})
-            self._maybe_upsert(ips_v4, ips_v6, now, prev, must_refresh)
-            return CheckOutcome(
-                self.name,
-                Status.CRIT,
-                "no A/AAAA records",
-                {"ips_v4": [], "ips_v6": []},
-            )
+            snapshot = {"ips_v4": [], "ips_v6": []}
+            if must_refresh or snapshot != old:
+                self._db_upsert(conn, snapshot, now)
+            return CheckOutcome(self.name, Status.CRIT, "no A/AAAA records",
+                                {"ips_v4": [], "ips_v6": []})
 
-        # Compare with previous snapshot (if any)
+        current = [ips_v4, ips_v6 if include_ipv6 else []]
+        previous = [sorted(old.get("ips_v4") or []),
+                    sorted(old.get("ips_v6") or []) if include_ipv6 else []]
+        same_mode = old.get("include_ipv6", include_ipv6) == include_ipv6
+        recent = (old.get("recent_sets") or []) if same_mode else []
+        pending = old.get("pending_change") if same_mode else None
+
         status = Status.OK
-        changes_msg = ""
-        added_v4: List[str] = []
-        removed_v4: List[str] = []
-        added_v6: List[str] = []
-        removed_v6: List[str] = []
+        ip_list = ",".join(current[0] + current[1])
+        message = f"no change ({ip_list})"
+        if current != previous and any(previous):
+            if current in recent:
+                pending = None
+                message = f"known DNS address set ({ip_list})"
+            else:
+                parts = []
+                for family, before, after in zip(("v4", "v6"), previous, current, strict=True):
+                    added = set(after) - set(before)
+                    removed = set(before) - set(after)
+                    if added or removed:
+                        parts.append(f"{family} +{len(added)} -{len(removed)}")
+                pending = "; ".join(parts)
+                message = f"new DNS address set, awaiting confirmation ({ip_list})"
+            recent = [addresses for addresses in recent if addresses != current]
+            recent = (recent + [previous])[-_RECENT_ADDRESS_SETS:]
+        elif current == previous and pending:
+            status = Status.WARN
+            message = f"ip changed: {pending}"
+            pending = None
+        elif must_refresh:
+            # A set unchanged through the refresh window becomes the new baseline.
+            recent = []
 
-        if prev:
-            try:
-                old = json.loads(prev.snapshot_json)
-            except Exception:
-                old = {}
+        snapshot = {"ips_v4": ips_v4, "ips_v6": ips_v6}
+        if recent or pending:
+            snapshot.update(recent_sets=recent, pending_change=pending, include_ipv6=include_ipv6)
+        if must_refresh or snapshot != old:
+            self._db_upsert(conn, snapshot, now)
 
-            old_v4 = set(old.get("ips_v4") or [])
-            cur_v4 = set(ips_v4)
-            added_v4 = sorted(list(cur_v4 - old_v4))
-            removed_v4 = sorted(list(old_v4 - cur_v4))
+        return CheckOutcome(self.name, status, message, {
+            "ips_v4": ips_v4,
+            "ips_v6": ips_v6,
+            "fetched_at": now.isoformat(),
+            "include_ipv6": include_ipv6,
+        })
 
-            parts: List[str] = []
-            if added_v4 or removed_v4:
-                parts.append(f"v4 +{len(added_v4)} -{len(removed_v4)}")
-
-            if self.cfg.include_ipv6:
-                old_v6 = set(old.get("ips_v6") or [])
-                cur_v6 = set(ips_v6)
-                added_v6 = sorted(list(cur_v6 - old_v6))
-                removed_v6 = sorted(list(old_v6 - cur_v6))
-                if added_v6 or removed_v6:
-                    parts.append(f"v6 +{len(added_v6)} -{len(removed_v6)}")
-
-            if parts:
-                status = Status.WARN
-                changes_msg = "; ".join(parts)
-                log.info(
-                    "ipchange.changed",
-                    extra={
-                        "event": "ipchange.changed",
-                        "domain": self.domain,
-                        "v4_added": len(added_v4),
-                        "v4_removed": len(removed_v4),
-                        "v6_added": len(added_v6) if self.cfg.include_ipv6 else 0,
-                        "v6_removed": len(removed_v6) if self.cfg.include_ipv6 else 0,
-                    },
-                )
-
-        # Human-facing message
-        if status is Status.WARN:
-            msg = f"ip changed: {changes_msg}"
-        else:
-            # Show current IPs for quick visibility
-            ip_list = ips_v4 + (ips_v6 if (self.cfg.include_ipv6 and ips_v6) else [])
-            msg = f"no change ({','.join(ip_list)})"
-            log.info(
-                "ipchange.no_change",
-                extra={
-                    "event": "ipchange.no_change",
-                    "domain": self.domain,
-                    "ips_v4_count": len(ips_v4),
-                    "ips_v6_count": len(ips_v6) if self.cfg.include_ipv6 else 0,
-                },
-            )
-
-        # Persist snapshot if needed (first run, TTL, or set actually changed)
-        self._maybe_upsert(ips_v4, ips_v6, now, prev, must_refresh)
-
-        return CheckOutcome(
-            check=self.name,
-            status=status,
-            message=msg,
-            metrics={
-                "ips_v4": ips_v4,
-                "ips_v6": ips_v6,
-                "fetched_at": now.isoformat(),
-                "include_ipv6": bool(self.cfg.include_ipv6),
-            },
-        )
+    @staticmethod
+    def _load_snapshot(snapshot: str) -> dict:
+        try:
+            value = json.loads(snapshot)
+            return value if isinstance(value, dict) else {}
+        except ValueError:
+            return {}
 
     # -------------------------------------------------------------- internals
 
@@ -228,93 +188,58 @@ class IpChangeCheck(BaseCheck):
 
     def _db_get(self) -> Optional[_Row]:
         """Load a scoped snapshot, bootstrapping from the untouched legacy cache once."""
-        conn = self._connect()
-        try:
-            if self._owner_id is None:
-                row = conn.execute(
-                    "SELECT snapshot_json, fetched_at FROM dns_state WHERE domain=?",
-                    (self.domain.lower(),),
-                ).fetchone()
-            else:
-                query = "SELECT snapshot_json, fetched_at FROM owner_dns_state WHERE owner_id=? AND domain=?"
-                params = (self._owner_id, self.domain.lower())
-                row = conn.execute(query, params).fetchone()
-                if row is None:
-                    # Copy once, even when unchanged: later scans must not consume this baseline.
-                    conn.execute(
-                        "INSERT OR IGNORE INTO owner_dns_state(owner_id,domain,snapshot_json,fetched_at) "
-                        "SELECT ?,domain,snapshot_json,fetched_at FROM dns_state WHERE domain=?", params,
-                    )
-                    conn.commit()
-                    row = conn.execute(query, params).fetchone()
-            if not row:
+        with closing(self._connect()) as conn, conn:
+            row = self._db_read(conn)
+            if row is not None or self._owner_id is None:
+                return row
+            domain = self.domain.lower()
+            legacy = conn.execute(
+                "SELECT snapshot_json, fetched_at FROM dns_state WHERE domain=?", (domain,),
+            ).fetchone()
+            if legacy is None:
                 return None
-            snap_json, fetched_at = row
-            try:
-                dt = datetime.fromisoformat(str(fetched_at))
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                else:
-                    dt = dt.astimezone(timezone.utc)
-            except Exception:
-                dt = datetime.now(timezone.utc)
-            return _Row(domain=self.domain.lower(), snapshot_json=str(snap_json), fetched_at=dt)
-        finally:
-            conn.close()
-
-    def _maybe_upsert(
-        self,
-        ips_v4: List[str],
-        ips_v6: List[str],
-        now: datetime,
-        prev: Optional[_Row],
-        must_refresh: bool,
-    ) -> None:
-        """
-        Save snapshot if it doesn't exist, TTL has expired, or the set actually changed.
-        Avoids unnecessary writes.
-        """
-        reason: Optional[str] = None
-        if not prev:
-            reason = "no_prev"
-        elif must_refresh:
-            reason = "ttl_expired"
-        else:
-            try:
-                old = json.loads(prev.snapshot_json)
-            except Exception:
-                old = {}
-            if set(old.get("ips_v4") or []) != set(ips_v4):
-                reason = "v4_changed"
-            elif self.cfg.include_ipv6 and set(old.get("ips_v6") or []) != set(ips_v6):
-                reason = "v6_changed"
-
-        if not reason:
-            log.debug("ipchange.db.skip", extra={"event": "ipchange.db.skip", "domain": self.domain})
-            return
-
-        conn = self._connect()
-        try:
-            table = "dns_state" if self._owner_id is None else "owner_dns_state"
-            owner_column = "" if self._owner_id is None else "owner_id,"
-            params = (
-                self.domain.lower(),
-                json.dumps({"ips_v4": ips_v4, "ips_v6": ips_v6}, ensure_ascii=False),
-                now.isoformat(),
-            )
-            if self._owner_id is not None:
-                params = (self._owner_id, *params)
+            raw, fetched_at = legacy
+            snapshot = self._load_snapshot(raw)
+            if "recent_sets" in snapshot:
+                # Owners start with legacy address facts and learn their own rotation history.
+                raw = json.dumps({key: snapshot[key] for key in ("ips_v4", "ips_v6")})
             conn.execute(
-                f"INSERT INTO {table}({owner_column}domain,snapshot_json,fetched_at) "
-                f"VALUES({','.join('?' for _ in params)}) "
-                f"ON CONFLICT({owner_column}domain) DO UPDATE SET "
-                "snapshot_json=excluded.snapshot_json,fetched_at=excluded.fetched_at,"
-                "updated_at=CURRENT_TIMESTAMP", params,
+                "INSERT OR IGNORE INTO owner_dns_state(owner_id,domain,snapshot_json,fetched_at) "
+                "VALUES(?,?,?,?)", (self._owner_id, domain, raw, fetched_at),
             )
-            conn.commit()
-            log.debug(
-                "ipchange.db.upsert",
-                extra={"event": "ipchange.db.upsert", "domain": self.domain, "reason": reason},
-            )
-        finally:
-            conn.close()
+            return self._db_read(conn)
+
+    def _db_read(self, conn: sqlite3.Connection) -> Optional[_Row]:
+        domain = self.domain.lower()
+        if self._owner_id is None:
+            row = conn.execute(
+                "SELECT snapshot_json, fetched_at FROM dns_state WHERE domain=?", (domain,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT snapshot_json, fetched_at FROM owner_dns_state WHERE owner_id=? AND domain=?",
+                (self._owner_id, domain),
+            ).fetchone()
+        if row is None:
+            return None
+        snapshot, fetched_at = row
+        try:
+            date = datetime.fromisoformat(str(fetched_at))
+            date = date.astimezone(timezone.utc) if date.tzinfo else date.replace(tzinfo=timezone.utc)
+        except ValueError:
+            date = datetime.now(timezone.utc)
+        return _Row(domain=domain, snapshot_json=str(snapshot), fetched_at=date)
+
+    def _db_upsert(self, conn: sqlite3.Connection, snapshot: dict, now: datetime) -> None:
+        table = "dns_state" if self._owner_id is None else "owner_dns_state"
+        owner_column = "" if self._owner_id is None else "owner_id,"
+        params = (self.domain.lower(), json.dumps(snapshot, ensure_ascii=False), now.isoformat())
+        if self._owner_id is not None:
+            params = (self._owner_id, *params)
+        conn.execute(
+            f"INSERT INTO {table}({owner_column}domain,snapshot_json,fetched_at) "
+            f"VALUES({','.join('?' for _ in params)}) "
+            f"ON CONFLICT({owner_column}domain) DO UPDATE SET "
+            "snapshot_json=excluded.snapshot_json,fetched_at=excluded.fetched_at,"
+            "updated_at=CURRENT_TIMESTAMP", params,
+        )

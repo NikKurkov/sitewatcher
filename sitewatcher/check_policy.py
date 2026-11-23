@@ -4,6 +4,7 @@ import json
 
 DAILY_CHECKS = frozenset({'tls_cert', 'whois', 'malware', 'ip_blacklist', 'rkn_domain', 'rkn_ip'})
 REFRESHABLE_CHECKS = frozenset({'tls_cert', 'whois'})
+TLS_FAILURE_RETRY_S = 900
 
 
 def timestamp(value):
@@ -31,6 +32,8 @@ def interval_minutes(cfg, check_name, domain_interval=None):
     scheduled = int(getattr(cfg.schedules, check_name).interval_minutes)
     if check_name in DAILY_CHECKS:
         return max(1440, scheduled)
+    if check_name == 'ports':
+        return max(scheduled, int(domain_interval or 0))
     return int(domain_interval) if domain_interval is not None else scheduled
 
 
@@ -52,6 +55,8 @@ def result_deadlines(cfg, check_name, domain_interval, row, *, now=None):
         due = observed + timedelta(minutes=interval)
         if check_name in DAILY_CHECKS:
             due = timestamp(metrics.get('next_refresh_at') or metrics.get('next_retry_at')) or due
+            if check_name == 'tls_cert' and 'verify_code' in metrics:
+                due = min(due, checked + timedelta(seconds=TLS_FAILURE_RETRY_S))
             stale = due + timedelta(minutes=5)
         else:
             stale = observed + timedelta(minutes=3 * interval)

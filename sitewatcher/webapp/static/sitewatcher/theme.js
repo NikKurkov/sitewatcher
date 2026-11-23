@@ -207,6 +207,32 @@ document.querySelectorAll('[data-activity-navigation]').forEach((link) => {
   });
 });
 
+// Keep the native POST and show which domain is being checked while it runs.
+const domainCheckStatus = document.querySelector('[data-domain-check-status]');
+let pendingDomainCheck = null;
+if (domainCheckStatus) {
+  document.addEventListener('submit', (event) => {
+    const form = event.target;
+    if (event.defaultPrevented || !form.matches('form[action="/domains/check"]')) return;
+    if (pendingDomainCheck) {
+      event.preventDefault();
+      return;
+    }
+    if (!form.hasAttribute('data-domain-check')) return;
+    pendingDomainCheck = form;
+    form.setAttribute('aria-busy', 'true');
+    form.querySelector('button').setAttribute('aria-disabled', 'true');
+    domainCheckStatus.textContent = form.dataset.domainCheck;
+  });
+  window.addEventListener('pageshow', () => {
+    if (!pendingDomainCheck) return;
+    pendingDomainCheck.removeAttribute('aria-busy');
+    pendingDomainCheck.querySelector('button').removeAttribute('aria-disabled');
+    pendingDomainCheck = null;
+    domainCheckStatus.textContent = '';
+  });
+}
+
 // Refresh read pages while readers keep disclosures open; defer active edits and dragging.
 const refresh = document.querySelector('[data-auto-refresh]');
 if (refresh) {
@@ -226,7 +252,7 @@ if (refresh) {
     });
   }
   setInterval(() => {
-    if (!document.hidden && !draft
+    if (!document.hidden && !draft && !pendingDomainCheck
         && !document.querySelector('[data-live-activity]:not([hidden])')
         && !document.querySelector('.domains-table[aria-busy=true], .domains-table[data-dragging=true]')
         && !document.querySelector('[data-domain-move-dialog][open], .domains-table[data-move-cooldown]')

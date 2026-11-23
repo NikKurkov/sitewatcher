@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import closing
 import socket
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -17,7 +18,8 @@ from sitewatcher.checks.malware_scan import MalwareScanCheck, _VTConfig
 ])
 def test_dns_lookup_failure_preserves_baseline_and_recovery(tmp_path, monkeypatch, failure):
     check = IpChangeCheck('example.test', cfg=SimpleNamespace(db_path=str(tmp_path / 'dns.db')))
-    check._maybe_upsert(['192.0.2.1'], [], datetime.now(timezone.utc), None, True)
+    with closing(check._connect()) as conn, conn:
+        check._db_upsert(conn, {'ips_v4': ['192.0.2.1'], 'ips_v6': []}, datetime.now(timezone.utc))
     before = check._db_get()
     address = (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('192.0.2.1', 80))
     async def scenario():
@@ -58,7 +60,8 @@ def test_dns_confirmed_no_addresses_is_critical(tmp_path, monkeypatch, answer):
 
 def test_dns_cancellation_preserves_baseline(tmp_path, monkeypatch):
     check = IpChangeCheck('example.test', cfg=SimpleNamespace(db_path=str(tmp_path / 'dns.db')))
-    check._maybe_upsert(['192.0.2.1'], [], datetime.now(timezone.utc), None, True)
+    with closing(check._connect()) as conn, conn:
+        check._db_upsert(conn, {'ips_v4': ['192.0.2.1'], 'ips_v6': []}, datetime.now(timezone.utc))
     before = check._db_get()
     async def scenario():
         monkeypatch.setattr(asyncio.get_running_loop(), 'getaddrinfo', AsyncMock(

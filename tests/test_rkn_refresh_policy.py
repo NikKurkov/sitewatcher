@@ -201,3 +201,49 @@ def test_failed_refresh_preserves_stale_hits_without_confirming_clean(
     assert first.metrics['source_updated_at'] and first.metrics['fetched_at']
     assert datetime.fromisoformat(first.metrics['next_refresh_at']) > datetime.now(timezone.utc)
     assert check._download_with_fallback.await_count == 1
+
+
+@pytest.mark.parametrize('check_class', [rkn.RknBlockCheck, rkn.RknIpCheck])
+@pytest.mark.parametrize('active', [False, True])
+def test_current_source_confirms_clean_during_refresh_handoff(
+        tmp_path, monkeypatch, check_class, active):
+    cfg = config(tmp_path)
+    check = check_class('clean.example', None, cfg, auto_prepare=False)
+    # Active refresh can use a much older download while the source remains age-valid.
+    age = timedelta(days=2) if active else timedelta(hours=24, seconds=30)
+    fetched = datetime.now(timezone.utc) - age
+    check._rebuild_index(registry_data(tmp_path, {'old.example'}), fetched)
+    monkeypatch.setattr(check, '_resolve_ipv4', AsyncMock(return_value=['203.0.113.1']))
+    if active:
+        token = check.refresh_state.claim()
+        assert token is not None
+
+    previous = asyncio.run(check.run())
+    assert previous.status is Status.OK
+    assert previous.metrics['source_stale'] is False
+    assert previous.metrics['fetched_at'] == fetched.isoformat()
+    if active:
+        check.refresh_state.finish(token, False)
+        assert asyncio.run(check.run()).status is Status.UNKNOWN
+        retry = datetime.fromisoformat(previous.metrics['next_refresh_at'])
+        assert datetime.now(timezone.utc) < retry
+        assert retry <= datetime.fromisoformat(previous.metrics['observed_at']) + timedelta(seconds=61)
+
+
+def test_expired_provider_data_keeps_only_confirmed_rkn_hits_during_refresh(tmp_path):
+    clean = rkn.RknBlockCheck('clean.example', None, config(tmp_path), auto_prepare=False)
+    listed = rkn.RknBlockCheck('listed.example', None, config(tmp_path), auto_prepare=False)
+    now = datetime.now(timezone.utc)
+    clean._rebuild_index(
+        registry_data(tmp_path, {'listed.example'}, updated=now - timedelta(days=2)),
+        now - timedelta(days=1, minutes=5),
+    )
+    # The data was valid at publication with a longer tolerance, then the setting changed.
+    clean.cfg.max_source_age_hours = listed.cfg.max_source_age_hours = 24
+    token = clean.refresh_state.claim()
+    assert token is not None
+
+    result = asyncio.run(clean.run())
+    assert result.status is Status.UNKNOWN and result.metrics['source_stale'] is True
+    result = asyncio.run(listed.run())
+    assert result.status is Status.CRIT and result.metrics['source_stale'] is True

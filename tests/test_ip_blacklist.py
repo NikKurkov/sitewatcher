@@ -75,7 +75,7 @@ def test_dronebl_test_code_is_accepted(monkeypatch):
     assert result.metrics['zones_checked'] == 1
 
 
-def test_one_completed_clean_source_is_ok_with_incomplete_coverage(monkeypatch):
+def test_one_completed_clean_source_is_unknown_with_incomplete_coverage(monkeypatch):
     check = IpBlacklistCheck('example.test', zones=['good.example', 'dead.example'])
     monkeypatch.setattr(check, '_resolve_ips', AsyncMock(return_value=(['192.0.2.1'], [])))
 
@@ -86,7 +86,7 @@ def test_one_completed_clean_source_is_ok_with_incomplete_coverage(monkeypatch):
 
     monkeypatch.setattr(check.resolver, 'resolve', resolve)
     result = asyncio.run(check.run())
-    assert result.status is Status.OK
+    assert result.status is Status.UNKNOWN
     assert result.message == 'Not listed; incomplete DNSBL coverage'
     assert result.metrics['partial_coverage'] is True
     assert result.metrics['zones_completed'] == 1
@@ -116,11 +116,13 @@ def test_zones_are_normalized_and_deduplicated():
 @pytest.mark.parametrize(('status', 'metrics', 'reuse'), [
     ('OK', {}, False),
     ('CRIT', {}, False),
-    ('OK', {'dnsbl_version': 3, 'zones': ['other.example']}, False),
-    ('UNKNOWN', {'dnsbl_version': 3, 'zones': ['bl.example']}, False),
+    ('OK', {'dnsbl_version': 4, 'zones': ['other.example']}, False),
+    ('UNKNOWN', {'dnsbl_version': 4, 'zones': ['bl.example']}, False),
     ('UNKNOWN', {'dnsbl_version': 2, 'zones': ['bl.example'],
                  'dns_servers': None, 'check_ipv6': False}, False),
     ('OK', {'dnsbl_version': 3, 'zones': ['bl.example'],
+            'dns_servers': None, 'check_ipv6': False}, False),
+    ('OK', {'dnsbl_version': 4, 'zones': ['bl.example'],
             'dns_servers': None, 'check_ipv6': False}, True),
 ])
 def test_cache_rejects_unverified_stale_or_incomplete_coverage(status, metrics, reuse):
@@ -167,7 +169,7 @@ def test_confirmed_hit_survives_a_failed_control_from_another_source(monkeypatch
 
 
 @pytest.mark.parametrize('clean', [True, False])
-def test_query_timeout_requires_at_least_one_fully_completed_source(monkeypatch, clean):
+def test_query_timeout_means_coverage_is_incomplete(monkeypatch, clean):
     check = IpBlacklistCheck('example.test', zones=['good.example', 'slow.example'])
     monkeypatch.setattr(check, '_resolve_ips', AsyncMock(return_value=(['192.0.2.1'], [])))
 
@@ -182,7 +184,9 @@ def test_query_timeout_requires_at_least_one_fully_completed_source(monkeypatch,
 
     monkeypatch.setattr(check.resolver, 'resolve', resolve)
     result = asyncio.run(check.run())
-    assert result.status is (Status.OK if clean else Status.UNKNOWN)
+    assert result.status is Status.UNKNOWN
+    if clean:
+        assert result.message == 'Not listed; incomplete DNSBL coverage'
     assert result.metrics['zones_completed'] == int(clean)
     assert result.metrics['partial_coverage'] is True
 

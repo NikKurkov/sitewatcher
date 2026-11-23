@@ -236,15 +236,23 @@ Chart averages are ordered15minutes / 1hour / 1day / 30days, with period/units i
 
 TLS and WHOIS facts are cached for 24 hours. Expiry severity is assessed locally, so a threshold transition does not require another network request. Use **Refresh metadata** beside TLS or WHOIS in domain details/history. Repeated clicks within one minute reuse the cache; active requests, failures and Retry-After retain their cooldown. General checks and `--force` keep provider cache limits.
 
+After an RDAP HTTP 429, SiteWatcher retries after 15 minutes or the provider's `Retry-After`, whichever is longer, plus up to one minute of jitter. The log records the responding RDAP host and the earliest time for the next attempt.
+
+An RDAP reply without a usable expiry date keeps the last known registration expiry marked as stale. A TLS certificate verification error stays critical and is checked again after 15 minutes.
+
 ```bash
 sitewatcher check_domain example.com --owner 123456789 --refresh-metadata tls_cert,whois
 ```
 
 Telegram accepts `/check example.com --refresh=whois` or `--refresh=tls_cert`. Refresh requires an owned, existing domain and an enabled check; bulk metadata refresh is unavailable.
 
-Short domain intervals apply to HTTP, DNS/IP changes, ping and ports. HTTP, keywords and defacement share one bounded page fetch per run; page bodies are never persisted in the cache. Concurrent identical ping/port probes coalesce across processes with a one-second result lifetime. Route diagnostics keep their separate hourly refresh.
+Short domain intervals apply to HTTP, DNS/IP changes and ping. Port checks use the longer of the domain interval and the port schedule. The domain settings display the saved interval. Ping tries TCP when ICMP gets no reply. Concurrent identical ping/port probes coalesce across processes with a one-second result lifetime. Route diagnostics keep their separate hourly refresh.
 
-RKN prepares its shared registry daily, separately from domain membership checks. Failed downloads use a shared increasing retry cooldown. A changed IP or registry generation invalidates the relevant assessment. Retained stale listings keep their original dates; a stale negative never establishes OK. Back up the index-adjacent `.refresh.sqlite3` state database with the index and monitoring database.
+HTTP measures the whole redirect chain. Keywords inspect the successful final response, and defacement checks require HTML. These checks share one bounded page fetch per run. Page bodies stay out of the cache. A partial DNSBL result with no listing is shown as unknown.
+
+DNS changes report a new address set after two consecutive observations. Returning to a recently seen set counts as rotation. DNSBL and RKN use the latest observed addresses as soon as they change.
+
+RKN prepares its shared registry daily, separately from domain membership checks. While the index is being replaced, checks can use the previous index if its source is still within the configured age limit. Failed downloads use a shared increasing retry cooldown. A changed IP or registry generation invalidates the relevant assessment. Retained stale listings keep their original dates. A stale index cannot confirm that a domain is clear. Back up the index-adjacent `.refresh.sqlite3` state database with the index and monitoring database.
 
 Displayed evidence age tracks the provider observation, not cache reads. Provider failures retain confirmed threats. A local VirusTotal quota refusal without an API request uses the budget retry delay rather than consuming a daily lookup.
 

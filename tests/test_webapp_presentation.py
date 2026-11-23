@@ -19,19 +19,19 @@ def get(client, path):
     return client.get(path, HTTP_HOST='localhost')
 
 
-def test_partial_dnsbl_coverage_does_not_raise_site_attention(owner, client):
+def test_partial_dnsbl_coverage_reports_an_unconfirmed_check(owner, client):
     from django.utils.translation import override
     from sitewatcher.config import ChecksModel
     storage.add_domain(41, 'partial.example')
     storage.set_domain_override(41, 'partial.example', {'checks': {
         name: name == 'ip_blacklist' for name in ChecksModel.model_fields}})
-    storage.save_history(41, 'partial.example', 'ip_blacklist', 'OK',
+    storage.save_history(41, 'partial.example', 'ip_blacklist', 'UNKNOWN',
                          'Not listed; incomplete DNSBL coverage', {
                              'zones_total': 3, 'zones_completed': 2, 'partial_coverage': True})
     body = get(client, '/').content.decode()
-    assert 'No active warnings' in body
+    assert '1 domain needs attention' in body
     assert 'Not listed; incomplete DNSBL coverage' in body
-    assert 'partial.example' not in get(client, '/?status=problems').content.decode()
+    assert 'partial.example' in get(client, '/?status=problems').content.decode()
     from sitewatcher.webapp.presentation import diagnostic_message
     with override('ru'):
         assert str(diagnostic_message('Not listed; incomplete DNSBL coverage')) == (
@@ -220,6 +220,19 @@ def test_new_domain_interval_is_filled_from_configured_schedule(owner, client, s
     assert '<option value="" selected>Default (On)</option>' in body
     assert 'placeholder="Default (10)"' in body
     assert 'JSON list' not in body
+
+
+@pytest.mark.parametrize(('interval', 'text'), [
+    (5, 'Scheduled port checks run every 60 minutes.'),
+    (90, 'Scheduled port checks run every 90 minutes.'),
+    (0, 'Scheduled port checks are paused.'),
+])
+def test_edit_shows_effective_port_check_interval(owner, client, interval, text):
+    storage.add_domain(41, 'one.example')
+    storage.set_domain_override(41, 'one.example', {
+        'checks': {'ports': True}, 'interval_minutes': interval,
+    })
+    assert text in get(client, '/domains/edit?domain=one.example').content.decode()
 
 
 def test_rkn_controls_and_history_distinguish_domain_critical_from_ip_warning(owner, client,
@@ -477,6 +490,18 @@ def test_overview_actions_are_accessible_header_icons_without_intro(owner, clien
     header = get(client, '/').content.decode().split('</header>', 1)[0]
     assert 'href="/domains/new"' not in header and 'action="/domains/check"' not in header
     assert 'data-auto-refresh' in header and 'aria-label="Refresh now"' in header
+
+
+def test_overview_row_check_has_domain_specific_pending_feedback(owner, client, settings):
+    storage.add_domain(41, 'one.example')
+    storage.add_domain(41, 'two.example')
+    body = get(client, '/').content.decode()
+    assert body.count('data-domain-check-status role="status"') == 1
+    assert 'data-domain-check="Checking one.example…"' in body
+    assert 'data-domain-check="Checking two.example…"' in body
+
+    settings.SITEWATCHER_READ_ONLY = True
+    assert 'data-domain-check' not in get(client, '/').content.decode()
 
 
 def test_settings_navigation_is_a_header_icon_and_marks_current_page(owner, client):

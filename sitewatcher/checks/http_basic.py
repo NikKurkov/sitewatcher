@@ -15,17 +15,7 @@ log = logging.getLogger(__name__)
 
 
 class HttpBasicCheck(BaseCheck):
-    """Minimal HTTP health check: status code and latency on the landing page.
-
-    Strategy:
-      1) Request the configured HTTP(S) address without following redirects; measure initial latency.
-      2) If 3xx with Location, follow redirects once (letting httpx handle the full chain)
-         to obtain final URL/code and add the extra time.
-      3) Status:
-         - CRIT: initial/final HTTP >= 400, critical initial latency, or request error.
-         - WARN: initial HTTP is 3xx, or initial latency >= latency_warn_ms.
-         - OK: otherwise.
-    """
+    """Check the final HTTP status and total latency, including redirects."""
 
     name = "http_basic"
 
@@ -117,9 +107,6 @@ class HttpBasicCheck(BaseCheck):
         redirect_error = (observation.redirect_error.__class__.__name__
                           if observation.redirect_error else None)
         total_ms = observation.total_ms
-        if self.cycle_context is None and not redirects:
-            # A failed redirect retains the first-hop timing in the standalone result.
-            total_ms = elapsed1_ms
 
         log.info(
             "http_basic.initial",
@@ -142,22 +129,29 @@ class HttpBasicCheck(BaseCheck):
                        "latency_ms_total": total_ms, "latency_ms_initial": elapsed1_ms},
             )
 
-        # --- 3) Derive status from initial code and initial latency thresholds ---
-        status = self._status_from_initial(code1, elapsed1_ms)
-        if final_code >= 400 or redirect_error:
+        available = observation.final.is_success and redirect_error is None
+        if not available or total_ms >= self.latency_crit_ms:
             status = Status.CRIT
+        elif total_ms >= self.latency_warn_ms:
+            status = Status.WARN
+        else:
+            status = Status.OK
 
-        # --- 4) Compose a compact message & metrics ---
         if redirects:
             msg = (
                 f"HTTP {code1} -> {final_code} @ {final_url}, "
                 f"latency {total_ms} ms (first {elapsed1_ms} ms)"
             )
+        elif redirect_error:
+            msg = (
+                f"HTTP {code1}, redirect request error: {redirect_error}, "
+                f"latency {total_ms} ms (first {elapsed1_ms} ms)"
+            )
         else:
-            msg = f"HTTP {code1}, latency {elapsed1_ms} ms"
+            msg = f"HTTP {code1}, latency {total_ms} ms"
 
-        if redirect_error:
-            msg += f"; redirect request error: {redirect_error}"
+        if final_code in {301, 302, 303, 307, 308} and "location" not in observation.final.headers:
+            msg += " (redirect response missing Location header)"
 
         # Final event (compact, with derived status)
         log.info(
@@ -188,22 +182,7 @@ class HttpBasicCheck(BaseCheck):
                 "latency_ms_total": total_ms,
                 "origin_url": origin_url,
                 "redirect_error": redirect_error,
-                "availability": (
-                    "unavailable" if final_code >= 400 or redirect_error else "available"
-                ),
-                **({"response_latency_ms": total_ms}
-                   if final_code < 400 and not redirect_error else {}),
+                "availability": "available" if available else "unavailable",
+                **({"response_latency_ms": total_ms} if available else {}),
             },
         )
-
-    # ---- helpers ----
-    def _status_from_initial(self, code1: int, elapsed1_ms: int) -> Status:
-        """Map the first response code and latency to a status."""
-        if code1 >= 400 or elapsed1_ms >= self.latency_crit_ms:
-            return Status.CRIT
-        if 300 <= code1 < 400:
-            return Status.WARN
-        # 2xx:
-        if elapsed1_ms >= self.latency_warn_ms:
-            return Status.WARN
-        return Status.OK
