@@ -218,7 +218,8 @@ def test_live_checks_save_results_bound_concurrency_and_allow_readers(management
         finally:
             release.set()
         assert future.result(timeout=3)[0] == 303
-    assert calls == [(1, 'one.example', {'use_cache': False})]
+    assert calls == [(1, 'one.example', {'use_cache': False,
+                                         'refresh_checks': {'tls_cert', 'whois'}})]
     assert storage.last_results(1, 'one.example')[0]['message'] == 'synthetic web probe'
     assert not storage.last_results(2, 'private.example')
 

@@ -6,7 +6,7 @@
 </h1>
 
 <p align="center"><strong>Checks your websites and lets you know when something goes wrong.</strong></p>
-<p align="center"><strong><a href="https://github.com/NikKurkov/sitewatcher/releases/latest">Download the latest release</a> · <a href="https://monitoring.kurkov.dev/demo">Open the live demo</a></strong></p>
+<p align="center"><strong><a href="https://monitoring.kurkov.dev/demo">Open the live demo</a></strong></p>
 <p align="center"><a href="README.ru.md">Русский</a> · <strong>English</strong></p>
 
 [![Website overview in dark mode — demo data](docs/screenshots/readme-overview-dark-en.png)](docs/screenshots/readme-overview-dark-en.png)
@@ -37,9 +37,11 @@ Some checks use external data. VirusTotal needs an API key, and its reports are 
 
 ## Get started
 
-Install Docker with Compose. Download **Source code (zip)** or **Source code (tar.gz)** from the [latest release](https://github.com/NikKurkov/sitewatcher/releases/latest), unpack it and open a terminal in the extracted folder. Run these commands to build SiteWatcher locally and start it.
+Install Git and Docker with Compose, then run:
 
 ```bash
+git clone https://github.com/NikKurkov/sitewatcher.git
+cd sitewatcher
 docker compose run --rm --build setup
 docker compose up -d
 ```
@@ -47,8 +49,6 @@ docker compose up -d
 The `setup` command asks for a username and password. Once both commands finish, open **http://127.0.0.1:8080**, sign in and click **Add domain** (the **+** icon at the top).
 
 Basic checks work straight away. You can connect Telegram and other services later. The dashboard is local by default. Leave the computer or server running so checks can continue.
-
-To try the latest development code, run `git clone https://github.com/NikKurkov/sitewatcher.git` and run the same Compose commands from the `sitewatcher` folder.
 
 ## Next steps
 

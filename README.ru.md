@@ -6,7 +6,7 @@
 </h1>
 
 <p align="center"><strong>Проверяет ваши сайты и сообщает, если что-то пошло не так.</strong></p>
-<p align="center"><strong><a href="https://github.com/NikKurkov/sitewatcher/releases/latest">Скачать последнюю версию</a> · <a href="https://monitoring.kurkov.dev/demo">Открыть демо</a></strong></p>
+<p align="center"><strong><a href="https://monitoring.kurkov.dev/demo">Открыть демо</a></strong></p>
 <p align="center"><strong>Русский</strong> · <a href="README.md">English</a></p>
 
 [![Обзор сайтов в тёмной теме — демонстрационные данные](docs/screenshots/readme-overview-dark-ru.png)](docs/screenshots/readme-overview-dark-ru.png)
@@ -38,9 +38,11 @@
 
 ## Как запустить
 
-Установите Docker с Compose. Скачайте **Source code (zip)** или **Source code (tar.gz)** со страницы [последнего релиза](https://github.com/NikKurkov/sitewatcher/releases/latest), распакуйте архив и откройте терминал в полученной папке. Эти команды соберут SiteWatcher локально и запустят его.
+Установите Git и Docker с Compose, затем выполните:
 
 ```bash
+git clone https://github.com/NikKurkov/sitewatcher.git
+cd sitewatcher
 docker compose run --rm --build setup
 docker compose up -d
 ```
@@ -48,8 +50,6 @@ docker compose up -d
 Команда `setup` попросит придумать логин и пароль. Когда обе команды завершатся, откройте **http://127.0.0.1:8080**, войдите и нажмите **«Добавить домен»** (значок **+** вверху).
 
 Базовые проверки работают сразу. Telegram и дополнительные сервисы можно подключить позже. По умолчанию панель открывается только на той машине, где запущен SiteWatcher. Чтобы проверки продолжались, оставьте её включённой.
-
-Чтобы попробовать текущую версию из репозитория, выполните `git clone https://github.com/NikKurkov/sitewatcher.git`, затем запустите те же команды Compose из папки `sitewatcher`.
 
 ## Что дальше
 

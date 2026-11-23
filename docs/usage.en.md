@@ -56,8 +56,6 @@ sitewatcher setup
 sitewatcher web
 ```
 
-If you downloaded the wheel from [GitHub Releases](https://github.com/NikKurkov/sitewatcher/releases/latest), install the downloaded `.whl` in place of the source directory in the pip command.
-
 In a second terminal, in the same folder:
 
 ```bash
