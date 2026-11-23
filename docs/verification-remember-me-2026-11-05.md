@@ -12,4 +12,4 @@ browser reopen, ordinary sign-in, expiry, logout, password revocation, failed
 login and HTTPS cookie flags. Chromium checked the native checkbox and layout at
 1440 and 320 pixels, dark/light themes, with no overflow or JS exceptions.
 
-[Desktop](screenshots/login-remember-me-desktop.png) · [Mobile](screenshots/login-remember-me-mobile.png).
+[Desktop](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/login-remember-me-desktop.png) · [Mobile](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/login-remember-me-mobile.png).

@@ -38,9 +38,9 @@ unique per domain rather than repeating per group.
   Python tests and drag/disclosure Node suites passed. Dialog naming and local
   status feedback were included in the final implementation.
 
-Screenshots use only synthetic domains: `docs/screenshots/domain-move-native-desktop.png`,
-`domain-move-target-desktop.png`, `domain-move-complete-desktop.png`, and
-`domain-move-dialog-mobile.png`, and `domain-move-dialog-dark-mobile.png`. Production verification is runtime/data/HTTP,
+Screenshots use only synthetic domains: [domain-move-native-desktop.png](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/domain-move-native-desktop.png),
+[domain-move-target-desktop.png](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/domain-move-target-desktop.png), [domain-move-complete-desktop.png](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/domain-move-complete-desktop.png), and
+[domain-move-dialog-mobile.png](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/domain-move-dialog-mobile.png), and [domain-move-dialog-dark-mobile.png](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/domain-move-dialog-dark-mobile.png). Production verification is runtime/data/HTTP,
 not an assertion that private production UI was browser-inspected.
 
 ## Release read-back

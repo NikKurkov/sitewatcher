@@ -16,7 +16,7 @@ Validation:
 - Updated real public page: Chromium at 1440 (dark/light), 390 and 320 pixels; three compact means, hover/touch popover, viewport positioning and native Escape; red failure bar and matching legend. Firefox independently confirmed the compact text and red failed bucket. A real failed strip contains red pixels after rendering.
 - Backup: `/data/backups/before-status-pages-20261105T072757Z.sqlite3`, mode 0600, integrity OK. Post-migration integrity OK. Web healthy, `/healthz` OK, one worker scheduler lock held. Nine changed runtime source/assets hashes match the checkout in both web and worker. Both use local image `94b8c126b974`.
 
-Screenshots: [page list](screenshots/status-pages-desktop.png), [mobile editor](screenshots/status-page-form-mobile.png), [public desktop](screenshots/status-averages-history-desktop.png), [public mobile](screenshots/status-averages-history-mobile.png).
+Screenshots: [page list](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/status-pages-desktop.png), [mobile editor](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/status-page-form-mobile.png), [public desktop](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/status-averages-history-desktop.png), [public mobile](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/status-averages-history-mobile.png).
 
 
 Follow-up before server release: public addresses are editable in the page form,

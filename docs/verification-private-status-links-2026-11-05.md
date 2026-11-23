@@ -17,7 +17,7 @@ legacy link compatibility, reissue, public-mode transitions and existing securit
 regressions passed. Chromium at 1440/390/320 pixels verified displayed URL,
 Open destination, actual clipboard contents after clicking Copy, anonymous access
 to the private page, no horizontal overflow and no JS exceptions. Screenshots use
-only an isolated synthetic database: [desktop](screenshots/status-private-links-desktop.png),
-[mobile](screenshots/status-private-links-mobile.png).
+only an isolated synthetic database: [desktop](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/status-private-links-desktop.png),
+[mobile](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/status-private-links-mobile.png).
 
 Full Python suite: 1010 passed. All five Node test files, Ruff, msgfmt and migration-drift checks passed.

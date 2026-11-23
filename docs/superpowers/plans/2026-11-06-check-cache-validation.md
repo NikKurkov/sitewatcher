@@ -8,7 +8,7 @@ Validated on 2026-11-06 before release:
 - All `tests/*.cjs` browser-script checks passed.
 - Synthetic Chromium desktop/mobile: TLS/WHOIS refresh actions, CSRF token,
   real mouse POST and honest cooldown notice; no horizontal overflow.
-  Screenshot: `docs/screenshots/cache-metadata-refresh.png`.
+  Screenshot: [cache-metadata-refresh.png](https://github.com/NikKurkov/sitewatcher/blob/8d69194c5af30ea4e051cef417c129a5aec437bd/docs/screenshots/cache-metadata-refresh.png).
 - Independent final review: no remaining Important/Critical issues. Regression
   fixes cover retained TLS/WHOIS/RKN/VT threats and original evidence age,
   DNSBL custom resolvers and changes of IP with older shared observations,

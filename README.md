@@ -14,11 +14,11 @@
 <table>
   <tr>
     <td width="50%"><a href="docs/screenshots/readme-signals-dark-en.png"><img src="docs/screenshots/readme-signals-dark-en.png" alt="Checks moving across the signal map — demo data"></a></td>
-    <td width="50%"><a href="docs/screenshots/readme-history-dark-en.png"><img src="docs/screenshots/readme-history-dark-en.png" alt="Website history and response times — demo data"></a></td>
+    <td width="50%"><a href="docs/screenshots/readme-history-dark-en.png"><img src="docs/screenshots/readme-history-dark-en.png" alt="Expanded domain with a response-time chart and checks — demo data"></a></td>
   </tr>
   <tr>
     <td align="center">Signal room</td>
-    <td align="center">History and response times</td>
+    <td align="center">Response times and checks</td>
   </tr>
 </table>
 
@@ -40,7 +40,7 @@ Some checks use external data. VirusTotal needs an API key, and its reports are 
 Install Git and Docker with Compose, then run:
 
 ```bash
-git clone https://github.com/NikKurkov/sitewatcher.git
+git clone --depth 1 https://github.com/NikKurkov/sitewatcher.git
 cd sitewatcher
 docker compose run --rm --build setup
 docker compose up -d
