@@ -12,7 +12,8 @@ RUN apt-get update \
 WORKDIR /app
 # Source changes should reuse the installed runtime dependencies.
 COPY pyproject.toml ./
-RUN python -c 'import subprocess, sys, tomllib; \
+RUN python -m pip install --no-cache-dir pip==26.3 \
+    && python -c 'import subprocess, sys, tomllib; \
     from pathlib import Path; \
     dependencies = tomllib.loads(Path("pyproject.toml").read_text())["project"]["dependencies"]; \
     subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir", *dependencies])'
