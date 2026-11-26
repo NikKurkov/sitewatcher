@@ -104,7 +104,9 @@ def telegram_notifications_ready(cfg: AppConfig, owner_id: int) -> bool:
         return False
 
 
-def settings_context(cfg: AppConfig, owner_id: int, domain: str | None = None) -> dict:
+def settings_context(
+    cfg: AppConfig, owner_id: int, domain: str | None = None, *, duplicate: bool = False,
+) -> dict:
     """Return editable overrides and defaults without exposing proxy credentials."""
     name = _domain(owner_id, domain) if domain is not None else ''
     try:
@@ -112,10 +114,11 @@ def settings_context(cfg: AppConfig, owner_id: int, domain: str | None = None) -
         preview_cfg = cfg if name else cfg.model_copy(update={'domains': []})
         effective = resolve_settings(preview_cfg, name or 'example.com', override)
         defaults = resolve_settings(preview_cfg, name or 'example.com', {})
-        values = {'domain': name, 'http_url': effective.http_url if name else '',
+        values = {'domain': '' if duplicate else name,
+                  'http_url': effective.http_url if name and not duplicate else '',
                   'proxy_mode': 'keep', 'proxy': '',
                   'group_id': str(domain_groups.group_for_domain(owner_id, name)) if name else '0'}
-        if name:
+        if name and not duplicate:
             values['original_group_id'] = values['group_id']
         for key in NUMERIC_FIELDS:
             values[key] = str(override[key]) if override.get(key) is not None else ''
@@ -138,13 +141,22 @@ def settings_context(cfg: AppConfig, owner_id: int, domain: str | None = None) -
                        for channel, enabled in preferences.items()})
         revision = storage.domain_override_revision(override)
         values['revision'] = revision
-        if name:
+        if name and not duplicate:
             address = urlsplit(effective.http_url)
             values['original_domain'] = name
             values['http_scheme'] = address.scheme
             values['domain'] = address.netloc + (address.path if address.path != '/' or address.query else '')
             if address.query:
                 values['domain'] += '?' + address.query
+        if duplicate:
+            for key in NUMERIC_FIELDS:
+                value = getattr(effective, key)
+                values[key] = str(value) if value is not None else ''
+            values['keywords'] = _format_list('keywords', effective.keywords)
+            if effective.ports is not None:
+                values['ports'] = _format_list('ports', [port.port for port in effective.ports])
+            for key, enabled in effective.checks.model_dump().items():
+                values[f'check.{key}'] = 'on' if enabled else 'off'
         ports_interval = None
         if name and effective.checks.ports:
             ports_interval = (
@@ -181,15 +193,23 @@ def _domain_settings(cfg: AppConfig, owner_id: int, form: dict[str, str], *, cre
     try:
         override = {}
         current = (storage.get_domain_override(owner_id, original) or {}) if not create else {}
+        source = _domain(owner_id, form['copy_from']) if create and form.get('copy_from') else ''
+        if source:
+            source_settings = resolve_settings(
+                cfg, source, storage.get_domain_override(owner_id, source),
+            )
+            current['proxy'] = source_settings.proxy
+            if source_settings.ports is not None:
+                current['ports'] = [port.model_dump() for port in source_settings.ports]
         if form.get('notifications_present') == '1':
             from .email_settings import email_ready
-            previous_notifications = storage.domain_notifications(cfg, owner_id, original)
+            previous_notifications = storage.domain_notifications(cfg, owner_id, source or original)
             for channel in ('email', 'telegram'):
                 key = f'notify_{channel}'
                 if form.get(key, '') not in ('', 'on'):
                     raise ConfigurationError(f'{key}: Choose a valid notification channel.')
                 enabled = form.get(key) == 'on'
-                already_enabled = not create and previous_notifications[channel]
+                already_enabled = (not create or bool(source)) and previous_notifications[channel]
                 if enabled and not already_enabled:
                     ready = email_ready(owner_id) if channel == 'email' else (
                         telegram_notifications_ready(cfg, owner_id))
@@ -320,7 +340,10 @@ def save_domain(cfg: AppConfig, owner_id: int, form: dict[str, str], *, create: 
 def add_domains(cfg: AppConfig, owner_id: int, form: dict[str, str]) -> int:
     """Validate comma-separated hostnames before atomically creating their shared settings."""
     group_id, new_group_name = _form_group_selection(form)
-    names = [name.strip() for name in form.get('domain', '').split(',') if name.strip()]
+    address = form.get('domain', '')
+    names = [address] if form.get('copy_from') else [
+        name.strip() for name in address.split(',') if name.strip()
+    ]
     if not names:
         raise ValueError('Invalid domain')
     if len(names) > MAX_ADD_DOMAINS:

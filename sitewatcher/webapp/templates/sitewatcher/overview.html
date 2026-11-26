@@ -1,7 +1,7 @@
 {% extends 'sitewatcher/base.html' %}
 {% load i18n %}
 {% block title %}{% translate 'Overview · SiteWatcher' %}{% endblock %}
-{% block page_scripts %}<link rel="stylesheet" href="{% url 'asset' 'domain_list.css' %}?v=chart-loading"><link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'route_view.js' %}"></script><script defer src="{% url 'asset' 'activity.js' %}"></script><script defer src="{% url 'asset' 'domain_groups.js' %}"></script>{% if not read_only %}<script defer src="{% url 'asset' 'domain_order.js' %}"></script>{% endif %}{% endblock %}
+{% block page_scripts %}<link rel="stylesheet" href="{% url 'asset' 'domain_list.css' %}?v=domain-duplicate"><link rel="stylesheet" href="{% url 'asset' 'activity.css' %}"><script defer src="{% url 'asset' 'route_view.js' %}"></script><script defer src="{% url 'asset' 'activity.js' %}"></script><script defer src="{% url 'asset' 'domain_groups.js' %}"></script>{% if not read_only %}<script defer src="{% url 'asset' 'domain_order.js' %}"></script>{% endif %}{% endblock %}
 {% block header_summary %}
     {% if total %}
         <section class="header-monitoring-summary {% if attention %}needs-attention{% elif summary.unknown == total or summary.paused == total %}is-neutral{% endif %}"
@@ -97,7 +97,15 @@
                                     </div>
                                 </div>
                             </th>
-                            <td data-label="{% translate 'Status' %}">{% include 'sitewatcher/partials/status_preview.html' %}</td>
+                            <td data-label="{% translate 'Status' %}">
+                                <div class="domain-row-status">
+                                    {% include 'sitewatcher/partials/status_preview.html' %}
+                                    <button type="button" class="domain-details-toggle" data-domain-toggle hidden
+                                        aria-expanded="false" aria-controls="domain-details-{{ group.id }}-{{ forloop.counter }}"
+                                        aria-label="{% blocktranslate with domain=row.name %}Show checks and chart for {{ domain }}{% endblocktranslate %}"
+                                    >{% translate 'Details' %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+                                </div>
+                            </td>
                             <td class="history-cell" data-label="{% translate 'HTTP history' %}">
                                 {% if row.report %}
                                     {% include 'sitewatcher/partials/strip.html' with item=row.report %}
@@ -120,10 +128,6 @@
                                 <div class="domain-actions row-domain-actions">
                                     <noscript><a class="button" href="/domains/history?domain={{ row.name|urlencode }}&amp;days={{ report.days }}">{% translate 'Full history' %}</a></noscript>
                                     {% if not read_only %}
-                                        <a class="button icon-button" href="/domains/edit?domain={{ row.name|urlencode }}"
-                                            title="{% translate 'Edit domain' %}"
-                                            aria-label="{% blocktranslate with domain=row.name %}Edit {{ domain }}{% endblocktranslate %}"
-                                        ><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m16 3 5 5-12 12-6 1 1-6Z M14 5l5 5"/></svg></a>
                                         <form method="post" action="/domains/check"
                                             data-domain-check="{% blocktranslate with domain=row.name %}Checking {{ domain }}…{% endblocktranslate %}">
                                             {% csrf_token %}
@@ -133,6 +137,14 @@
                                             <input type="hidden" name="days" value="{{ report.days }}">
                                             <button class="icon-button" type="submit" title="{% translate 'Check now' %}" aria-label="{% translate 'Check now' %}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 7a9 9 0 1 0 1 8 M20 3v5h-5"/></svg></button>
                                         </form>
+                                        <a class="button icon-button" href="/domains/edit?domain={{ row.name|urlencode }}"
+                                            title="{% translate 'Edit domain' %}"
+                                            aria-label="{% blocktranslate with domain=row.name %}Edit {{ domain }}{% endblocktranslate %}"
+                                        ><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m16 3 5 5-12 12-6 1 1-6Z M14 5l5 5"/></svg></a>
+                                        <a class="button icon-button" href="/domains/new?copy_from={{ row.name|urlencode }}"
+                                            title="{% translate 'Duplicate domain' %}"
+                                            aria-label="{% blocktranslate with domain=row.name %}Duplicate {{ domain }}{% endblocktranslate %}"
+                                        ><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></a>
                                         <form method="post" action="{% if row.paused %}/domains/resume{% else %}/domains/pause{% endif %}">
                                             {% csrf_token %}
                                             <input type="hidden" name="domain" value="{{ row.name }}">
@@ -147,10 +159,6 @@
                                     {% else %}
                                         <a class="button icon-button" href="/domains/history?domain={{ row.name|urlencode }}" title="{% translate 'History' %}" aria-label="{% translate 'History' %}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></a>
                                     {% endif %}
-                                    <button type="button" class="icon-button domain-expand" data-domain-toggle hidden
-                                        aria-expanded="false" aria-controls="domain-details-{{ group.id }}-{{ forloop.counter }}"
-                                        aria-label="{% blocktranslate with domain=row.name %}Show checks and chart for {{ domain }}{% endblocktranslate %}"
-                                    ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
                                 </div>
                             </td>
                         </tr>

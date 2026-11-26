@@ -380,6 +380,71 @@ def test_old_extra_domain_fields_are_rejected_and_plus_button_is_removed(owner, 
     assert b'data-add-domain' not in response.content
 
 
+def test_duplicate_uses_editable_settings_without_exposing_secrets(owner, client, settings):
+    from sitewatcher import domain_groups
+    from sitewatcher.config import resolve_settings
+
+    settings.SITEWATCHER_CONFIG = AppConfig(domains=[{
+        'name': 'http://one.example/old/',
+        'http_timeout_s': 19,
+        'notify_telegram': True,
+        'checks': {'http_basic': False},
+        'ports': [{'port': 443, 'tls': True}],
+    }])
+    cfg = settings.SITEWATCHER_CONFIG
+    source = {'interval_minutes': 0, 'proxy': 'http://user:secret@proxy.example:8080',
+              'keywords': ['Hello, world']}
+    storage.set_domain_override(31, 'one.example', source)
+    group_id = domain_groups.create_group(31, 'Copies')
+    domain_groups.move_domains(31, ['one.example'], group_id)
+    storage.set_domain_favorite(31, 'one.example', True)
+    overview = client.get('/', HTTP_HOST='localhost')
+    actions = re.search(rb'class="domain-actions row-domain-actions">(.*?)</div>',
+                        overview.content, re.S).group(1)
+    assert re.findall(rb'title="([^"]+)"', actions) == [
+        b'Check now', b'Edit domain', b'Duplicate domain', b'Resume monitoring',
+    ]
+    assert b'/domains/new?copy_from=one.example' in actions
+    assert client.get('/domains/new?copy_from=private.example', HTTP_HOST='localhost').status_code == 404
+    assert post(client, '/domains/add', {'domain': 'foreign.example',
+                                         'copy_from': 'private.example'}).status_code == 404
+    response = client.get('/domains/new?copy_from=one.example', HTTP_HOST='localhost')
+    assert response.status_code == 200
+    assert b'secret@proxy.example' not in response.content
+    assert b'autofocus' in response.content
+    assert storage.list_domains(31) == ['one.example']
+    values = response.context['values']
+    assert values['domain'] == ''
+    assert values['group_id'] == str(group_id)
+    assert values['interval_minutes'] == '0'
+    assert values['http_timeout_s'] == '19'
+    assert values['check.http_basic'] == 'off'
+    fields = {key: value for key, value in values.items()
+              if key not in {'http_url', 'http_scheme', 'original_domain', 'original_group_id'}}
+    fields.update(copy_from='one.example', domain='one.example', notifications_present='1',
+                  http_timeout_s='22')
+    failure = post(client, '/domains/add', fields)
+    assert failure.status_code == 400
+    assert failure.context['copy_from'] == 'one.example'
+    assert failure.context['values']['http_timeout_s'] == '22'
+    assert b'secret@proxy.example' not in failure.content
+    fields['domain'] = 'https://copy.example/new/'
+    assert post(client, '/domains/add', fields).status_code == 303
+    copied = storage.get_domain_override(31, 'copy.example')
+    resolved = resolve_settings(cfg, 'copy.example', copied)
+    original = resolve_settings(cfg, 'one.example', source)
+    assert resolved.http_url == 'https://copy.example/new/'
+    assert resolved.http_timeout_s == 22
+    assert resolved.interval_minutes == original.interval_minutes
+    assert resolved.checks == original.checks
+    assert resolved.ports == original.ports
+    assert resolved.proxy == original.proxy
+    assert resolved.keywords == original.keywords
+    assert copied['notify_telegram'] is True and copied['notify_email'] is False
+    assert domain_groups.group_for_domain(31, 'copy.example') == group_id
+    assert storage.get_domain_override(31, 'one.example') == source
+
+
 def test_bulk_add_fifty_domains_using_full_native_form(owner, client):
     from html import unescape
     response = client.get('/domains/new', HTTP_HOST='localhost')

@@ -159,15 +159,18 @@ def _existing(owner_id, raw):
     return name
 
 
-def _page(request, view, domain='', *, error='', values=None, status=200):
+def _page(request, view, domain='', *, error='', values=None, status=200, copy_from=''):
     owner_id = request.workspace.owner_id
     cfg = settings.SITEWATCHER_CONFIG
     context = {'domain': domain}
     if view in {'add', 'edit'}:
         reset_revision = storage.domain_reset_revision(owner_id, domain) if view == 'edit' else ''
         try:
-            context = settings_context(cfg, owner_id, domain if view == 'edit' else None)
+            context = settings_context(cfg, owner_id, copy_from or (domain if view == 'edit' else None),
+                                       duplicate=bool(copy_from))
         except ValueError:
+            if copy_from and not storage.domain_exists(owner_id, copy_from):
+                raise Http404('Domain not found') from None
             if view == 'edit' and not storage.domain_exists(owner_id, domain):
                 raise Http404('Domain not found') from None
             if view == 'edit':
@@ -215,7 +218,7 @@ def _page(request, view, domain='', *, error='', values=None, status=200):
                                                  'history_filtered': any(request.GET.get(name)
                                                      for name in history_form.fields)},
                        status=200 if filters_valid else 400)
-    if view == 'add' and values is None:
+    if view == 'add' and values is None and not copy_from:
         context['values']['interval_minutes'] = str(context['defaults']['interval_minutes'])
     if values is not None:
         if values.get('notifications_present') == '1':
@@ -226,7 +229,7 @@ def _page(request, view, domain='', *, error='', values=None, status=200):
             context['revision'] = values['revision']
         if view == 'import':
             context['mode'] = values.get('mode', 'merge')
-    context.update(view=view, error=error)
+    context.update(view=view, error=error, copy_from=copy_from)
     if view in {'add', 'edit'}:
         context['groups'] = domain_groups.list_groups(owner_id)
         domain_form_context(context, error)
@@ -492,6 +495,8 @@ def _mutate(request, action):
         allowed.update((*NUMERIC_FIELDS, *LIST_FIELDS, 'http_url', 'http_scheme', 'original_domain', 'revision', 'proxy_mode', 'proxy', 'group_id', 'original_group_id', 'new_group_name'))
         allowed.update({'notifications_present', 'notify_email', 'notify_telegram'})
         allowed.update(f'check.{name}' for name in ChecksModel.model_fields)
+        if action == 'add':
+            allowed.add('copy_from')
     elif action == 'favorite':
         allowed.update({'favorite', 'q', 'status', 'days'})
     elif action in {'check', 'pause', 'resume'}:
@@ -508,6 +513,9 @@ def _mutate(request, action):
         return HttpResponse(_('Invalid request'), status=400)
     if action == 'save':
         _existing(request.workspace.owner_id, form.get('original_domain', form.get('domain', '')))
+    copy_from = form.get('copy_from', '')
+    if copy_from:
+        form['copy_from'] = copy_from = _existing(request.workspace.owner_id, copy_from)
     try:
         return _act(request, action, form)
     except ValueError as error:
@@ -517,7 +525,7 @@ def _mutate(request, action):
         view = {'add': 'add', 'save': 'edit', 'import': 'import'}.get(action)
         if view:
             return _page(request, view, form.get('original_domain', form.get('domain', '')), error=str(error),
-                         values=form, status=400)
+                         values=form, status=400, copy_from=copy_from)
         return HttpResponse(_('Invalid action; reload the page'), status=400)
     except Http404:
         raise
@@ -541,9 +549,14 @@ def management(request, view):
     except ValueError:
         return HttpResponse(_('Invalid request'), status=400)
     domain = ''
+    copy_from = ''
     if view in {'edit', 'delete', 'history'}:
         domain = _existing(request.workspace.owner_id, query.get('domain', ''))
-    return _page(request, view, domain)
+    if view == 'add' and query.get('copy_from'):
+        if settings.SITEWATCHER_READ_ONLY:
+            raise Http404
+        copy_from = _existing(request.workspace.owner_id, query['copy_from'])
+    return _page(request, view, domain, copy_from=copy_from)
 
 
 @owner_required
