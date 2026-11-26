@@ -32,9 +32,15 @@
 .domain-detail-chart .response-chart figcaption { align-items: center; margin-bottom: 16px; }
 .domain-detail-chart .chart-metrics { align-items: center; min-height: 25px; }
 .domain-detail-chart .chart-empty { min-height: 100px; }
-.domain-expand { flex-shrink: 0; }
-.domain-expand[hidden], .domain-detail-row[hidden] { display: none !important; }
-.domain-expand[aria-expanded=true] svg { transform: rotate(180deg); }
+.domain-row-status { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0 6px; }
+.domain-details-toggle {
+  display: inline-flex; align-items: center; gap: 3px; min-height: 36px;
+  padding: 4px; border: 0; background: transparent; color: var(--muted); font-size: 12px;
+}
+.domain-details-toggle:is(:hover, [aria-expanded=true]) { color: var(--text); }
+.domain-details-toggle svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; }
+.domain-details-toggle[hidden], .domain-detail-row[hidden] { display: none !important; }
+.domain-details-toggle[aria-expanded=true] svg { transform: rotate(180deg); }
 .domains-table > tbody[data-domain-key] > tr[data-domain-summary] { cursor: pointer; }
 .domains-table > tbody[data-domain-key] > tr[data-domain-summary]:hover { background: var(--surface-soft); }
 .domains-table > tbody > .domain-detail-row > td { padding: 0; }

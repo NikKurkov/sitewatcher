@@ -2549,3 +2549,23 @@ msgstr "Часть сведений пока не обновилась. След
 
 msgid "Cached metadata reused; refresh is temporarily limited"
 msgstr "Показаны сохранённые сведения. Обновление временно ограничено."
+
+msgid "Details"
+msgstr "Детали"
+
+msgid "Duplicate domain"
+msgstr "Дублировать домен"
+
+#, python-format
+msgid "Duplicate %(domain)s"
+msgstr "Дублировать %(domain)s"
+
+#, python-format
+msgid "Settings copied from %(source)s. Enter the new website address."
+msgstr "Настройки взяты из %(source)s. Введите новый адрес сайта."
+
+msgid "Enter a hostname or full URL. HTTPS is used when no protocol is specified."
+msgstr "Введите домен или полный адрес. Если протокол не указан, используется HTTPS."
+
+msgid "Use the source domain’s proxy settings"
+msgstr "Использовать прокси исходного домена"
