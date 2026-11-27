@@ -1,0 +1,27 @@
+{
+  "version": "3",
+  "templates": [
+    {
+      "type": 3,
+      "title": "SiteWatcher",
+      "description": "Self-hosted website monitoring for uptime, response times, TLS and domain expiry, with shareable status pages. Source: https://github.com/NikKurkov/sitewatcher",
+      "categories": ["Monitoring"],
+      "platform": "linux",
+      "logo": "https://raw.githubusercontent.com/NikKurkov/sitewatcher/main/assets/brand/apple-touch-icon.png",
+      "restart_policy": "unless-stopped",
+      "repository": {
+        "url": "https://github.com/NikKurkov/sitewatcher",
+        "stackfile": "deploy/portainer/compose.yaml"
+      },
+      "env": [
+        {
+          "name": "SITEWATCHER_PORT",
+          "label": "Local HTTP port",
+          "default": "18080",
+          "description": "The port on the Docker host. Use an SSH tunnel if Portainer is on a remote server."
+        }
+      ],
+      "note": "In the web container's console, run <code>sitewatcher setup</code> once to create the owner. Then sign in at <code>http://127.0.0.1:18080</code> on the Docker host, or forward the port over SSH. The web service and worker share a named volume at <code>/data</code>."
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+x-sitewatcher: &sitewatcher
+  image: ghcr.io/nikkurkov/sitewatcher@sha256:c66f8916f531331b11c732ee389f2d255e68f21707e155e5db76454c54894e8d
+  restart: unless-stopped
+  environment: &database
+    DATABASE_PATH: /data/sitewatcher.db
+  volumes:
+    - sitewatcher-data:/data
+
+services:
+  web:
+    <<: *sitewatcher
+    command: [sitewatcher, web]
+    environment:
+      <<: *database
+      SITEWATCHER_WEB_BIND: 0.0.0.0
+    ports:
+      - "127.0.0.1:${SITEWATCHER_PORT:-18080}:8080"
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8080/healthz", timeout=3)']
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+  worker:
+    <<: *sitewatcher
+    command: [sitewatcher, worker]
+    depends_on:
+      web:
+        condition: service_healthy
+
+volumes:
+  sitewatcher-data:
